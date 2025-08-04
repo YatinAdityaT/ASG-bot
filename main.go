@@ -2,85 +2,36 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
+
+	"whatsappBot/cmd"
+	"whatsappBot/db"
+	"whatsappBot/scheduler"
+	"whatsappBot/tone"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/mdp/qrterminal"
 	"go.mau.fi/whatsmeow"
-	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
-	waProto "go.mau.fi/whatsmeow/binary/proto"
-	"google.golang.org/protobuf/proto"
 )
 
-const targetGroupJID = "120363418911552290@g.us"
+const testingGroup = "120363418911552290@g.us"
+const asg = "120363160344608606@g.us"
 
-func getMessageText(msg *waProto.Message) string {
-	if msg == nil {
-		return ""
-	}
-	if msg.Conversation != nil {
-		return msg.GetConversation()
-	}
-	if msg.ExtendedTextMessage != nil {
-		return msg.GetExtendedTextMessage().GetText()
-	}
-	if msg.ImageMessage != nil && msg.ImageMessage.Caption != nil {
-		return msg.ImageMessage.GetCaption()
-	}
-	if msg.VideoMessage != nil && msg.VideoMessage.Caption != nil {
-		return msg.VideoMessage.GetCaption()
-	}
-	return ""
-}
-
-func main() {
-	ctx := context.Background()
-
-	container, err := sqlstore.New(ctx, "sqlite3", "file:whatsmeow.db?_foreign_keys=on", waLog.Stdout("SQL", "DEBUG", true))
-	if err != nil {
-		panic(fmt.Errorf("failed to create SQL store: %w", err))
-	}
-
-	dev, err := container.GetFirstDevice(ctx)
-	if err != nil {
-		panic(fmt.Errorf("failed to get first device: %w", err))
-	}
-
-	client := whatsmeow.NewClient(dev, waLog.Stdout("Client", "DEBUG", true))
-
-	client.AddEventHandler(func(evt interface{}) {
+func eventHandler(db *sql.DB, ctx context.Context, client *whatsmeow.Client, commandManager *cmd.CommandManager, toneIndicatorM *tone.ToneIManager) func(evt interface{}) {
+	return func(evt interface{}) {
 		switch v := evt.(type) {
 		case *events.Message:
-			info := v.Info
-
-			if info.IsGroup && !info.IsFromMe && info.Chat.String() == targetGroupJID {
-				text := getMessageText(v.Message)
-				if text == "" {
-					text = "[Non-text message or empty message]"
-				}
-
-				fmt.Printf("📥 [%s] %s: %s\n", info.Chat.String(), info.Sender.String(), text)
-
-				replyText := fmt.Sprintf("Bot received your message in this specific group: \"%s\"", text)
-				reply := &waProto.Message{Conversation: proto.String(replyText)}
-
-				_, err := client.SendMessage(ctx, info.Chat, reply)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error sending message to %s: %v\n", info.Chat.String(), err)
-				} else {
-					fmt.Printf("📤 Replied to %s in group %s\n", info.Sender.String(), info.Chat.String())
-				}
-			} else if info.IsGroup && info.Chat.String() != targetGroupJID {
-				fmt.Printf("Ignoring message from non-target group: [%s] %s: %s\n", info.Chat.String(), info.Sender.String(), getMessageText(v.Message))
-			} else if !info.IsGroup {
-				fmt.Printf("Ignoring direct message: [%s] %s: %s\n", info.Chat.String(), info.Sender.String(), getMessageText(v.Message))
+			if v.Info.Chat.String() == testingGroup || v.Info.Chat.String() == asg {
+				commandManager.RouteMessage(db, ctx, client, v)
+				toneIndicatorM.MatchAndAutoRespond(ctx, client, v)
 			}
-
 		case *events.Connected:
 			fmt.Println("WhatsApp client connected successfully!")
 		case *events.Disconnected:
@@ -88,7 +39,31 @@ func main() {
 		case *events.PairSuccess:
 			fmt.Println("Successfully paired with WhatsApp!")
 		}
-	})
+	}
+}
+
+func main() {
+	ctx := context.Background()
+
+	adminNumbers := []string{
+		"916355442207",
+	}
+
+	container, db := db.SetupDB(&ctx)
+	dev, err := container.GetFirstDevice(ctx)
+	if err != nil {
+		panic(fmt.Errorf("failed to get first device: %w", err))
+	}
+	client := whatsmeow.NewClient(dev, waLog.Stdout("Client", "INFO", true))
+
+	cmdMngr := cmd.NewCommandManager(client, adminNumbers)
+	tiMngr := tone.NewToneIManager(client)
+
+	client.AddEventHandler(eventHandler(db, ctx, client, cmdMngr, tiMngr))
+
+	reg := scheduler.NewRegistry(db)
+	sched := scheduler.NewScheduler(reg, client, 1*time.Second)
+	sched.Start(ctx)
 
 	if client.Store.ID == nil {
 		fmt.Println("No existing session found. Generating QR code...")

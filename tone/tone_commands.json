@@ -1,0 +1,536 @@
+[
+  {
+    "name": "/a",
+    "description": "affectionate",
+    "example": "I’m thinking of you. /a",
+    "regex": "(^|\\s)/a(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/ay",
+    "description": "at you",
+    "example": "We need to be more kind. /ay",
+    "regex": "(^|\\s)/ay(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/bj",
+    "description": "bad joke",
+    "example": "What do you call a fake noodle? An impasta. /bj",
+    "regex": "(^|\\s)/bj(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/br",
+    "description": "bragging",
+    "example": "My cousin’s an olympian. /br",
+    "regex": "(^|\\s)/br(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/calm",
+    "description": "calm",
+    "example": "The race results are almost in. /calm",
+    "regex": "(^|\\s)/calm(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/c",
+    "description": "copypasta",
+    "example": "Imagine going to an online chat and spamming it with brainless text for no reason. /c",
+    "regex": "(^|\\s)/c(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/cb",
+    "description": "clickbait",
+    "example": "You’ll never believe what’s inside this $20M home! /cb",
+    "regex": "(^|\\s)/cb(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/cel",
+    "description": "celebrate",
+    "example": "That’s a huge milestone. /cel",
+    "regex": "(^|\\s)/cel(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/cr",
+    "description": "cringey",
+    "example": "That’s not a selfie opportunity. /cr",
+    "regex": "(^|\\s)/cr(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/cur",
+    "description": "curious",
+    "example": "Do you believe them? /cur",
+    "regex": "(^|\\s)/cur(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/co",
+    "description": "comforting",
+    "example": "This too shall pass. /co",
+    "regex": "(^|\\s)/co(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/cwh",
+    "description": "coping with humor",
+    "example": "Good morning (mourning), I guess. /cwh",
+    "regex": "(^|\\s)/cwh(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/dkm",
+    "description": "don’t kill me",
+    "example": "I messed up your design. /dkm",
+    "regex": "(^|\\s)/dkm(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/dr",
+    "description": "don’t reply",
+    "example": "Well, that argument was fun. /dr",
+    "regex": "(^|\\s)/dr(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/e",
+    "description": "excited",
+    "example": "It’s National Ice Cream Day. /e",
+    "regex": "(^|\\s)/e(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/ex",
+    "description": "exaggeration",
+    "example": "The bug bite covers my entire arm. /ex",
+    "regex": "(^|\\s)/ex(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/f",
+    "description": "fake",
+    "example": "Look at this real-life unicorn. /f",
+    "regex": "(^|\\s)/f(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/fam",
+    "description": "familial",
+    "example": "I love the people in this thread. /fam",
+    "regex": "(^|\\s)/fam(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/fl",
+    "description": "flirting",
+    "example": "I would marry you all over again. /fl",
+    "regex": "(^|\\s)/fl(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/fx",
+    "description": "flex",
+    "example": "I just bought a new car. /fx",
+    "regex": "(^|\\s)/fx(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/gen",
+    "description": "genuine",
+    "example": "You’re such a great person. /gen",
+    "regex": "(^|\\s)/gen(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/genq",
+    "description": "genuine question",
+    "example": "Why should you use tone indicators? /genq",
+    "regex": "(^|\\s)/genq(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/hj",
+    "description": "half joking",
+    "example": "I mean, I’m usually right. /hj",
+    "regex": "(^|\\s)/hj(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/hlh",
+    "description": "half light-hearted",
+    "example": "🫠 My most used emoji this week. /hlh",
+    "regex": "(^|\\s)/hlh(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/hs",
+    "description": "half sarcastic",
+    "example": "I’m in the wrong timeline. /hs",
+    "regex": "(^|\\s)/hs(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/hsrs",
+    "description": "half serious",
+    "example": "Kindle books just aren’t the same. /hsrs",
+    "regex": "(^|\\s)/hsrs(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/hyp",
+    "description": "hyperbole",
+    "example": "I have 10,000 things to do today. /hyp",
+    "regex": "(^|\\s)/hyp(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/i",
+    "description": "ironic",
+    "example": "The snowman loves summer. /i",
+    "regex": "(^|\\s)/i(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/ij",
+    "description": "inside joke",
+    "example": "There’s just something about those beach fries. /ij",
+    "regex": "(^|\\s)/ij(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/info",
+    "description": "information",
+    "example": "The first text message sent was “Merry Christmas.” /info",
+    "regex": "(^|\\s)/info(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/irre",
+    "description": "irrelevant",
+    "example": "I prefer trains as public transit. /irre",
+    "regex": "(^|\\s)/irre(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/j",
+    "description": "joking",
+    "example": "I’m basically the queen of Tumblr /j",
+    "regex": "(^|\\s)/j(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/jbt",
+    "description": "joking but true",
+    "example": "I can’t skip leg day. /jbt",
+    "regex": "(^|\\s)/jbt(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/js",
+    "description": "just saying",
+    "example": "That was not a classy move. /js",
+    "regex": "(^|\\s)/js(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/jw",
+    "description": "just wondering",
+    "example": "Do you like it in California? /jw",
+    "regex": "(^|\\s)/jw(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/l",
+    "description": "lyrics",
+    "example": "Now I'm down bad, cryin' at the gym. /ly",
+    "regex": "(^|\\s)/l(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/lh",
+    "description": "light-hearted",
+    "example": "I think you misspelled mosey. /lh",
+    "regex": "(^|\\s)/lh(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/li",
+    "description": "literal",
+    "example": "The rat we saw was the size of a small dog. /li",
+    "regex": "(^|\\s)/li(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/lu",
+    "description": "little upset",
+    "example": "Our top client won’t be renewing. /lu",
+    "regex": "(^|\\s)/lu(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/m",
+    "description": "metaphorical",
+    "example": "His fingers were icicles after shoveling for so long! /m",
+    "regex": "(^|\\s)/m(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/ma",
+    "description": "messing around",
+    "example": "You can’t be serious!? /ma",
+    "regex": "(^|\\s)/ma(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/mhly",
+    "description": "misheard lyrics",
+    "example": "It’s gonna be May. /mhly",
+    "regex": "(^|\\s)/mhly(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/mj",
+    "description": "mainly/mostly joking",
+    "example": "Work is life. /mj",
+    "regex": "(^|\\s)/mj(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/ms",
+    "description": "mostly sarcastic",
+    "example": "That’s so iconic. /ms",
+    "regex": "(^|\\s)/ms(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/msrs",
+    "description": "mostly serious",
+    "example": "AI is ruining creativity. /msrs",
+    "regex": "(^|\\s)/msrs(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/nav",
+    "description": "not a vent",
+    "example": "Work has been so busy. /nav",
+    "regex": "(^|\\s)/nav(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/nabr",
+    "description": "not a brag",
+    "example": "I finally got a new car. /nabr",
+    "regex": "(^|\\s)/nabr(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/nao",
+    "description": "not an order",
+    "example": "Can you make it sharable? /nao",
+    "regex": "(^|\\s)/nao(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/naq",
+    "description": "not a question",
+    "example": "Does it look like I read minds? /naq",
+    "regex": "(^|\\s)/naq(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/nay",
+    "description": "not at you",
+    "example": "We need to be more kind. /nay",
+    "regex": "(^|\\s)/nay(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/nbh",
+    "description": "nobody here",
+    "example": "I’m really feeling down because of someone. /nbh",
+    "regex": "(^|\\s)/nbh(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/nbr",
+    "description": "not being rude",
+    "example": "Well it’s a little late now. /nbr",
+    "regex": "(^|\\s)/nbr(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/nc",
+    "description": "negative connotation",
+    "example": "Oh my gosh. I’m going to cry. /neg",
+    "regex": "(^|\\s)/nc(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/neg",
+    "description": "negative connotation",
+    "example": "Oh my gosh. I’m going to cry. /neg",
+    "regex": "(^|\\s)/neg(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/neu",
+    "description": "neutral connotation",
+    "example": "The dog needs to go outside. /neu",
+    "regex": "(^|\\s)/neu(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/nf",
+    "description": "not forced",
+    "example": "Do you want to hang out today? /nf",
+    "regex": "(^|\\s)/nf(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/nfl",
+    "description": "not flirting",
+    "example": "I love your eyes. /nfl",
+    "regex": "(^|\\s)/nfl(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/nh",
+    "description": "not hostile",
+    "example": "I don’t like what you just said. /nh",
+    "regex": "(^|\\s)/nh(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/nm",
+    "description": "not mad",
+    "example": "Did you leave the iron on this morning? /nm",
+    "regex": "(^|\\s)/nm(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/non",
+    "description": "nonsense",
+    "example": "You need work experience for an entry level job. /non",
+    "regex": "(^|\\s)/non(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/npa",
+    "description": "not passive aggressive",
+    "example": "Busy! I’ll call you later. /npa",
+    "regex": "(^|\\s)/npa(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/nsb",
+    "description": "not subtweeting",
+    "example": "I hate when people don’t say things to your face. /nsb",
+    "regex": "(^|\\s)/nsb(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/nsrs",
+    "description": "non-serious",
+    "example": "I just bruised my leg, but I’m okay. /nsrs",
+    "regex": "(^|\\s)/nsrs(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/nx",
+    "description": "non-sexual intent",
+    "example": "You look so good. /nx",
+    "regex": "(^|\\s)/nx(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/ny",
+    "description": "not yelling",
+    "example": "I DON’T understand. /ny",
+    "regex": "(^|\\s)/ny(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/ot",
+    "description": "off topic",
+    "example": "Koalas really do sleep all day, huh. /ot",
+    "regex": "(^|\\s)/ot(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/p",
+    "description": "platonic",
+    "example": "I’d love to give you a hug. /p",
+    "regex": "(^|\\s)/p(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/pa",
+    "description": "passive aggressive",
+    "example": "That didn’t stop you? /pa",
+    "regex": "(^|\\s)/pa(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/para",
+    "description": "paraphrase",
+    "example": "She said she didn’t enjoy the show. /para",
+    "regex": "(^|\\s)/para(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/pf",
+    "description": "playful",
+    "example": "You should get a medal. /pf",
+    "regex": "(^|\\s)/pf(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/pos",
+    "description": "positive connotation",
+    "example": "Oh my gosh! I’m going to cry. /pos",
+    "regex": "(^|\\s)/pos(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/q",
+    "description": "quote",
+    "example": "“Sometimes I’ll start a sentence and I don’t even know where it’s going.” /q",
+    "regex": "(^|\\s)/q(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/r",
+    "description": "romantic",
+    "example": "I can’t wait to do life with you. /r",
+    "regex": "(^|\\s)/r(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/ref",
+    "description": "reference",
+    "example": "It’s exactly like the gold or blue dress debacle. /ref",
+    "regex": "(^|\\s)/ref(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/rh",
+    "description": "rhetorical",
+    "example": "I still can’t figure out the issue. How can I be so stupid? /rh",
+    "regex": "(^|\\s)/rh(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/s",
+    "description": "sarcastic",
+    "example": "This is just what I needed on a Monday. /s",
+    "regex": "(^|\\s)/s(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/sbtw",
+    "description": "subtweet",
+    "example": "I hate when people don’t say things to your face. /sbtw",
+    "regex": "(^|\\s)/sbtw(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/srs",
+    "description": "serious",
+    "example": "I really like working with you. /srs",
+    "regex": "(^|\\s)/srs(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/st",
+    "description": "still thinking",
+    "example": "We could go to a movie. /st",
+    "regex": "(^|\\s)/st(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/state",
+    "description": "statement",
+    "example": "Violence is never the answer. /state",
+    "regex": "(^|\\s)/state(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/x",
+    "description": "sexual intent",
+    "example": "You look so good. /x",
+    "regex": "(^|\\s)/x(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/t",
+    "description": "teasing",
+    "example": "Oh really? Guess we have to be best friends now. /t",
+    "regex": "(^|\\s)/t(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/tan",
+    "description": "tangent",
+    "example": "Gifs are really just free therapy. /tan",
+    "regex": "(^|\\s)/tan(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/th",
+    "description": "threat",
+    "example": "I will block you if you don’t stop. /th",
+    "regex": "(^|\\s)/th(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/ui",
+    "description": "unironic",
+    "example": "I love cooking. /ui",
+    "regex": "(^|\\s)/ui(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/unin",
+    "description": "unintentional",
+    "example": "The transition was bumpy. /unin",
+    "regex": "(^|\\s)/unin(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/unre",
+    "description": "unrelated",
+    "example": "I need to eat food. /unre",
+    "regex": "(^|\\s)/unre(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/vu",
+    "description": "very upset",
+    "example": "I really don’t think you should say things like that online. /vu",
+    "regex": "(^|\\s)/vu(\\s|$|[.,!?])"
+  },
+  {
+    "name": "/w",
+    "description": "warm or warmth",
+    "example": "Enjoy the holiday season. /w",
+    "regex": "(^|\\s)/w(\\s|$|[.,!?])"
+  }
+]
