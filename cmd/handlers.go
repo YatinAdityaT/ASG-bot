@@ -46,7 +46,8 @@ func (cm *CommandManager) handleDie(ctx context.Context, client utils.MessageSen
 	return nil
 }
 
-func (cm *CommandManager) handleReminder(db *sql.DB, ctx context.Context, client utils.MessageSender, info types.MessageInfo, args []string) error {
+func (cm *CommandManager) handleReminder(db *sql.DB, ctx context.Context, client utils.MessageSender, commandCtx CommandContext, args []string) error {
+	info := commandCtx.Info
 	input := args[0]
 	t, msg, err := utils.ExtractTimeAndMessage(input)
 	if err != nil {
@@ -65,7 +66,8 @@ func (cm *CommandManager) handleReminder(db *sql.DB, ctx context.Context, client
 	return utils.ReplyToMessage(ctx, client, info.Chat, resp, info.ID, info.Sender)
 }
 
-func (cm *CommandManager) handleRemindList(db *sql.DB, ctx context.Context, client utils.MessageSender, info types.MessageInfo, args []string) error {
+func (cm *CommandManager) handleRemindList(db *sql.DB, ctx context.Context, client utils.MessageSender, commandCtx CommandContext, args []string) error {
+	info := commandCtx.Info
 	rows, err := db.QueryContext(ctx,
 		"SELECT id, message, remind_at FROM reminders WHERE chat_id = ? AND to_id = ? ORDER BY remind_at ASC",
 		info.Chat.String(), info.Sender.ToNonAD().String(),
@@ -96,7 +98,8 @@ func (cm *CommandManager) handleRemindList(db *sql.DB, ctx context.Context, clie
 	return utils.ReplyToMessage(ctx, client, info.Chat, response.String(), info.ID, info.Sender)
 }
 
-func (cm *CommandManager) handleRemindDelete(db *sql.DB, ctx context.Context, client utils.MessageSender, info types.MessageInfo, args []string) error {
+func (cm *CommandManager) handleRemindDelete(db *sql.DB, ctx context.Context, client utils.MessageSender, commandCtx CommandContext, args []string) error {
+	info := commandCtx.Info
 	if len(args) < 1 {
 		return utils.ReplyToMessage(ctx, client, info.Chat, "Please specify the ID to delete.", info.ID, info.Sender)
 	}
@@ -123,7 +126,8 @@ func (cm *CommandManager) handleRemindDelete(db *sql.DB, ctx context.Context, cl
 	return utils.ReplyToMessage(ctx, client, info.Chat, "✅ Reminder deleted.", info.ID, info.Sender)
 }
 
-func (cm *CommandManager) handleRemindUpdate(db *sql.DB, ctx context.Context, client utils.MessageSender, info types.MessageInfo, args []string) error {
+func (cm *CommandManager) handleRemindUpdate(db *sql.DB, ctx context.Context, client utils.MessageSender, commandCtx CommandContext, args []string) error {
+	info := commandCtx.Info
 	if len(args) < 2 {
 		return utils.ReplyToMessage(ctx, client, info.Chat, "Usage: /remind update <id> <new time> <message>", info.ID, info.Sender)
 	}

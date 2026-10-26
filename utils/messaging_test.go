@@ -8,6 +8,7 @@ import (
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow/types/events"
 )
 
 type fakeSender struct {
@@ -40,5 +41,36 @@ func TestReplyToMessageReturnsSendError(t *testing.T) {
 
 	if !errors.Is(err, sendErr) {
 		t.Fatalf("ReplyToMessage() error = %v, want %v", err, sendErr)
+	}
+}
+
+func TestExtractTextPreservesConversationText(t *testing.T) {
+	text := "  /REMIND me to Review CUDA Docs tomorrow at 3pm  "
+	evt := &events.Message{Message: &waProto.Message{Conversation: &text}}
+
+	if got := ExtractText(evt); got != "/REMIND me to Review CUDA Docs tomorrow at 3pm" {
+		t.Fatalf("ExtractText() = %q, want preserved trimmed text", got)
+	}
+	if got := ExtractCleanText(evt); got != "/remind me to review cuda docs tomorrow at 3pm" {
+		t.Fatalf("ExtractCleanText() = %q, want normalized text", got)
+	}
+}
+
+func TestExtractTextPreservesExtendedText(t *testing.T) {
+	text := ` /remind "Call Mom" tomorrow `
+	evt := &events.Message{
+		Message: &waProto.Message{
+			ExtendedTextMessage: &waProto.ExtendedTextMessage{Text: &text},
+		},
+	}
+
+	if got := ExtractText(evt); got != `/remind "Call Mom" tomorrow` {
+		t.Fatalf("ExtractText() = %q, want preserved extended text", got)
+	}
+}
+
+func TestExtractTextHandlesMissingMessage(t *testing.T) {
+	if got := ExtractText(&events.Message{}); got != "" {
+		t.Fatalf("ExtractText() = %q, want empty", got)
 	}
 }

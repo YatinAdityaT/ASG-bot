@@ -20,10 +20,10 @@ func NoDB(fn func(
 		db *sql.DB,
 		ctx context.Context,
 		client utils.MessageSender,
-		info types.MessageInfo,
+		commandCtx CommandContext,
 		args []string,
 	) error {
 		// just ignore the db parameter
-		return fn(ctx, client, info, args)
+		return fn(ctx, client, commandCtx.Info, args)
 	}
 }

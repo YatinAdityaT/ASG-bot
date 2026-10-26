@@ -46,9 +46,12 @@ func ReplyToMessage(
 	return err
 }
 
-// ExtractCleanText returns the normalized (trimmed + lowercased) message text.
-// Returns an empty string if no usable text is found.
-func ExtractCleanText(evt *events.Message) string {
+// ExtractText returns trimmed message text without changing its capitalization.
+// It returns an empty string if no usable text is found.
+func ExtractText(evt *events.Message) string {
+	if evt == nil {
+		return ""
+	}
 	msg := evt.Message
 	if msg == nil {
 		return ""
@@ -61,6 +64,11 @@ func ExtractCleanText(evt *events.Message) string {
 		text = msg.GetExtendedTextMessage().GetText()
 	}
 
-	// Normalize: trim and lowercase
-	return strings.ToLower(strings.TrimSpace(text))
+	return strings.TrimSpace(text)
+}
+
+// ExtractCleanText returns the normalized (trimmed + lowercased) message text.
+// Returns an empty string if no usable text is found.
+func ExtractCleanText(evt *events.Message) string {
+	return strings.ToLower(ExtractText(evt))
 }
