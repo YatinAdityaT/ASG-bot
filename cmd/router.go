@@ -6,12 +6,11 @@ import (
 	"strings"
 	"whatsappBot/utils"
 
-	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 )
 
-func (cm *CommandManager) RouteMessage(db *sql.DB, ctx context.Context, client *whatsmeow.Client, evt *events.Message) {
+func (cm *CommandManager) RouteMessage(db *sql.DB, ctx context.Context, evt *events.Message) {
 	info := evt.Info
 	messageText := utils.ExtractCleanText(evt)
 
@@ -23,11 +22,11 @@ func (cm *CommandManager) RouteMessage(db *sql.DB, ctx context.Context, client *
 		matches := cmd.Regex.FindStringSubmatch(messageText)
 		if len(matches) > 0 {
 			if cmd.IsAdminCommand && !cm.isAdmin(info.Sender) {
-				utils.ReplyToMessage(ctx, client, info.Chat, "You do not have permission to use this command.", info.ID, info.Sender)
+				_ = utils.ReplyToMessage(ctx, cm.client, info.Chat, "You do not have permission to use this command.", info.ID, info.Sender)
 				return
 			}
 
-			go cmd.Callback(db, ctx, cm.client, info, matches)
+			cmd.Callback(db, ctx, cm.client, info, matches[1:])
 			return
 		}
 	}

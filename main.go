@@ -29,7 +29,7 @@ func eventHandler(db *sql.DB, ctx context.Context, client *whatsmeow.Client, com
 		switch v := evt.(type) {
 		case *events.Message:
 			if v.Info.Chat.String() == testingGroup || v.Info.Chat.String() == asg {
-				commandManager.RouteMessage(db, ctx, client, v)
+				commandManager.RouteMessage(db, ctx, v)
 				toneIndicatorM.MatchAndAutoRespond(ctx, client, v)
 			}
 		case *events.Connected:
@@ -43,7 +43,8 @@ func eventHandler(db *sql.DB, ctx context.Context, client *whatsmeow.Client, com
 }
 
 func main() {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	adminNumbers := []string{
 		"916355442207",
@@ -56,7 +57,7 @@ func main() {
 	}
 	client := whatsmeow.NewClient(dev, waLog.Stdout("Client", "INFO", true))
 
-	cmdMngr := cmd.NewCommandManager(client, adminNumbers)
+	cmdMngr := cmd.NewCommandManager(client, adminNumbers, cancel)
 	tiMngr := tone.NewToneIManager(client)
 
 	client.AddEventHandler(eventHandler(db, ctx, client, cmdMngr, tiMngr))
@@ -99,7 +100,10 @@ func main() {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
 
-	<-ch
+	select {
+	case <-ch:
+	case <-ctx.Done():
+	}
 
 	fmt.Println("Shutting down bot...")
 	client.Disconnect()

@@ -4,26 +4,24 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 	"time"
 	"whatsappBot/utils"
 
-	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 )
 
-func (cm *CommandManager) handlePing(ctx context.Context, client *whatsmeow.Client, info types.MessageInfo, args []string) {
+func (cm *CommandManager) handlePing(ctx context.Context, client utils.MessageSender, info types.MessageInfo, args []string) {
 	utils.ReplyToMessage(ctx, client, info.Chat, "Pong!", info.ID, info.Sender)
 }
 
-func (cm *CommandManager) handleEcho(ctx context.Context, client *whatsmeow.Client, info types.MessageInfo, args []string) {
-	response := strings.Join(args, " ")
+func (cm *CommandManager) handleEcho(ctx context.Context, client utils.MessageSender, info types.MessageInfo, args []string) {
+	response := args[0]
 	utils.ReplyToMessage(ctx, client, info.Chat, response, info.ID, info.Sender)
 }
 
-func (cm *CommandManager) handleHelp(ctx context.Context, client *whatsmeow.Client, info types.MessageInfo, args []string) {
+func (cm *CommandManager) handleHelp(ctx context.Context, client utils.MessageSender, info types.MessageInfo, args []string) {
 	var b strings.Builder
 	b.WriteString("Hello! I am a bot. Here are my commands:\n\n")
 
@@ -37,14 +35,14 @@ func (cm *CommandManager) handleHelp(ctx context.Context, client *whatsmeow.Clie
 	utils.ReplyToMessage(ctx, client, info.Chat, b.String(), info.ID, info.Sender)
 }
 
-func (cm *CommandManager) handleDie(ctx context.Context, client *whatsmeow.Client, info types.MessageInfo, args []string) {
+func (cm *CommandManager) handleDie(ctx context.Context, client utils.MessageSender, info types.MessageInfo, args []string) {
 	response := "Goodbye cruel world!"
-	utils.ReplyToMessage(ctx, client, info.Chat, response, info.ID, info.Sender)
-	cm.client.Disconnect()
-	os.Exit(0)
+	if err := utils.ReplyToMessage(ctx, client, info.Chat, response, info.ID, info.Sender); err == nil {
+		cm.shutdown()
+	}
 }
 
-func (cm *CommandManager) handleReminder(db *sql.DB, ctx context.Context, client *whatsmeow.Client, info types.MessageInfo, args []string) {
+func (cm *CommandManager) handleReminder(db *sql.DB, ctx context.Context, client utils.MessageSender, info types.MessageInfo, args []string) {
 	input := args[0]
 	t, msg, err := utils.ExtractTimeAndMessage(input)
 	if err != nil {
@@ -65,7 +63,7 @@ func (cm *CommandManager) handleReminder(db *sql.DB, ctx context.Context, client
 	utils.ReplyToMessage(ctx, client, info.Chat, resp, info.ID, info.Sender)
 }
 
-func (cm *CommandManager) handleRemindList(db *sql.DB, ctx context.Context, client *whatsmeow.Client, info types.MessageInfo, args []string) {
+func (cm *CommandManager) handleRemindList(db *sql.DB, ctx context.Context, client utils.MessageSender, info types.MessageInfo, args []string) {
 	rows, err := db.QueryContext(ctx,
 		"SELECT id, message, remind_at FROM reminders WHERE chat_id = ? AND to_id = ? ORDER BY remind_at ASC",
 		info.Chat.String(), info.Sender.ToNonAD().String(),
@@ -92,13 +90,13 @@ func (cm *CommandManager) handleRemindList(db *sql.DB, ctx context.Context, clie
 	utils.ReplyToMessage(ctx, client, info.Chat, response.String(), info.ID, info.Sender)
 }
 
-func (cm *CommandManager) handleRemindDelete(db *sql.DB, ctx context.Context, client *whatsmeow.Client, info types.MessageInfo, args []string) {
+func (cm *CommandManager) handleRemindDelete(db *sql.DB, ctx context.Context, client utils.MessageSender, info types.MessageInfo, args []string) {
 	if len(args) < 1 {
 		utils.ReplyToMessage(ctx, client, info.Chat, "Please specify the ID to delete.", info.ID, info.Sender)
 		return
 	}
 
-	id, err := strconv.Atoi(args[1])
+	id, err := strconv.Atoi(args[0])
 	if err != nil {
 		utils.ReplyToMessage(ctx, client, info.Chat, "Invalid ID format.", info.ID, info.Sender)
 		return
@@ -120,19 +118,19 @@ func (cm *CommandManager) handleRemindDelete(db *sql.DB, ctx context.Context, cl
 	}
 }
 
-func (cm *CommandManager) handleRemindUpdate(db *sql.DB, ctx context.Context, client *whatsmeow.Client, info types.MessageInfo, args []string) {
+func (cm *CommandManager) handleRemindUpdate(db *sql.DB, ctx context.Context, client utils.MessageSender, info types.MessageInfo, args []string) {
 	if len(args) < 2 {
 		utils.ReplyToMessage(ctx, client, info.Chat, "Usage: /remind update <id> <new time> <message>", info.ID, info.Sender)
 		return
 	}
 
-	id, err := strconv.Atoi(args[1])
+	id, err := strconv.Atoi(args[0])
 	if err != nil {
 		utils.ReplyToMessage(ctx, client, info.Chat, "Invalid ID format.", info.ID, info.Sender)
 		return
 	}
 
-	t, msg, err := utils.ExtractTimeAndMessage(strings.Join(args[2:], " "))
+	t, msg, err := utils.ExtractTimeAndMessage(args[1])
 	if err != nil {
 		utils.ReplyToMessage(ctx, client, info.Chat, "Failed to parse time or message.", info.ID, info.Sender)
 		return

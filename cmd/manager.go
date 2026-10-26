@@ -4,12 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"regexp"
+	"whatsappBot/utils"
 
-	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 )
 
-type CommandHandlerFunc func(db *sql.DB, ctx context.Context, client *whatsmeow.Client, info types.MessageInfo, args []string)
+type CommandHandlerFunc func(db *sql.DB, ctx context.Context, client utils.MessageSender, info types.MessageInfo, args []string)
 type Command struct {
 	Name           string
 	Description    string
@@ -23,10 +23,11 @@ type CommandManager struct {
 	orderedList []Command          // for /help order
 	admins      map[string]struct{}
 	//logger *log.Logger
-	client *whatsmeow.Client
+	client   utils.MessageSender
+	shutdown context.CancelFunc
 }
 
-func NewCommandManager(client *whatsmeow.Client, admins []string) *CommandManager {
+func NewCommandManager(client utils.MessageSender, admins []string, shutdown context.CancelFunc) *CommandManager {
 	adminMap := make(map[string]struct{})
 	for _, adminNumber := range admins {
 		adminMap[adminNumber] = struct{}{}
@@ -37,6 +38,7 @@ func NewCommandManager(client *whatsmeow.Client, admins []string) *CommandManage
 		orderedList: []Command{},
 		admins:      adminMap,
 		client:      client,
+		shutdown:    shutdown,
 	}
 
 	// Regular user commands
