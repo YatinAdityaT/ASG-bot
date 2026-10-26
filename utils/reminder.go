@@ -21,7 +21,6 @@ type ReminderRequest struct {
 	RemindAt      time.Time
 }
 
-var visibleMentionPattern = regexp.MustCompile(`(?:^|\s)@\S+`)
 var reminderClauseBoundaryPattern = regexp.MustCompile(`(?i)\band\b`)
 var relativeTimeStartPattern = regexp.MustCompile(`(?i)\bin\s+(?:an?|one|\d+)\b`)
 
@@ -48,7 +47,7 @@ func ParseReminder(
 	if len(mentions) > 1 {
 		return request, fmt.Errorf("reminders support one mentioned participant")
 	}
-	visibleMentions := visibleMentionPattern.FindAllString(commandText, -1)
+	visibleMentions := visibleMentionRanges(commandText)
 	if len(visibleMentions) > 1 || (len(visibleMentions) == 1) != (len(mentions) == 1) {
 		return request, fmt.Errorf("visible mentions must match WhatsApp mention metadata")
 	}
@@ -73,7 +72,10 @@ func ParseReminder(
 
 	parser := when.New(nil)
 	parser.Add(en.All...)
-	timeScanText := visibleMentionPattern.ReplaceAllString(commandText, " ")
+	timeScanText := commandText
+	for _, location := range visibleMentions {
+		timeScanText = blankReminderRange(timeScanText, location[0], location[1])
+	}
 	if quoteCount == 2 {
 		quoteStart := strings.Index(timeScanText, `"`)
 		quoteEnd := strings.LastIndex(timeScanText, `"`)
@@ -93,7 +95,7 @@ func ParseReminder(
 
 	var body string
 	residual := blankReminderRange(commandText, result.Index, result.Index+len(result.Text))
-	for _, location := range visibleMentionPattern.FindAllStringIndex(commandText, -1) {
+	for _, location := range visibleMentions {
 		residual = blankReminderRange(residual, location[0], location[1])
 	}
 	if quoteCount == 2 {
@@ -124,6 +126,41 @@ func ParseReminder(
 	}
 	request.Body = body
 	return request, nil
+}
+
+func visibleMentionRanges(text string) [][2]int {
+	var ranges [][2]int
+	for index := 0; index < len(text); {
+		if text[index] != '@' || (index > 0 && !isMentionBoundary(text[index-1])) {
+			index++
+			continue
+		}
+
+		end := index + 1
+		for end < len(text) && !isMentionWhitespace(text[end]) && text[end] != '@' {
+			if text[end] == ',' || text[end] == ';' {
+				end++
+				break
+			}
+			end++
+		}
+		ranges = append(ranges, [2]int{index, end})
+		index = end
+	}
+	return ranges
+}
+
+func isMentionBoundary(value byte) bool {
+	return isMentionWhitespace(value) || value == ',' || value == ';' || value == '@'
+}
+
+func isMentionWhitespace(value byte) bool {
+	switch value {
+	case ' ', '\t', '\n', '\r':
+		return true
+	default:
+		return false
+	}
 }
 
 func trimLeadingReminderFillers(body string) string {

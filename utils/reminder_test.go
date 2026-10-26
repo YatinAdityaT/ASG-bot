@@ -147,6 +147,8 @@ func TestParseReminderRejectsInvalidInput(t *testing.T) {
 	}{
 		{name: "fake visible mention", input: `/remind @Alex "submit the form" tomorrow at 3pm`},
 		{name: "multiple mentions", input: `/remind @Alex @Sam "submit the form" tomorrow at 3pm`, mentions: []types.JID{target, types.NewJID("999", types.DefaultUserServer)}},
+		{name: "comma adjacent fake mention", input: `/remind @Alex,@Fake "submit the form" tomorrow at 3pm`, mentions: []types.JID{target}},
+		{name: "semicolon adjacent fake mention", input: `/remind @Alex;@Fake "submit the form" tomorrow at 3pm`, mentions: []types.JID{target}},
 		{name: "malformed quote", input: `/remind "submit the form tomorrow at 3pm`},
 		{name: "multiple quoted bodies", input: `/remind "submit" "the form" tomorrow at 3pm`},
 		{name: "quoted body with unexplained text", input: `/remind "submit" tomorrow at 3pm and email Sam`},
@@ -164,6 +166,26 @@ func TestParseReminderRejectsInvalidInput(t *testing.T) {
 				t.Fatalf("ParseReminder() = %#v, nil error; want error", got)
 			}
 		})
+	}
+}
+
+func TestParseReminderAllowsSingleMentionWithTrailingPunctuation(t *testing.T) {
+	now := time.Date(2026, time.October, 26, 10, 0, 0, 0, time.Local)
+	requester := types.NewJID("456", types.DefaultUserServer)
+	target := types.NewJID("789", types.DefaultUserServer)
+
+	for _, punctuation := range []string{",", ";", ".", "!", "?"} {
+		input := `/remind @Alex` + punctuation + ` "submit" tomorrow at 3pm`
+		got, err := ParseReminder(input, []types.JID{target}, requester, "Yatin", now)
+		if err != nil {
+			t.Fatalf("ParseReminder(%q) error = %v", input, err)
+		}
+		if got.Target != target {
+			t.Errorf("ParseReminder(%q).Target = %v, want %v", input, got.Target, target)
+		}
+		if got.Body != "submit" {
+			t.Errorf("ParseReminder(%q).Body = %q, want submit", input, got.Body)
+		}
 	}
 }
 
