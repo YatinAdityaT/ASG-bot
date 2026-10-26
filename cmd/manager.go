@@ -74,10 +74,14 @@ func NewCommandManager(client utils.MessageSender, admins []string, shutdown con
 
 	cm.RegisterCommand(Command{
 		Name: "/remind",
-		Description: `Reminds you about something at the given time. Examples: 
-		- /remind me to eat my food tomorrow at 3 pm
-		- /remind me to call Mom next week
-		- /remind me about the meeting in 30 minutes`,
+		Description: `Creates a reminder for you or one mentioned recipient. Examples:
+		- /remind @Alex "submit the form" tomorrow at 3pm
+		- /remind tomorrow at 3pm @Alex "submit the form"
+		- /remind @Alex in 20 minutes to join the call
+		- /remind me to stretch in 30 minutes
+		- /remind in 30 minutes "stretch"
+		Use at most one mentioned recipient. Without a mention, the reminder is for you.
+		Only the requester can list, update, or delete it. Ambiguous or malformed reminders are rejected.`,
 		Regex:          regexp.MustCompile(`^/remind (.+)`),
 		Callback:       cm.handleReminder,
 		IsAdminCommand: false,

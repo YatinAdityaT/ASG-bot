@@ -368,6 +368,34 @@ func withMentions(evt *events.Message, pushName string, mentionedJIDs ...string)
 	return evt
 }
 
+func TestReminderHelpDocumentsMentionedReminderRules(t *testing.T) {
+	sender := &fakeSender{}
+	if err := NewCommandManager(sender, nil, nil).RouteMessage(
+		nil,
+		context.Background(),
+		messageEvent("/help"),
+	); err != nil {
+		t.Fatalf("help: %v", err)
+	}
+
+	help := sentText(t, sender)
+	for _, required := range []string{
+		`/remind @Alex "submit the form" tomorrow at 3pm`,
+		`/remind tomorrow at 3pm @Alex "submit the form"`,
+		`/remind @Alex in 20 minutes to join the call`,
+		`/remind me to stretch in 30 minutes`,
+		`/remind in 30 minutes "stretch"`,
+		"one mentioned recipient",
+		"Without a mention, the reminder is for you",
+		"Only the requester can list, update, or delete",
+		"Ambiguous or malformed reminders are rejected",
+	} {
+		if !strings.Contains(help, required) {
+			t.Errorf("help reply missing %q", required)
+		}
+	}
+}
+
 func TestDieShutsDownAfterGoodbyeIsSent(t *testing.T) {
 	sender := &fakeSender{}
 	shutdownCalled := false

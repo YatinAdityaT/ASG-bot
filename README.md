@@ -90,8 +90,12 @@ Send these exact commands in an allowed group:
 - `/echo <text>` repeats the supplied text.
 - `/help` lists non-admin commands.
 - `/remind <request>` creates a reminder from natural-language time and
-  message text, for example `/remind me to stretch in 2 minutes` or
-  `/remind me to call Mom tomorrow at 3 pm`.
+  message text. Supported forms include:
+  - `/remind @Alex "submit the form" tomorrow at 3pm`
+  - `/remind tomorrow at 3pm @Alex "submit the form"`
+  - `/remind @Alex in 20 minutes to join the call`
+  - `/remind me to stretch in 30 minutes`
+  - `/remind in 30 minutes "stretch"`
 - `/rlist` lists the sender's reminders and their numeric IDs in this group.
 - `/rupdate <id> <new request>` updates one owned reminder, for example
   `/rupdate 3 tomorrow at 4 pm call Mom`.
@@ -99,9 +103,27 @@ Send these exact commands in an allowed group:
 - `/die` replies and shuts down the bot, but only when sent by a number in
   `ASG_BOT_ADMIN_NUMBERS`.
 
-Reminder ownership includes both sender and group: another user or another
-group cannot list, update, or delete a reminder. Due reminders are posted back
-to the group and mention their owner.
+Use WhatsApp's mention picker for recipient reminders; typed `@name` text
+without mention metadata is not accepted. Each reminder may have at most one
+mentioned recipient. With no recipient mention—including the `me` form—the
+requester is the delivery target. Ambiguous input, multiple recipients,
+malformed quotes, missing times, and empty reminder bodies are rejected with
+usage examples rather than guessed.
+
+The requester owns the reminder even when someone else receives it. Only the
+requester can list, update, or delete it, and ownership is also scoped to the
+group. Updating a reminder preserves its original recipient. At delivery, the
+recipient is mentioned and the message identifies the requester, for example:
+
+```text
+@Alex Yatin asked me to remind you to "submit the form"
+```
+
+Self-reminders use:
+
+```text
+@Yatin you asked me to remind you to "stretch"
+```
 
 Messages containing a tone indicator defined in `tone/tone_commands.json`
 (for example, `That was easy /s`) receive an automatic explanation. This
@@ -139,14 +161,21 @@ Automated tests do not authenticate with WhatsApp. Complete this check manually:
 2. Set `ASG_BOT_DB_PATH` to a new temporary path as shown above.
 3. Run `go run .`, scan the QR code, and confirm the connected/running messages.
 4. In the allowed test group, verify `/ping`, `/echo acceptance`, and `/help`.
-5. Create a reminder due in a few minutes, use `/rlist` to get its ID, update
-   it with `/rupdate`, and confirm the updated reminder is delivered.
-6. Create another reminder and delete it with `/rdelete`; confirm it disappears
+5. Create a self-reminder due in a few minutes, use `/rlist` to get its ID,
+   update it with `/rupdate`, and confirm the updated reminder mentions you at
+   delivery.
+6. Create a reminder for one mentioned participant. Confirm its acknowledgement,
+   requester-only visibility in `/rlist`, exact recipient mention and requester
+   attribution at delivery, and that the recipient cannot update or delete it.
+7. Create another reminder and delete it with `/rdelete`; confirm it disappears
    from `/rlist`.
-7. Send a tone indicator such as `Acceptance test /s` and confirm the automatic
+8. Confirm ambiguous input and a request with multiple mentions return usage
+   examples without creating reminders.
+9. Send a tone indicator such as `Acceptance test /s` and confirm the automatic
    explanation.
-8. Confirm the same commands are ignored in an unlisted group.
-9. Press Ctrl+C and confirm clean shutdown.
+10. Confirm the same commands are ignored in an unlisted group.
+11. Confirm the bot log contains no SQLite lock errors.
+12. Press Ctrl+C and confirm clean shutdown.
 
 ## Troubleshooting
 
