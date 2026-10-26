@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/olebedev/when"
 	"github.com/olebedev/when/rules/en"
@@ -21,6 +22,8 @@ type ReminderRequest struct {
 }
 
 var visibleMentionPattern = regexp.MustCompile(`(?:^|\s)@\S+`)
+var reminderClauseBoundaryPattern = regexp.MustCompile(`(?i)\band\b`)
+var relativeTimeStartPattern = regexp.MustCompile(`(?i)\bin\s+(?:an?|one|\d+)\b`)
 
 // ParseReminder parses reminder text using trusted WhatsApp mention metadata.
 func ParseReminder(
@@ -70,6 +73,15 @@ func ParseReminder(
 
 	parser := when.New(nil)
 	parser.Add(en.All...)
+	timeScanText := visibleMentionPattern.ReplaceAllString(commandText, " ")
+	if quoteCount == 2 {
+		quoteStart := strings.Index(timeScanText, `"`)
+		quoteEnd := strings.LastIndex(timeScanText, `"`)
+		timeScanText = blankReminderRange(timeScanText, quoteStart, quoteEnd+1)
+	}
+	if countReminderTimeClauses(parser, timeScanText, now) > 1 {
+		return ReminderRequest{}, fmt.Errorf("reminder has multiple times")
+	}
 	result, err := parser.Parse(commandText, now)
 	if err != nil {
 		return ReminderRequest{}, fmt.Errorf("parse reminder time: %w", err)
@@ -80,6 +92,10 @@ func ParseReminder(
 	request.RemindAt = result.Time
 
 	var body string
+	residual := blankReminderRange(commandText, result.Index, result.Index+len(result.Text))
+	for _, location := range visibleMentionPattern.FindAllStringIndex(commandText, -1) {
+		residual = blankReminderRange(residual, location[0], location[1])
+	}
 	if quoteCount == 2 {
 		quoteStart := strings.Index(commandText, `"`)
 		quoteEnd := strings.LastIndex(commandText, `"`)
@@ -88,10 +104,18 @@ func ParseReminder(
 			return ReminderRequest{}, fmt.Errorf("reminder time cannot be the quoted body")
 		}
 		body = commandText[quoteStart+1 : quoteEnd]
+		residual = blankReminderRange(residual, quoteStart, quoteEnd+1)
 	} else {
-		timeEnd := result.Index + len(result.Text)
-		body = commandText[:result.Index] + " " + commandText[timeEnd:]
-		body = visibleMentionPattern.ReplaceAllString(body, " ")
+		body = residual
+	}
+
+	if secondTime, parseErr := parseAdditionalReminderTime(parser, residual, now); parseErr != nil {
+		return ReminderRequest{}, fmt.Errorf("parse additional reminder time: %w", parseErr)
+	} else if secondTime != nil {
+		return ReminderRequest{}, fmt.Errorf("reminder has multiple times")
+	}
+	if quoteCount == 2 && hasMeaningfulReminderText(residual) {
+		return ReminderRequest{}, fmt.Errorf("reminder has unexplained text outside quoted body")
 	}
 
 	body = trimLeadingReminderFillers(body)
@@ -116,4 +140,65 @@ func trimLeadingReminderFillers(body string) string {
 			return body
 		}
 	}
+}
+
+func blankReminderRange(text string, start, end int) string {
+	blanked := []byte(text)
+	for index := start; index < end; index++ {
+		blanked[index] = ' '
+	}
+	return string(blanked)
+}
+
+func parseAdditionalReminderTime(parser *when.Parser, text string, now time.Time) (*when.Result, error) {
+	result, err := parser.Parse(text, now)
+	if err != nil || result != nil {
+		return result, err
+	}
+	for _, boundary := range reminderClauseBoundaryPattern.FindAllStringIndex(text, -1) {
+		result, err = parser.Parse(strings.TrimSpace(text[boundary[1]:]), now)
+		if err != nil || result != nil {
+			return result, err
+		}
+	}
+	return nil, nil
+}
+
+func countReminderTimeClauses(parser *when.Parser, text string, now time.Time) int {
+	count := 0
+	for _, clause := range reminderClauseBoundaryPattern.Split(text, -1) {
+		result, err := parser.Parse(clause, now)
+		if err == nil && result != nil {
+			count++
+		}
+	}
+	if count > 1 {
+		return count
+	}
+	for _, location := range relativeTimeStartPattern.FindAllStringIndex(text, -1) {
+		if location[0] == 0 {
+			continue
+		}
+		before, beforeErr := parser.Parse(text[:location[0]], now)
+		after, afterErr := parser.Parse(text[location[0]:], now)
+		if beforeErr == nil && afterErr == nil && before != nil && after != nil {
+			return 2
+		}
+	}
+	return count
+}
+
+func hasMeaningfulReminderText(text string) bool {
+	words := strings.FieldsFunc(text, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
+	})
+	for _, word := range words {
+		switch strings.ToLower(word) {
+		case "me", "to", "about", "and", "at", "on", "for":
+			continue
+		default:
+			return true
+		}
+	}
+	return false
 }

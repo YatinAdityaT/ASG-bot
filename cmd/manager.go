@@ -10,8 +10,9 @@ import (
 )
 
 type CommandContext struct {
-	Info     types.MessageInfo
-	Mentions []types.JID
+	Info         types.MessageInfo
+	Mentions     []types.JID
+	MentionError error
 }
 
 type CommandHandlerFunc func(db *sql.DB, ctx context.Context, client utils.MessageSender, commandCtx CommandContext, args []string) error
@@ -143,6 +144,7 @@ func NewCommandManager(client utils.MessageSender, admins []string, shutdown con
 }
 
 func (cm *CommandManager) RegisterCommand(cmd Command) {
+	cmd.Regex = regexp.MustCompile("(?i:" + cmd.Regex.String() + ")")
 	cm.commands[cmd.Name] = cmd
 	cm.orderedList = append(cm.orderedList, cmd)
 }

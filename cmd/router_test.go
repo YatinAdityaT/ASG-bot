@@ -53,6 +53,28 @@ func TestRouteMessageMatchesCommandCaseInsensitivelyAndPreservesCapture(t *testi
 	}
 }
 
+func TestRegisterCommandCompilesCaseInsensitiveRegexOnce(t *testing.T) {
+	manager := NewCommandManager(&fakeSender{}, nil, func() {})
+	manager.RegisterCommand(Command{
+		Name:  "/test",
+		Regex: regexp.MustCompile(`^/test$`),
+		Callback: func(_ *sql.DB, _ context.Context, _ utils.MessageSender, _ CommandContext, _ []string) error {
+			return nil
+		},
+	})
+
+	registered := manager.commands["/test"].Regex
+	if !registered.MatchString("/TEST") {
+		t.Fatal("registered regex does not match command case-insensitively")
+	}
+	if err := manager.RouteMessage(nil, context.Background(), messageEvent("/TEST")); err != nil {
+		t.Fatalf("RouteMessage() error = %v", err)
+	}
+	if manager.commands["/test"].Regex != registered {
+		t.Fatal("RouteMessage replaced the precompiled command regex")
+	}
+}
+
 func TestRouteMessageRepliesToPing(t *testing.T) {
 	sender := &fakeSender{}
 	manager := NewCommandManager(sender, nil, func() {})
@@ -184,7 +206,7 @@ func TestRouteMessagePassesInfoAndTrustedMentionsToCallback(t *testing.T) {
 	}
 }
 
-func TestRouteMessageIgnoresInvalidMentionMetadata(t *testing.T) {
+func TestRouteMessagePreservesInvalidMentionMetadataError(t *testing.T) {
 	manager := NewCommandManager(&fakeSender{}, nil, func() {})
 	var got CommandContext
 	manager.RegisterCommand(Command{
@@ -210,6 +232,42 @@ func TestRouteMessageIgnoresInvalidMentionMetadata(t *testing.T) {
 	}
 	if len(got.Mentions) != 0 {
 		t.Errorf("context mentions = %#v, want none", got.Mentions)
+	}
+	if got.MentionError == nil {
+		t.Fatal("context mention error = nil, want malformed metadata error")
+	}
+}
+
+func TestRouteMessagePreservesMalformedMentionAlongsideValidMention(t *testing.T) {
+	manager := NewCommandManager(&fakeSender{}, nil, func() {})
+	var got CommandContext
+	manager.RegisterCommand(Command{
+		Name:  "/test",
+		Regex: regexp.MustCompile(`^/test$`),
+		Callback: func(_ *sql.DB, _ context.Context, _ utils.MessageSender, commandCtx CommandContext, _ []string) error {
+			got = commandCtx
+			return nil
+		},
+	})
+	mentioned := types.NewJID("789", types.DefaultUserServer)
+	evt := messageEvent("/test")
+	evt.Message = &waProto.Message{
+		ExtendedTextMessage: &waProto.ExtendedTextMessage{
+			Text: stringPointer("/test"),
+			ContextInfo: &waProto.ContextInfo{
+				MentionedJID: []string{mentioned.String(), "not-a-jid"},
+			},
+		},
+	}
+
+	if err := manager.RouteMessage(nil, context.Background(), evt); err != nil {
+		t.Fatalf("RouteMessage() error = %v", err)
+	}
+	if len(got.Mentions) != 1 || got.Mentions[0] != mentioned {
+		t.Errorf("context mentions = %#v, want valid mention preserved", got.Mentions)
+	}
+	if got.MentionError == nil {
+		t.Fatal("context mention error = nil, want malformed metadata error")
 	}
 }
 

@@ -149,15 +149,33 @@ func TestParseReminderRejectsInvalidInput(t *testing.T) {
 		{name: "multiple mentions", input: `/remind @Alex @Sam "submit the form" tomorrow at 3pm`, mentions: []types.JID{target, types.NewJID("999", types.DefaultUserServer)}},
 		{name: "malformed quote", input: `/remind "submit the form tomorrow at 3pm`},
 		{name: "multiple quoted bodies", input: `/remind "submit" "the form" tomorrow at 3pm`},
+		{name: "quoted body with unexplained text", input: `/remind "submit" tomorrow at 3pm and email Sam`},
+		{name: "quoted body with multiple times", input: `/remind "submit" tomorrow at 3pm and in 2 hours`},
+		{name: "quoted body with adjacent multiple times", input: `/remind "submit" tomorrow at 3pm in 2 hours`},
+		{name: "unquoted body with multiple times", input: `/remind me to submit tomorrow at 3pm and in 2 hours`},
+		{name: "unquoted body with adjacent multiple times", input: `/remind me to submit tomorrow at 3pm in 2 hours`},
 		{name: "missing body", input: `/remind tomorrow at 3pm`},
 		{name: "missing time", input: `/remind me to stretch`},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := ParseReminder(test.input, test.mentions, requester, "Yatin", now); err == nil {
-				t.Fatal("ParseReminder() error = nil, want error")
+			if got, err := ParseReminder(test.input, test.mentions, requester, "Yatin", now); err == nil {
+				t.Fatalf("ParseReminder() = %#v, nil error; want error", got)
 			}
 		})
+	}
+}
+
+func TestParseReminderAllowsQuotedBodyWithIntentionalFillers(t *testing.T) {
+	now := time.Date(2026, time.October, 26, 10, 0, 0, 0, time.Local)
+	requester := types.NewJID("456", types.DefaultUserServer)
+
+	got, err := ParseReminder(`/remind me to "submit" tomorrow at 3pm`, nil, requester, "Yatin", now)
+	if err != nil {
+		t.Fatalf("ParseReminder() error = %v", err)
+	}
+	if got.Body != "submit" {
+		t.Fatalf("Body = %q, want submit", got.Body)
 	}
 }
