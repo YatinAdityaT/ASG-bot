@@ -18,7 +18,16 @@ func TestSetupDBCreatesApplicationSchema(t *testing.T) {
 	}
 	t.Cleanup(func() { conn.Close() })
 
-	for _, name := range []string{"reminders", "birthdays", "idx_remind_at", "idx_reminders_requester_chat", "idx_birth_date"} {
+	for _, name := range []string{
+		"reminders",
+		"birthdays",
+		"outbound_jobs",
+		"idx_remind_at",
+		"idx_reminders_requester_chat",
+		"idx_birth_date",
+		"idx_outbound_jobs_due",
+		"idx_outbound_jobs_status",
+	} {
 		var found string
 		err := conn.QueryRow(
 			"SELECT name FROM sqlite_master WHERE name = ?",
@@ -39,6 +48,33 @@ func TestSetupDBCreatesApplicationSchema(t *testing.T) {
 	}
 	if requestedByColumnCount != 1 {
 		t.Fatalf("requested_by column count = %d, want 1", requestedByColumnCount)
+	}
+
+	for _, column := range []string{
+		"id",
+		"idempotency_key",
+		"chat_id",
+		"message",
+		"message_id",
+		"send_at",
+		"next_attempt_at",
+		"status",
+		"attempts",
+		"last_error",
+		"created_at",
+		"sent_at",
+	} {
+		var count int
+		if err := conn.QueryRow(`
+			SELECT COUNT(*)
+			FROM pragma_table_info('outbound_jobs')
+			WHERE name = ?
+		`, column).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 {
+			t.Fatalf("outbound_jobs column %q count = %d, want 1", column, count)
+		}
 	}
 }
 

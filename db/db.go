@@ -28,6 +28,25 @@ var createBirthdaysTable = `
 	birth_date DATE NOT NULL);
 	CREATE INDEX IF NOT EXISTS idx_birth_date ON birthdays(birth_date);`
 
+var createOutboundJobsTable = `
+	CREATE TABLE IF NOT EXISTS outbound_jobs (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	idempotency_key TEXT NOT NULL UNIQUE,
+	chat_id TEXT NOT NULL,
+	message TEXT NOT NULL,
+	message_id TEXT NOT NULL UNIQUE,
+	send_at INTEGER NOT NULL,
+	next_attempt_at INTEGER NOT NULL,
+	status TEXT NOT NULL CHECK (status IN ('pending', 'sending', 'sent', 'failed')),
+	attempts INTEGER NOT NULL DEFAULT 0,
+	last_error TEXT,
+	created_at INTEGER NOT NULL,
+	sent_at INTEGER);
+	CREATE INDEX IF NOT EXISTS idx_outbound_jobs_due
+		ON outbound_jobs(status, next_attempt_at);
+	CREATE INDEX IF NOT EXISTS idx_outbound_jobs_status
+		ON outbound_jobs(status);`
+
 func SetupDB(ctx context.Context, path string) (*sqlstore.Container, *sql.DB, error) {
 	database, err := sql.Open("sqlite", "file:"+path+"?_foreign_keys=on")
 	if err != nil {
@@ -57,6 +76,12 @@ func SetupDB(ctx context.Context, path string) (*sqlstore.Container, *sql.DB, er
 	if err != nil {
 		database.Close()
 		return nil, nil, fmt.Errorf("create birthdays schema: %w", err)
+	}
+
+	_, err = database.ExecContext(ctx, createOutboundJobsTable)
+	if err != nil {
+		database.Close()
+		return nil, nil, fmt.Errorf("create outbound jobs schema: %w", err)
 	}
 
 	return container, database, nil

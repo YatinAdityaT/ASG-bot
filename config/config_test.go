@@ -132,3 +132,106 @@ func TestLoadRejectsUnsupportedLogLevel(t *testing.T) {
 		t.Fatal("Load() error = nil, want unsupported log-level error")
 	}
 }
+
+func TestLoadAPIDisabledByDefault(t *testing.T) {
+	env := map[string]string{
+		"ASG_BOT_ADMIN_NUMBERS":  "111",
+		"ASG_BOT_ALLOWED_GROUPS": "123@g.us",
+	}
+
+	cfg, err := Load(func(key string) string { return env[key] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.APIEnabled {
+		t.Fatal("APIEnabled = true, want false")
+	}
+	if cfg.APIAddr != "" || cfg.APIToken != "" || cfg.APITargetGroup != "" || cfg.APIAllowedOrigins != nil {
+		t.Fatalf("disabled API fields unexpectedly populated: %#v", cfg)
+	}
+}
+
+func TestLoadValidEnabledAPI(t *testing.T) {
+	env := map[string]string{
+		"ASG_BOT_ADMIN_NUMBERS":       "111",
+		"ASG_BOT_ALLOWED_GROUPS":      "123@g.us,456@g.us",
+		"ASG_BOT_API_ENABLED":         "true",
+		"ASG_BOT_API_TOKEN":           "01234567890123456789012345678901",
+		"ASG_BOT_API_TARGET_GROUP":    "456@g.us",
+		"ASG_BOT_API_ALLOWED_ORIGINS": " chrome-extension://abcdefghijklmnop ,chrome-extension://qrstuvwxyzabcdef ",
+	}
+
+	cfg, err := Load(func(key string) string { return env[key] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.APIEnabled {
+		t.Fatal("APIEnabled = false, want true")
+	}
+	if cfg.APIAddr != "127.0.0.1:8080" {
+		t.Fatalf("APIAddr = %q, want default", cfg.APIAddr)
+	}
+	if cfg.APIToken != env["ASG_BOT_API_TOKEN"] || cfg.APITargetGroup != "456@g.us" {
+		t.Fatalf("unexpected API configuration: %#v", cfg)
+	}
+	wantOrigins := []string{"chrome-extension://abcdefghijklmnop", "chrome-extension://qrstuvwxyzabcdef"}
+	if !reflect.DeepEqual(cfg.APIAllowedOrigins, wantOrigins) {
+		t.Fatalf("APIAllowedOrigins = %#v, want %#v", cfg.APIAllowedOrigins, wantOrigins)
+	}
+}
+
+func TestLoadRejectsInvalidEnabledAPI(t *testing.T) {
+	valid := map[string]string{
+		"ASG_BOT_ADMIN_NUMBERS":    "111",
+		"ASG_BOT_ALLOWED_GROUPS":   "123@g.us",
+		"ASG_BOT_API_ENABLED":      "true",
+		"ASG_BOT_API_ADDR":         "127.0.0.1:9090",
+		"ASG_BOT_API_TOKEN":        "01234567890123456789012345678901",
+		"ASG_BOT_API_TARGET_GROUP": "123@g.us",
+	}
+	tests := []struct {
+		name   string
+		key    string
+		value  string
+		delete bool
+	}{
+		{name: "missing token", key: "ASG_BOT_API_TOKEN", delete: true},
+		{name: "short token", key: "ASG_BOT_API_TOKEN", value: "too-short"},
+		{name: "malformed address", key: "ASG_BOT_API_ADDR", value: "127.0.0.1"},
+		{name: "malformed target", key: "ASG_BOT_API_TARGET_GROUP", value: "123@s.whatsapp.net"},
+		{name: "target not allowed", key: "ASG_BOT_API_TARGET_GROUP", value: "456@g.us"},
+		{name: "malformed origin", key: "ASG_BOT_API_ALLOWED_ORIGINS", value: "https://example.com"},
+		{name: "origin with path", key: "ASG_BOT_API_ALLOWED_ORIGINS", value: "chrome-extension://abcdefghijklmnop/path"},
+		{name: "empty origin entry", key: "ASG_BOT_API_ALLOWED_ORIGINS", value: "chrome-extension://abcdefghijklmnop,"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := make(map[string]string, len(valid))
+			for key, value := range valid {
+				env[key] = value
+			}
+			if tt.delete {
+				delete(env, tt.key)
+			} else {
+				env[tt.key] = tt.value
+			}
+
+			if _, err := Load(func(key string) string { return env[key] }); err == nil {
+				t.Fatal("Load() error = nil, want validation error")
+			}
+		})
+	}
+}
+
+func TestLoadRejectsMalformedAPIEnabled(t *testing.T) {
+	env := map[string]string{
+		"ASG_BOT_ADMIN_NUMBERS":  "111",
+		"ASG_BOT_ALLOWED_GROUPS": "123@g.us",
+		"ASG_BOT_API_ENABLED":    "yes",
+	}
+
+	if _, err := Load(func(key string) string { return env[key] }); err == nil {
+		t.Fatal("Load() error = nil, want boolean validation error")
+	}
+}
