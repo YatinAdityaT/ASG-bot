@@ -3,7 +3,9 @@ package cmd
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"regexp"
+	"strings"
 	"testing"
 	"whatsappBot/utils"
 
@@ -50,6 +52,61 @@ func TestRouteMessageRepliesToPing(t *testing.T) {
 	}
 }
 
+func TestRouteMessageReturnsPingSendError(t *testing.T) {
+	sendErr := errors.New("ping send failed")
+	sender := &fakeSender{err: sendErr}
+	manager := NewCommandManager(sender, nil, func() {})
+
+	err := manager.RouteMessage(nil, context.Background(), messageEvent("/ping"))
+
+	if !errors.Is(err, sendErr) {
+		t.Fatalf("RouteMessage() error = %v, want %v", err, sendErr)
+	}
+}
+
+func TestRouteMessageReturnsEchoSendError(t *testing.T) {
+	sendErr := errors.New("echo send failed")
+	sender := &fakeSender{err: sendErr}
+	manager := NewCommandManager(sender, nil, func() {})
+
+	err := manager.RouteMessage(nil, context.Background(), messageEvent("/echo hello"))
+
+	if !errors.Is(err, sendErr) {
+		t.Fatalf("RouteMessage() error = %v, want %v", err, sendErr)
+	}
+}
+
+func TestRouteMessageReturnsUnauthorizedReplySendError(t *testing.T) {
+	sendErr := errors.New("denial send failed")
+	sender := &fakeSender{err: sendErr}
+	manager := NewCommandManager(sender, nil, func() {})
+
+	err := manager.RouteMessage(nil, context.Background(), messageEvent("/die"))
+
+	if !errors.Is(err, sendErr) {
+		t.Fatalf("RouteMessage() error = %v, want %v", err, sendErr)
+	}
+}
+
+func TestRouteMessageHelpPreservesNonAdminCommands(t *testing.T) {
+	sender := &fakeSender{}
+	manager := NewCommandManager(sender, nil, func() {})
+
+	if err := manager.RouteMessage(nil, context.Background(), messageEvent("/help")); err != nil {
+		t.Fatalf("RouteMessage() error = %v", err)
+	}
+
+	reply := sentText(t, sender)
+	for _, command := range []string{"/ping", "/echo", "/help", "/remind", "/rlist", "/rupdate <key>", "/rdelete <key>"} {
+		if !strings.Contains(reply, "`"+command+"`") {
+			t.Errorf("help reply missing %q", command)
+		}
+	}
+	if strings.Contains(reply, "`/die`") {
+		t.Error("help reply contains admin-only /die command")
+	}
+}
+
 func TestRouteMessageIgnoresNonCommandText(t *testing.T) {
 	sender := &fakeSender{}
 	manager := NewCommandManager(sender, nil, func() {})
@@ -68,8 +125,9 @@ func TestRouteMessagePassesOnlyCaptureGroupsToCallback(t *testing.T) {
 	manager.RegisterCommand(Command{
 		Name:  "/test",
 		Regex: regexp.MustCompile(`^/test (\d+) (.+)$`),
-		Callback: func(_ *sql.DB, _ context.Context, _ utils.MessageSender, _ types.MessageInfo, args []string) {
+		Callback: func(_ *sql.DB, _ context.Context, _ utils.MessageSender, _ types.MessageInfo, args []string) error {
 			gotArgs = args
+			return nil
 		},
 	})
 

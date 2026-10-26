@@ -9,7 +9,7 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
-type CommandHandlerFunc func(db *sql.DB, ctx context.Context, client utils.MessageSender, info types.MessageInfo, args []string)
+type CommandHandlerFunc func(db *sql.DB, ctx context.Context, client utils.MessageSender, info types.MessageInfo, args []string) error
 type Command struct {
 	Name           string
 	Description    string

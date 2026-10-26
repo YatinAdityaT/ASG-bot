@@ -29,7 +29,9 @@ func eventHandler(db *sql.DB, ctx context.Context, client *whatsmeow.Client, com
 		switch v := evt.(type) {
 		case *events.Message:
 			if v.Info.Chat.String() == testingGroup || v.Info.Chat.String() == asg {
-				commandManager.RouteMessage(db, ctx, v)
+				if err := commandManager.RouteMessage(db, ctx, v); err != nil {
+					fmt.Fprintf(os.Stderr, "Command handling error: %v\n", err)
+				}
 				toneIndicatorM.MatchAndAutoRespond(ctx, client, v)
 			}
 		case *events.Connected:

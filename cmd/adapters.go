@@ -14,7 +14,7 @@ func NoDB(fn func(
 	client utils.MessageSender,
 	info types.MessageInfo,
 	args []string,
-)) CommandHandlerFunc {
+) error) CommandHandlerFunc {
 
 	return func(
 		db *sql.DB,
@@ -22,8 +22,8 @@ func NoDB(fn func(
 		client utils.MessageSender,
 		info types.MessageInfo,
 		args []string,
-	) {
+	) error {
 		// just ignore the db parameter
-		fn(ctx, client, info, args)
+		return fn(ctx, client, info, args)
 	}
 }

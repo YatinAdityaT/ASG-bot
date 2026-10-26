@@ -10,26 +10,25 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 )
 
-func (cm *CommandManager) RouteMessage(db *sql.DB, ctx context.Context, evt *events.Message) {
+func (cm *CommandManager) RouteMessage(db *sql.DB, ctx context.Context, evt *events.Message) error {
 	info := evt.Info
 	messageText := utils.ExtractCleanText(evt)
 
 	if messageText == "" || !strings.HasPrefix(messageText, "/") {
-		return
+		return nil
 	}
 
 	for _, cmd := range cm.commands {
 		matches := cmd.Regex.FindStringSubmatch(messageText)
 		if len(matches) > 0 {
 			if cmd.IsAdminCommand && !cm.isAdmin(info.Sender) {
-				_ = utils.ReplyToMessage(ctx, cm.client, info.Chat, "You do not have permission to use this command.", info.ID, info.Sender)
-				return
+				return utils.ReplyToMessage(ctx, cm.client, info.Chat, "You do not have permission to use this command.", info.ID, info.Sender)
 			}
 
-			cmd.Callback(db, ctx, cm.client, info, matches[1:])
-			return
+			return cmd.Callback(db, ctx, cm.client, info, matches[1:])
 		}
 	}
+	return nil
 }
 
 func (cm *CommandManager) isAdmin(jid types.JID) bool {
