@@ -78,7 +78,9 @@ pairing, stop the bot and select a new database path. Deleting the old database
 also deletes its reminders and stored session.
 
 Only exact group JIDs in `ASG_BOT_ALLOWED_GROUPS` are processed. Direct
-messages, unlisted groups, and unknown slash commands receive no response.
+messages and unlisted groups receive no response. Unknown slash commands are
+ignored by command routing, but recognized tone indicators such as `/s` can
+still trigger an automatic tone response.
 
 ## Supported behavior
 
