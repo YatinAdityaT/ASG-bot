@@ -147,8 +147,6 @@ func TestParseReminderRejectsInvalidInput(t *testing.T) {
 	}{
 		{name: "fake visible mention", input: `/remind @Alex "submit the form" tomorrow at 3pm`},
 		{name: "multiple mentions", input: `/remind @Alex @Sam "submit the form" tomorrow at 3pm`, mentions: []types.JID{target, types.NewJID("999", types.DefaultUserServer)}},
-		{name: "comma adjacent fake mention", input: `/remind @Alex,@Fake "submit the form" tomorrow at 3pm`, mentions: []types.JID{target}},
-		{name: "semicolon adjacent fake mention", input: `/remind @Alex;@Fake "submit the form" tomorrow at 3pm`, mentions: []types.JID{target}},
 		{name: "malformed quote", input: `/remind "submit the form tomorrow at 3pm`},
 		{name: "multiple quoted bodies", input: `/remind "submit" "the form" tomorrow at 3pm`},
 		{name: "quoted body with unexplained text", input: `/remind "submit" tomorrow at 3pm and email Sam`},
@@ -169,12 +167,42 @@ func TestParseReminderRejectsInvalidInput(t *testing.T) {
 	}
 }
 
+func TestParseReminderRejectsEveryAdditionalVisibleMentionMarker(t *testing.T) {
+	now := time.Date(2026, time.October, 26, 10, 0, 0, 0, time.Local)
+	requester := types.NewJID("456", types.DefaultUserServer)
+	target := types.NewJID("789", types.DefaultUserServer)
+
+	for _, test := range []struct {
+		name      string
+		separator string
+	}{
+		{name: "comma", separator: ","},
+		{name: "semicolon", separator: ";"},
+		{name: "period", separator: "."},
+		{name: "colon", separator: ":"},
+		{name: "slash", separator: "/"},
+		{name: "unicode punctuation", separator: "—"},
+		{name: "no separator", separator: ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			visibleText := `@Alex` + test.separator + `@Fake`
+			if got := len(visibleMentionRanges(visibleText)); got != 2 {
+				t.Fatalf("visibleMentionRanges(%q) count = %d, want 2", visibleText, got)
+			}
+			input := `/remind ` + visibleText + ` "submit" tomorrow at 3pm`
+			if got, err := ParseReminder(input, []types.JID{target}, requester, "Yatin", now); err == nil {
+				t.Fatalf("ParseReminder(%q) = %#v, nil error; want error", input, got)
+			}
+		})
+	}
+}
+
 func TestParseReminderAllowsSingleMentionWithTrailingPunctuation(t *testing.T) {
 	now := time.Date(2026, time.October, 26, 10, 0, 0, 0, time.Local)
 	requester := types.NewJID("456", types.DefaultUserServer)
 	target := types.NewJID("789", types.DefaultUserServer)
 
-	for _, punctuation := range []string{",", ";", ".", "!", "?"} {
+	for _, punctuation := range []string{",", ";", ".", ":", "/", "!", "?", "—"} {
 		input := `/remind @Alex` + punctuation + ` "submit" tomorrow at 3pm`
 		got, err := ParseReminder(input, []types.JID{target}, requester, "Yatin", now)
 		if err != nil {

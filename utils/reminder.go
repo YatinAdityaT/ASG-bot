@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/olebedev/when"
 	"github.com/olebedev/when/rules/en"
@@ -130,37 +131,22 @@ func ParseReminder(
 
 func visibleMentionRanges(text string) [][2]int {
 	var ranges [][2]int
-	for index := 0; index < len(text); {
-		if text[index] != '@' || (index > 0 && !isMentionBoundary(text[index-1])) {
-			index++
+	for index, marker := range text {
+		if marker != '@' {
 			continue
 		}
 
 		end := index + 1
-		for end < len(text) && !isMentionWhitespace(text[end]) && text[end] != '@' {
-			if text[end] == ',' || text[end] == ';' {
-				end++
+		for end < len(text) {
+			current, size := utf8.DecodeRuneInString(text[end:])
+			if current == '@' || unicode.IsSpace(current) || unicode.IsPunct(current) || unicode.IsSymbol(current) {
 				break
 			}
-			end++
+			end += size
 		}
 		ranges = append(ranges, [2]int{index, end})
-		index = end
 	}
 	return ranges
-}
-
-func isMentionBoundary(value byte) bool {
-	return isMentionWhitespace(value) || value == ',' || value == ';' || value == '@'
-}
-
-func isMentionWhitespace(value byte) bool {
-	switch value {
-	case ' ', '\t', '\n', '\r':
-		return true
-	default:
-		return false
-	}
 }
 
 func trimLeadingReminderFillers(body string) string {
