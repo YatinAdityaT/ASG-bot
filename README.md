@@ -1,27 +1,185 @@
-*ASG Bot Design document*
+# ASG Bot
 
-List of features I had in mind:
+ASG Bot is a local Windows WhatsApp companion. It responds only in explicitly
+allowed groups, provides commands and reminders, and explains recognized tone
+indicators. Ordinary group messages are not stored. The SQLite database stores
+the linked-device session, WhatsApp client state, and reminders.
 
-Current capabilities:
-1. The bot can only read messages of the groups it is part of
-2. The bot has amnesia for group messages. It receives and sees all messages in a group, but none of them are stored. 
-3. After seeing a message, the bot checks if it was meant for it to respond to or not. If not, the bot forgets about that message - messages aren't persisted in a database 
-4. The bot is a simple (non fuzzy) bot - no LLM integrations yet (we probably don't need them). 
-5. Works asynchronously across multiple groups - Just needs to added to groups to access them
+## Prerequisites
 
-Capabilities I will add soon:
-1. For the accountability subscribers group, the bot will automatically ping people who want to be pinged, and it will share who joined and left the call. It will also auto ping if someone is alone in the call
-2. /help - will list all the commands it responds to
-3. /remind - will remind you of stuff.. could be used in the todo group. Could also be used to get reminders to read or respond to certain messages. Later, I might integrate SMS or calling as well, depending on demand 
-4. /mood - will keep track of a person's mood. Could help get the overall mood of the group or could be later integrated with other tools to monitor how everyone is feeling. Will provide persistence to people's feelings data. Could be used to observe trends per person or as a group
-5. /feedback - will take feedback and store it for later review. Feedback could be anything about the bot or the group itself
-6. /agenda - could be used with Google Calendar to list out a group level agenda or a user level agenda into a given group
-7. Auto responses: These will be responses that the bot sends without being explicitly prompted. I don't want to add too many of these as they would be spammy. Some ideas include - auto-response-tone-indicators - which will automatically post a message explaining a tone indicator the moment one has been used. 
-8. I am yet to brainstorm other ideas of what this bot could be used for. Very open to suggestions
+- Windows PowerShell.
+- Go 1.26 (`go version` must report `go1.26.x`).
+- A WhatsApp account and phone able to scan a linked-device QR code.
 
-Notes: 
-1. Since this code will be running on my pc for now (unless I rent some server) the uptime might vary with how / when I turn off my pc
-2. I can open source the entire code of this bot so that people can read the code, add to it or critic it
-3. I choose the image of Mo from WallE because he is really cute bot. This could possibly cause confusion with some folk as he looks rather mad half of the time - this bot won't have Mo like features (getting angry and shit). I just really like Mo
-4. Rate limiting - I'll have to have some form of rate limiting with this bot as such bots go against WhatsApp's TOS (because they want to sell you their WhatsApp business API). So the bot would rate limit (it won't respond for some time) anyone who tries to ping it one too many times in a short duration. This is to protect the bot from being overwhelmed and to not trigger WhatsApp's TOS  
-5. Future plans: The sky is the limit with this bot tbh. We could look into integrations with different tools and services to make most of the managerial tasks easier to handle. The ADHD manager could also be given tools that will help manage all the folk.
+The current build uses the pure-Go `modernc.org/sqlite` driver. A C compiler and
+CGO are not required. `github.com/mattn/go-sqlite3` may appear in `go.sum` as a
+transitive module, but it is not the database driver imported by this program.
+
+Run all commands below from the repository root. Download dependencies once:
+
+```powershell
+go mod download
+```
+
+## Configuration
+
+The process reads configuration from environment variables at startup.
+
+| Variable | Required | Format and default |
+| --- | --- | --- |
+| `ASG_BOT_ADMIN_NUMBERS` | Yes | Comma-separated WhatsApp phone numbers containing digits only, including country code but no `+`, spaces, or punctuation. These users may run `/die`. |
+| `ASG_BOT_ALLOWED_GROUPS` | Yes | Comma-separated numeric WhatsApp group JIDs in `<digits>@g.us` form. Messages from every other chat are ignored. Display names are not accepted. |
+| `ASG_BOT_DB_PATH` | No | SQLite file path. Defaults to `whatsmeow.db` in the current directory. |
+| `ASG_BOT_LOG_LEVEL` | No | One of `TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`, or `DISABLED`. Defaults to `INFO`; values are case-sensitive. |
+
+Whitespace around comma-separated entries is removed, but empty entries are
+invalid. Obtain the numeric group JID from trusted WhatsApp/whatsmeow diagnostic
+output before starting the bot; do not substitute the group's display name.
+
+Example for the current PowerShell session:
+
+```powershell
+$env:ASG_BOT_ADMIN_NUMBERS = "15551234567,15557654321"
+$env:ASG_BOT_ALLOWED_GROUPS = "120363012345678901@g.us"
+$env:ASG_BOT_DB_PATH = (Join-Path $PWD "whatsmeow.db")
+$env:ASG_BOT_LOG_LEVEL = "INFO"
+```
+
+For an isolated acceptance run, use a new temporary database:
+
+```powershell
+$env:ASG_BOT_DB_PATH = Join-Path $env:TEMP "asg-bot-$([guid]::NewGuid().ToString('N')).db"
+```
+
+Environment variables set this way last only for the current PowerShell
+process. Do not commit phone numbers, group JIDs, or database files.
+
+## Start and pair
+
+Start the bot:
+
+```powershell
+go run .
+```
+
+With a new database, the terminal prints `No existing session found` and a QR
+code. On the phone, open WhatsApp, go to **Settings > Linked devices > Link a
+device**, and scan the terminal QR code. Keep the terminal wide enough for the
+code to render cleanly. Successful startup prints:
+
+```text
+WhatsApp client connected successfully!
+Bot is running. Press Ctrl+C to exit.
+```
+
+The configured database persists both pairing state and reminders. Reusing its
+path reconnects the existing session without another QR scan. To force fresh
+pairing, stop the bot and select a new database path. Deleting the old database
+also deletes its reminders and stored session.
+
+Only exact group JIDs in `ASG_BOT_ALLOWED_GROUPS` are processed. Direct
+messages, unlisted groups, and unknown slash commands receive no response.
+
+## Supported behavior
+
+Send these exact commands in an allowed group:
+
+- `/ping` replies `Pong!`.
+- `/echo <text>` repeats the supplied text.
+- `/help` lists non-admin commands.
+- `/remind <request>` creates a reminder from natural-language time and
+  message text, for example `/remind me to stretch in 2 minutes` or
+  `/remind me to call Mom tomorrow at 3 pm`.
+- `/rlist` lists the sender's reminders and their numeric IDs in this group.
+- `/rupdate <id> <new request>` updates one owned reminder, for example
+  `/rupdate 3 tomorrow at 4 pm call Mom`.
+- `/rdelete <id>` deletes one owned reminder.
+- `/die` replies and shuts down the bot, but only when sent by a number in
+  `ASG_BOT_ADMIN_NUMBERS`.
+
+Reminder ownership includes both sender and group: another user or another
+group cannot list, update, or delete a reminder. Due reminders are posted back
+to the group and mention their owner.
+
+Messages containing a tone indicator defined in `tone/tone_commands.json`
+(for example, `That was easy /s`) receive an automatic explanation. This
+behavior, like commands, is limited to allowed groups.
+
+## Stop
+
+Press **Ctrl+C** in the running PowerShell window. The bot cancels its scheduler,
+disconnects WhatsApp, closes SQLite, and prints `Shutting down bot...`. The
+admin-only `/die` command performs the same application shutdown after its
+reply is sent.
+
+## Verify
+
+Run the automated gates from the repository root:
+
+```powershell
+gofmt -d .
+go vet ./...
+go test ./...
+go build ./...
+git diff --check
+git status --short
+```
+
+`gofmt -d .` should print nothing. The vet, test, build, and diff-check commands
+should exit successfully. `git status --short` is informational and should show
+only changes you intentionally made.
+
+## Live acceptance
+
+Automated tests do not authenticate with WhatsApp. Complete this check manually:
+
+1. Set valid admin numbers and the test group's numeric JID.
+2. Set `ASG_BOT_DB_PATH` to a new temporary path as shown above.
+3. Run `go run .`, scan the QR code, and confirm the connected/running messages.
+4. In the allowed test group, verify `/ping`, `/echo acceptance`, and `/help`.
+5. Create a reminder due in a few minutes, use `/rlist` to get its ID, update
+   it with `/rupdate`, and confirm the updated reminder is delivered.
+6. Create another reminder and delete it with `/rdelete`; confirm it disappears
+   from `/rlist`.
+7. Send a tone indicator such as `Acceptance test /s` and confirm the automatic
+   explanation.
+8. Confirm the same commands are ignored in an unlisted group.
+9. Press Ctrl+C and confirm clean shutdown.
+
+## Troubleshooting
+
+### HTTP 405 or “client outdated”
+
+WhatsApp rejects stale client protocols with HTTP 405. Confirm the selected
+whatsmeow version and update it before rebuilding:
+
+```powershell
+go list -m go.mau.fi/whatsmeow
+go get go.mau.fi/whatsmeow@latest
+go mod tidy
+go test ./...
+go build ./...
+```
+
+Review and commit the resulting `go.mod` and `go.sum` changes separately. If
+the error remains, use a new temporary database to force QR pairing. Do not
+delete the normal database unless losing its stored session and reminders is
+acceptable.
+
+### Configuration error
+
+Startup reports the exact invalid variable. Admin entries must be digits only;
+group entries must be numeric JIDs ending in `@g.us`; the log level must use one
+of the uppercase values above. Set both required variables before retrying.
+
+### QR code cannot be scanned
+
+Enlarge the terminal, use a standard dark-on-light terminal theme, and retry
+with a fresh database path. Ensure the phone has network access and that the
+terminal stays open while pairing.
+
+### Database cannot be opened
+
+Use an absolute path in a writable directory, ensure its parent directory
+exists, and make sure another process is not holding the database. Preserve the
+same path across normal restarts if pairing and reminders must persist.
