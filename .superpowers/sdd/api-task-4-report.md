@@ -65,3 +65,27 @@ token rejection, and absence of SQLite lock errors.
 ## Commit
 
 Requested commit message: `docs: add message queue API operations`.
+
+## Important lifecycle review follow-up
+
+The two Important review findings were corrected with test-first regressions:
+
+- Startup now requires `IsLoggedIn()` and a whatsmeow `Connected` event before
+  exposing the API or starting the scheduler. Websocket connectivity alone is
+  insufficient. Existing-session and fresh-pair paths both wait on the same
+  event-driven authentication gate; disconnect, logout, stream replacement,
+  connection failure, and context cancellation fail startup.
+- API and scheduler now receive separately controlled child contexts. Root
+  cancellation cancels and waits for the API first, then cancels and waits for
+  the scheduler, followed by deferred client disconnect and database close.
+
+The authentication-gate regression failed before the fix because an
+`IsConnected=true`, `IsLoggedIn=false` client reached API startup. The shutdown
+regression failed before the fix because the scheduler context was already
+canceled when API shutdown began. Deterministic channel tests now cover both
+failures, logged-in readiness for existing and fresh pairing, cancellation
+while waiting for login, and deferred cleanup ordering.
+
+Focused tests, the complete nine-package test suite, formatting, vet, build,
+and whitespace gates pass. Live acceptance remains deferred and the running bot
+and production database were not touched.

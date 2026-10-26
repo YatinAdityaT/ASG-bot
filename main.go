@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -41,6 +42,55 @@ type lifecycleClient interface {
 	Disconnect()
 	GetQRChannel(context.Context) (<-chan whatsmeow.QRChannelItem, error)
 	IsConnected() bool
+	IsLoggedIn() bool
+}
+
+type authenticationWaiter struct {
+	client lifecycleClient
+	once   sync.Once
+	result chan error
+}
+
+func newAuthenticationWaiter(client lifecycleClient) *authenticationWaiter {
+	return &authenticationWaiter{
+		client: client,
+		result: make(chan error, 1),
+	}
+}
+
+func (waiter *authenticationWaiter) observe(evt interface{}) {
+	switch event := evt.(type) {
+	case *events.Connected:
+		if waiter.client.IsLoggedIn() {
+			waiter.complete(nil)
+		}
+	case *events.Disconnected:
+		waiter.complete(errors.New("WhatsApp disconnected before authentication"))
+	case *events.LoggedOut:
+		waiter.complete(errors.New("WhatsApp logged out before authentication"))
+	case *events.StreamReplaced:
+		waiter.complete(errors.New("WhatsApp stream replaced before authentication"))
+	case *events.ConnectFailure:
+		waiter.complete(fmt.Errorf("WhatsApp authentication failed: %s", event.Message))
+	}
+}
+
+func (waiter *authenticationWaiter) complete(err error) {
+	waiter.once.Do(func() {
+		waiter.result <- err
+	})
+}
+
+func (waiter *authenticationWaiter) wait(ctx context.Context) error {
+	if waiter.client.IsLoggedIn() {
+		waiter.complete(nil)
+	}
+	select {
+	case err := <-waiter.result:
+		return err
+	case <-ctx.Done():
+		return fmt.Errorf("wait for WhatsApp authentication: %w", ctx.Err())
+	}
 }
 
 type runtimeDependencies struct {
@@ -162,15 +212,20 @@ func runWithDependencies(ctx context.Context, cfg config.Config, deps runtimeDep
 		return fmt.Errorf("load tone indicators: %w", err)
 	}
 	commandManager := cmd.NewCommandManager(client, cfg.AdminNumbers, cancel)
-	client.AddEventHandler(eventHandler(
+	handleEvent := eventHandler(
 		database,
 		ctx,
 		commandManager,
 		toneManager,
 		allowedGroupSet(cfg.AllowedGroups),
-	))
+	)
+	authWaiter := newAuthenticationWaiter(client)
+	client.AddEventHandler(func(evt interface{}) {
+		authWaiter.observe(evt)
+		handleEvent(evt)
+	})
 
-	if err := connectClient(ctx, client, func() bool { return device.ID != nil }, deps.renderQR); err != nil {
+	if err := connectClient(ctx, client, func() bool { return device.ID != nil }, deps.renderQR, authWaiter); err != nil {
 		return err
 	}
 	if err := ctx.Err(); err != nil {
@@ -178,10 +233,15 @@ func runWithDependencies(ctx context.Context, cfg config.Config, deps runtimeDep
 	}
 
 	var apiDone <-chan error
+	var apiCancel context.CancelFunc
 	if cfg.APIEnabled {
-		apiDone = deps.startAPI(ctx, cfg, outboundStore)
+		var apiCtx context.Context
+		apiCtx, apiCancel = context.WithCancel(context.WithoutCancel(ctx))
+		defer apiCancel()
+		apiDone = deps.startAPI(apiCtx, cfg, outboundStore)
 		select {
 		case err, ok := <-apiDone:
+			apiCancel()
 			if !ok {
 				return errors.New("start message API: server exited without a result")
 			}
@@ -193,7 +253,8 @@ func runWithDependencies(ctx context.Context, cfg config.Config, deps runtimeDep
 		}
 	}
 
-	schedulerDone := deps.startScheduler(ctx, database, client, outboundStore)
+	schedulerCtx, schedulerCancel := context.WithCancel(context.WithoutCancel(ctx))
+	schedulerDone := deps.startScheduler(schedulerCtx, database, client, outboundStore)
 	fmt.Println("Bot is running. Press Ctrl+C to exit.")
 
 	var apiErr error
@@ -215,12 +276,14 @@ func runWithDependencies(ctx context.Context, cfg config.Config, deps runtimeDep
 			}
 			cancel()
 		}
+		apiCancel()
 		if !apiResultRead {
 			if err, ok := <-apiDone; ok {
 				apiErr = err
 			}
 		}
 	}
+	schedulerCancel()
 	<-schedulerDone
 	fmt.Println("Shutting down bot...")
 	return apiErr
@@ -231,14 +294,15 @@ func connectClient(
 	client lifecycleClient,
 	hasStoredDevice func() bool,
 	renderQR func(string),
+	authWaiter *authenticationWaiter,
 ) error {
 	if hasStoredDevice() {
 		fmt.Println("Existing session found. Connecting...")
 		if err := client.Connect(); err != nil {
 			return fmt.Errorf("connect existing session: %w", err)
 		}
-		if !client.IsConnected() {
-			return errors.New("connect existing session: client is not connected")
+		if err := authWaiter.wait(ctx); err != nil {
+			return fmt.Errorf("authenticate existing session: %w", err)
 		}
 		return nil
 	}
@@ -258,17 +322,26 @@ func connectClient(
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case err := <-authWaiter.result:
+			if err != nil {
+				return fmt.Errorf("authenticate paired session: %w", err)
+			}
+			return nil
 		case err := <-connectResult:
 			if err != nil {
 				return fmt.Errorf("connect for QR pairing: %w", err)
 			}
+			if client.IsLoggedIn() {
+				return nil
+			}
 			connectResult = nil
 		case event, ok := <-qrChannel:
 			if !ok {
-				if hasStoredDevice() || client.IsConnected() {
-					return nil
+				if !hasStoredDevice() && !client.IsLoggedIn() {
+					return errors.New("QR channel closed before pairing or authentication succeeded")
 				}
-				return errors.New("QR channel closed before pairing or connection succeeded")
+				qrChannel = nil
+				continue
 			}
 			if event.Event == "code" {
 				fmt.Println("Scan this QR code with your WhatsApp app:")

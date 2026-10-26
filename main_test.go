@@ -81,7 +81,13 @@ func TestConnectClientFailsWhenQRChannelClosesWithoutPairing(t *testing.T) {
 	}
 	close(client.qr)
 
-	err := connectClient(context.Background(), client, func() bool { return false }, func(string) {})
+	err := connectClient(
+		context.Background(),
+		client,
+		func() bool { return false },
+		func(string) {},
+		newAuthenticationWaiter(client),
+	)
 	if err == nil || !strings.Contains(err.Error(), "QR channel closed") {
 		t.Fatalf("connectClient error = %v, want QR channel closure failure", err)
 	}
@@ -277,6 +283,7 @@ func TestRunEnabledAPIStartsAfterAuthenticationAndRecovery(t *testing.T) {
 	}
 	deviceID := types.NewJID("123", types.DefaultUserServer)
 	client := &fakeLifecycleClient{}
+	client.loggedIn = true
 	events := make(chan string, 4)
 	apiDone := make(chan error, 1)
 	schedulerDone := make(chan struct{})
@@ -335,19 +342,105 @@ func TestRunEnabledAPIStartsAfterAuthenticationAndRecovery(t *testing.T) {
 	}
 }
 
-func TestRunWaitsForAPIThenSchedulerBeforeDeferredCleanup(t *testing.T) {
+func TestRunRejectsConnectedClientThatIsNotLoggedIn(t *testing.T) {
+	database, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceID := types.NewJID("123", types.DefaultUserServer)
+	client := &fakeLifecycleClient{
+		deferLogin: true,
+		connectEvents: []interface{}{
+			&events.Connected{},
+			&events.Disconnected{},
+		},
+	}
+	apiStarted := false
+	schedulerStarted := false
+	deps := enabledRuntimeDependencies(database, &deviceID, client)
+	deps.startAPI = func(context.Context, config.Config, *outbound.Store) <-chan error {
+		apiStarted = true
+		done := make(chan error, 1)
+		done <- errors.New("API must not start")
+		return done
+	}
+	deps.startScheduler = func(context.Context, *sql.DB, utils.MessageSender, *outbound.Store) <-chan struct{} {
+		schedulerStarted = true
+		done := make(chan struct{})
+		close(done)
+		return done
+	}
+
+	err = runWithDependencies(context.Background(), baseTestConfig(true), deps)
+	if err == nil || !strings.Contains(err.Error(), "authentication") {
+		t.Fatalf("runWithDependencies error = %v, want authentication failure", err)
+	}
+	if apiStarted || schedulerStarted {
+		t.Fatalf("components started before login: API=%t scheduler=%t", apiStarted, schedulerStarted)
+	}
+}
+
+func TestRunStartsComponentsAfterLoggedInEvent(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	database, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
 	deviceID := types.NewJID("123", types.DefaultUserServer)
-	client := &fakeLifecycleClient{}
+	connectComplete := make(chan struct{})
+	client := &fakeLifecycleClient{
+		deferLogin:      true,
+		connectComplete: connectComplete,
+	}
 	apiDone := make(chan error, 1)
 	schedulerDone := make(chan struct{})
 	schedulerStarted := make(chan struct{})
-
 	deps := enabledRuntimeDependencies(database, &deviceID, client)
+	deps.startAPI = func(context.Context, config.Config, *outbound.Store) <-chan error {
+		if !client.IsLoggedIn() {
+			t.Error("API started before login")
+		}
+		return apiDone
+	}
+	deps.startScheduler = func(context.Context, *sql.DB, utils.MessageSender, *outbound.Store) <-chan struct{} {
+		if !client.IsLoggedIn() {
+			t.Error("scheduler started before login")
+		}
+		close(schedulerStarted)
+		return schedulerDone
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- runWithDependencies(ctx, baseTestConfig(true), deps) }()
+	<-connectComplete
+	client.setLoggedIn(true)
+	client.emit(&events.Connected{})
+	<-schedulerStarted
+	cancel()
+	apiDone <- nil
+	close(apiDone)
+	close(schedulerDone)
+	if err := <-done; err != nil {
+		t.Fatalf("runWithDependencies error = %v", err)
+	}
+}
+
+func TestRunFreshPairStartsComponentsAfterLoggedInEvent(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	database, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	connectComplete := make(chan struct{})
+	client := &fakeLifecycleClient{
+		qr:              make(chan whatsmeow.QRChannelItem),
+		deferLogin:      true,
+		connectComplete: connectComplete,
+	}
+	apiDone := make(chan error, 1)
+	schedulerDone := make(chan struct{})
+	schedulerStarted := make(chan struct{})
+	deps := enabledRuntimeDependencies(database, nil, client)
 	deps.startAPI = func(context.Context, config.Config, *outbound.Store) <-chan error {
 		return apiDone
 	}
@@ -358,15 +451,111 @@ func TestRunWaitsForAPIThenSchedulerBeforeDeferredCleanup(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() { done <- runWithDependencies(ctx, baseTestConfig(true), deps) }()
+	<-connectComplete
+	client.setLoggedIn(true)
+	client.emit(&events.Connected{})
 	<-schedulerStarted
 	cancel()
-	assertRuntimeStillOpen(t, done, client, database)
-
 	apiDone <- nil
 	close(apiDone)
+	close(schedulerDone)
+	if err := <-done; err != nil {
+		t.Fatalf("runWithDependencies error = %v", err)
+	}
+}
+
+func TestRunContextCancellationWhileWaitingForLoginStartsNoComponents(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	database, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceID := types.NewJID("123", types.DefaultUserServer)
+	connectComplete := make(chan struct{})
+	client := &fakeLifecycleClient{
+		deferLogin:      true,
+		connectComplete: connectComplete,
+	}
+	apiStarted := false
+	schedulerStarted := false
+	deps := enabledRuntimeDependencies(database, &deviceID, client)
+	deps.startAPI = func(context.Context, config.Config, *outbound.Store) <-chan error {
+		apiStarted = true
+		return nil
+	}
+	deps.startScheduler = func(context.Context, *sql.DB, utils.MessageSender, *outbound.Store) <-chan struct{} {
+		schedulerStarted = true
+		return nil
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- runWithDependencies(ctx, baseTestConfig(true), deps) }()
+	<-connectComplete
+	cancel()
+	err = <-done
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("runWithDependencies error = %v, want context cancellation", err)
+	}
+	if apiStarted || schedulerStarted {
+		t.Fatalf("components started before canceled login: API=%t scheduler=%t", apiStarted, schedulerStarted)
+	}
+}
+
+func TestRunCancelsAPIBeforeSchedulerAndCleanup(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	database, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceID := types.NewJID("123", types.DefaultUserServer)
+	client := &fakeLifecycleClient{}
+	client.loggedIn = true
+	apiRelease := make(chan struct{})
+	schedulerRelease := make(chan struct{})
+	apiCheckedScheduler := make(chan bool, 1)
+	schedulerCanceled := make(chan struct{})
+	schedulerStarted := make(chan struct{})
+	var schedulerCtx context.Context
+
+	deps := enabledRuntimeDependencies(database, &deviceID, client)
+	deps.startAPI = func(apiCtx context.Context, _ config.Config, _ *outbound.Store) <-chan error {
+		done := make(chan error, 1)
+		go func() {
+			<-apiCtx.Done()
+			apiCheckedScheduler <- schedulerCtx.Err() != nil
+			<-apiRelease
+			done <- nil
+			close(done)
+		}()
+		return done
+	}
+	deps.startScheduler = func(ctx context.Context, _ *sql.DB, _ utils.MessageSender, _ *outbound.Store) <-chan struct{} {
+		schedulerCtx = ctx
+		close(schedulerStarted)
+		done := make(chan struct{})
+		go func() {
+			<-ctx.Done()
+			close(schedulerCanceled)
+			<-schedulerRelease
+			close(done)
+		}()
+		return done
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- runWithDependencies(ctx, baseTestConfig(true), deps) }()
+	<-schedulerStarted
+	cancel()
+	if canceledTooEarly := <-apiCheckedScheduler; canceledTooEarly {
+		t.Fatal("scheduler context canceled before API completed")
+	}
 	assertRuntimeStillOpen(t, done, client, database)
 
-	close(schedulerDone)
+	close(apiRelease)
+	<-schedulerCanceled
+	assertRuntimeStillOpen(t, done, client, database)
+
+	close(schedulerRelease)
 	if err := <-done; err != nil {
 		t.Fatalf("runWithDependencies error = %v", err)
 	}
@@ -456,16 +645,20 @@ func assertRuntimeStillOpen(t *testing.T, done <-chan error, client *fakeLifecyc
 }
 
 type fakeLifecycleClient struct {
-	mu           sync.Mutex
-	qr           chan whatsmeow.QRChannelItem
-	connectErr   error
-	connectCalls int
-	connected    bool
-	disconnected bool
-	handler      whatsmeow.EventHandler
-	sendStarted  chan struct{}
-	releaseSend  chan struct{}
-	sendOnce     sync.Once
+	mu              sync.Mutex
+	qr              chan whatsmeow.QRChannelItem
+	connectErr      error
+	deferLogin      bool
+	connectCalls    int
+	connected       bool
+	loggedIn        bool
+	disconnected    bool
+	handler         whatsmeow.EventHandler
+	connectEvents   []interface{}
+	connectComplete chan struct{}
+	sendStarted     chan struct{}
+	releaseSend     chan struct{}
+	sendOnce        sync.Once
 }
 
 func (f *fakeLifecycleClient) AddEventHandler(handler whatsmeow.EventHandler) uint32 {
@@ -475,18 +668,31 @@ func (f *fakeLifecycleClient) AddEventHandler(handler whatsmeow.EventHandler) ui
 
 func (f *fakeLifecycleClient) Connect() error {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.connectCalls++
 	if f.connectErr == nil && f.qr == nil {
 		f.connected = true
+		if !f.deferLogin {
+			f.loggedIn = true
+		}
 	}
-	return f.connectErr
+	connectErr := f.connectErr
+	connectEvents := append([]interface{}(nil), f.connectEvents...)
+	f.mu.Unlock()
+
+	for _, event := range connectEvents {
+		f.emit(event)
+	}
+	if f.connectComplete != nil {
+		close(f.connectComplete)
+	}
+	return connectErr
 }
 
 func (f *fakeLifecycleClient) Disconnect() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.connected = false
+	f.loggedIn = false
 	f.disconnected = true
 }
 
@@ -504,6 +710,28 @@ func (f *fakeLifecycleClient) IsConnected() bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.connected
+}
+
+func (f *fakeLifecycleClient) IsLoggedIn() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.loggedIn
+}
+
+func (f *fakeLifecycleClient) setLoggedIn(loggedIn bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.connected = loggedIn
+	f.loggedIn = loggedIn
+}
+
+func (f *fakeLifecycleClient) emit(event interface{}) {
+	f.mu.Lock()
+	handler := f.handler
+	f.mu.Unlock()
+	if handler != nil {
+		handler(event)
+	}
 }
 
 func (f *fakeLifecycleClient) SendMessage(
