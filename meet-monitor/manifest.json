@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Meet Monitor",
+  "version": "1.2.0",
+  "description": "Logs join/leave, camera, mute, and chat in Google Meet.",
+  "permissions": ["storage", "notifications"],
+  "host_permissions": [
+    "https://meet.google.com/*",
+    "https://www.gstatic.com/*"
+  ],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
+  "content_scripts": [{
+    "matches": ["https://meet.google.com/*"],
+    "js": ["src/selectors.js", "src/content.js"],
+    "run_at": "document_idle"
+  }],
+  "background": { "service_worker": "src/background.js" },
+  "action": {
+    "default_popup": "src/popup.html",
+    "default_title": "Meet Monitor"
+  },
+  "options_page": "src/options.html"
+}
