@@ -5,16 +5,15 @@ import (
 	"strings"
 	"whatsappBot/utils"
 
-	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types/events"
 )
 
-func (tim *ToneIManager) MatchAndAutoRespond(ctx context.Context, client *whatsmeow.Client, evt *events.Message) {
+func (tim *ToneIManager) MatchAndAutoRespond(ctx context.Context, evt *events.Message) error {
 	info := evt.Info
 	messageText := utils.ExtractCleanText(evt)
 
 	if messageText == "" {
-		return
+		return nil
 	}
 
 	var outputDescriptions []string
@@ -26,11 +25,11 @@ func (tim *ToneIManager) MatchAndAutoRespond(ctx context.Context, client *whatsm
 	}
 
 	if len(outputDescriptions) == 0 {
-		return
+		return nil
 	}
 
 	// Combine all descriptions into a single string
 	outputText := "[Automatic tone identifier]\nMatched tones:\n" + strings.Join(outputDescriptions, "\n")
 
-	utils.ReplyToMessage(ctx, client, info.Chat, outputText, info.ID, info.Sender)
+	return utils.ReplyToMessage(ctx, tim.client, info.Chat, outputText, info.ID, info.Sender)
 }
