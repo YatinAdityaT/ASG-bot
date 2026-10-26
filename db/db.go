@@ -32,6 +32,8 @@ func SetupDB(ctx context.Context, path string) (*sqlstore.Container, *sql.DB, er
 	if err != nil {
 		return nil, nil, fmt.Errorf("open database: %w", err)
 	}
+	database.SetMaxOpenConns(1)
+	database.SetMaxIdleConns(1)
 
 	container := sqlstore.NewWithDB(database, "sqlite3", nil)
 
