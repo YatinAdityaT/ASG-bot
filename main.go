@@ -13,6 +13,8 @@ import (
 	"whatsappBot/cmd"
 	"whatsappBot/config"
 	"whatsappBot/db"
+	"whatsappBot/messageapi"
+	"whatsappBot/outbound"
 	"whatsappBot/scheduler"
 	"whatsappBot/tone"
 	"whatsappBot/utils"
@@ -42,11 +44,14 @@ type lifecycleClient interface {
 }
 
 type runtimeDependencies struct {
-	setupStore     func(context.Context, string) (*store.Device, *sql.DB, error)
-	newClient      func(*store.Device, config.Config) lifecycleClient
-	newToneManager func(utils.MessageSender) (toneResponder, error)
-	startScheduler func(context.Context, *sql.DB, utils.MessageSender) <-chan struct{}
-	renderQR       func(string)
+	setupStore       func(context.Context, string) (*store.Device, *sql.DB, error)
+	newClient        func(*store.Device, config.Config) lifecycleClient
+	newToneManager   func(utils.MessageSender) (toneResponder, error)
+	newOutboundStore func(*sql.DB, string) *outbound.Store
+	recoverSending   func(context.Context, *outbound.Store) (int64, error)
+	startAPI         func(context.Context, config.Config, *outbound.Store) <-chan error
+	startScheduler   func(context.Context, *sql.DB, utils.MessageSender, *outbound.Store) <-chan struct{}
+	renderQR         func(string)
 }
 
 func eventHandler(
@@ -106,8 +111,17 @@ func defaultRuntimeDependencies() runtimeDependencies {
 		newToneManager: func(sender utils.MessageSender) (toneResponder, error) {
 			return tone.NewToneIManager(sender)
 		},
-		startScheduler: func(ctx context.Context, database *sql.DB, sender utils.MessageSender) <-chan struct{} {
-			registry := scheduler.NewRegistry(database)
+		newOutboundStore: func(database *sql.DB, targetGroup string) *outbound.Store {
+			return outbound.NewStore(database, targetGroup)
+		},
+		recoverSending: func(ctx context.Context, store *outbound.Store) (int64, error) {
+			return store.RecoverSending(ctx)
+		},
+		startAPI: func(ctx context.Context, cfg config.Config, store *outbound.Store) <-chan error {
+			return messageapi.New(cfg, store, time.Now).Start(ctx)
+		},
+		startScheduler: func(ctx context.Context, database *sql.DB, sender utils.MessageSender, outboundStore *outbound.Store) <-chan struct{} {
+			registry := scheduler.NewRegistry(database, outboundStore)
 			return scheduler.NewScheduler(registry, sender, time.Second).Start(ctx)
 		},
 		renderQR: func(code string) {
@@ -132,6 +146,14 @@ func runWithDependencies(ctx context.Context, cfg config.Config, deps runtimeDep
 		runErr = errors.Join(runErr, database.Close())
 	}()
 
+	var outboundStore *outbound.Store
+	if cfg.APIEnabled {
+		outboundStore = deps.newOutboundStore(database, cfg.APITargetGroup)
+		if _, err := deps.recoverSending(ctx, outboundStore); err != nil {
+			return fmt.Errorf("recover outbound messages: %w", err)
+		}
+	}
+
 	client := deps.newClient(device, cfg)
 	defer client.Disconnect()
 
@@ -155,12 +177,53 @@ func runWithDependencies(ctx context.Context, cfg config.Config, deps runtimeDep
 		return err
 	}
 
-	schedulerDone := deps.startScheduler(ctx, database, client)
+	var apiDone <-chan error
+	if cfg.APIEnabled {
+		apiDone = deps.startAPI(ctx, cfg, outboundStore)
+		select {
+		case err, ok := <-apiDone:
+			if !ok {
+				return errors.New("start message API: server exited without a result")
+			}
+			if err == nil {
+				return errors.New("start message API: server exited unexpectedly")
+			}
+			return fmt.Errorf("start message API: %w", err)
+		default:
+		}
+	}
+
+	schedulerDone := deps.startScheduler(ctx, database, client, outboundStore)
 	fmt.Println("Bot is running. Press Ctrl+C to exit.")
-	<-ctx.Done()
+
+	var apiErr error
+	apiResultRead := false
+	if apiDone == nil {
+		<-ctx.Done()
+	} else {
+		select {
+		case <-ctx.Done():
+		case err, ok := <-apiDone:
+			apiResultRead = true
+			if !ok {
+				apiErr = errors.New("message API server exited without a result")
+			} else {
+				apiErr = err
+			}
+			if apiErr == nil && ctx.Err() == nil {
+				apiErr = errors.New("message API server exited unexpectedly")
+			}
+			cancel()
+		}
+		if !apiResultRead {
+			if err, ok := <-apiDone; ok {
+				apiErr = err
+			}
+		}
+	}
 	<-schedulerDone
 	fmt.Println("Shutting down bot...")
-	return nil
+	return apiErr
 }
 
 func connectClient(

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"whatsappBot/config"
+	"whatsappBot/outbound"
 	"whatsappBot/scheduler"
 	"whatsappBot/utils"
 
@@ -122,7 +123,7 @@ func TestRunWaitsForActiveSchedulerWorkBeforeCleanup(t *testing.T) {
 		newToneManager: func(utils.MessageSender) (toneResponder, error) {
 			return &fakeToneResponder{}, nil
 		},
-		startScheduler: func(ctx context.Context, database *sql.DB, sender utils.MessageSender) <-chan struct{} {
+		startScheduler: func(ctx context.Context, database *sql.DB, sender utils.MessageSender, _ *outbound.Store) <-chan struct{} {
 			if !client.IsConnected() {
 				t.Error("scheduler started before client connected")
 			}
@@ -199,7 +200,7 @@ func TestRunReturnsToneLoadingErrorBeforeConnecting(t *testing.T) {
 		newToneManager: func(utils.MessageSender) (toneResponder, error) {
 			return nil, want
 		},
-		startScheduler: func(context.Context, *sql.DB, utils.MessageSender) <-chan struct{} {
+		startScheduler: func(context.Context, *sql.DB, utils.MessageSender, *outbound.Store) <-chan struct{} {
 			t.Error("scheduler started after tone loading failure")
 			return nil
 		},
@@ -215,6 +216,242 @@ func TestRunReturnsToneLoadingErrorBeforeConnecting(t *testing.T) {
 	}
 	if err := database.Ping(); err == nil {
 		t.Fatal("database remained open after startup failure")
+	}
+}
+
+func TestRunWithAPIDisabledPreservesReminderOnlyStartup(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	database, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceID := types.NewJID("123", types.DefaultUserServer)
+	client := &fakeLifecycleClient{}
+	schedulerStarted := make(chan struct{})
+
+	deps := runtimeDependencies{
+		setupStore: func(context.Context, string) (*store.Device, *sql.DB, error) {
+			return &store.Device{ID: &deviceID}, database, nil
+		},
+		newClient: func(*store.Device, config.Config) lifecycleClient { return client },
+		newToneManager: func(utils.MessageSender) (toneResponder, error) {
+			return &fakeToneResponder{}, nil
+		},
+		newOutboundStore: func(*sql.DB, string) *outbound.Store {
+			t.Error("outbound store created while API disabled")
+			return nil
+		},
+		startAPI: func(context.Context, config.Config, *outbound.Store) <-chan error {
+			t.Error("API started while disabled")
+			return nil
+		},
+		startScheduler: func(ctx context.Context, _ *sql.DB, _ utils.MessageSender, outboundStore *outbound.Store) <-chan struct{} {
+			if outboundStore != nil {
+				t.Error("disabled scheduler received outbound store")
+			}
+			close(schedulerStarted)
+			done := make(chan struct{})
+			go func() {
+				<-ctx.Done()
+				close(done)
+			}()
+			return done
+		},
+		renderQR: func(string) {},
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- runWithDependencies(ctx, baseTestConfig(false), deps) }()
+	<-schedulerStarted
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("runWithDependencies error = %v", err)
+	}
+}
+
+func TestRunEnabledAPIStartsAfterAuthenticationAndRecovery(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	database, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceID := types.NewJID("123", types.DefaultUserServer)
+	client := &fakeLifecycleClient{}
+	events := make(chan string, 4)
+	apiDone := make(chan error, 1)
+	schedulerDone := make(chan struct{})
+
+	deps := runtimeDependencies{
+		setupStore: func(context.Context, string) (*store.Device, *sql.DB, error) {
+			return &store.Device{ID: &deviceID}, database, nil
+		},
+		newClient: func(*store.Device, config.Config) lifecycleClient { return client },
+		newToneManager: func(utils.MessageSender) (toneResponder, error) {
+			return &fakeToneResponder{}, nil
+		},
+		newOutboundStore: func(database *sql.DB, target string) *outbound.Store {
+			events <- "store"
+			return outbound.NewStore(database, target)
+		},
+		recoverSending: func(context.Context, *outbound.Store) (int64, error) {
+			events <- "recover"
+			return 1, nil
+		},
+		startAPI: func(context.Context, config.Config, *outbound.Store) <-chan error {
+			if !client.IsConnected() {
+				t.Error("API started before WhatsApp authentication")
+			}
+			events <- "api"
+			return apiDone
+		},
+		startScheduler: func(context.Context, *sql.DB, utils.MessageSender, *outbound.Store) <-chan struct{} {
+			events <- "scheduler"
+			return schedulerDone
+		},
+		renderQR: func(string) {},
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- runWithDependencies(ctx, baseTestConfig(true), deps) }()
+	startupEvents := make([]string, 0, 4)
+	for len(startupEvents) < 4 {
+		select {
+		case event := <-events:
+			startupEvents = append(startupEvents, event)
+		case <-time.After(time.Second):
+			t.Fatalf("startup events = %q, want four events", strings.Join(startupEvents, ","))
+		}
+	}
+	if got := strings.Join(startupEvents, ","); got != "store,recover,api,scheduler" {
+		t.Fatalf("startup events = %q", got)
+	}
+
+	cancel()
+	apiDone <- nil
+	close(apiDone)
+	close(schedulerDone)
+	if err := <-done; err != nil {
+		t.Fatalf("runWithDependencies error = %v", err)
+	}
+}
+
+func TestRunWaitsForAPIThenSchedulerBeforeDeferredCleanup(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	database, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceID := types.NewJID("123", types.DefaultUserServer)
+	client := &fakeLifecycleClient{}
+	apiDone := make(chan error, 1)
+	schedulerDone := make(chan struct{})
+	schedulerStarted := make(chan struct{})
+
+	deps := enabledRuntimeDependencies(database, &deviceID, client)
+	deps.startAPI = func(context.Context, config.Config, *outbound.Store) <-chan error {
+		return apiDone
+	}
+	deps.startScheduler = func(context.Context, *sql.DB, utils.MessageSender, *outbound.Store) <-chan struct{} {
+		close(schedulerStarted)
+		return schedulerDone
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- runWithDependencies(ctx, baseTestConfig(true), deps) }()
+	<-schedulerStarted
+	cancel()
+	assertRuntimeStillOpen(t, done, client, database)
+
+	apiDone <- nil
+	close(apiDone)
+	assertRuntimeStillOpen(t, done, client, database)
+
+	close(schedulerDone)
+	if err := <-done; err != nil {
+		t.Fatalf("runWithDependencies error = %v", err)
+	}
+	if !client.isDisconnected() {
+		t.Fatal("client was not disconnected")
+	}
+	if err := database.Ping(); err == nil {
+		t.Fatal("database remained open")
+	}
+}
+
+func TestRunAPIStartupFailureCleansUpWithoutStartingScheduler(t *testing.T) {
+	database, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceID := types.NewJID("123", types.DefaultUserServer)
+	client := &fakeLifecycleClient{}
+	want := errors.New("bind failed")
+	deps := enabledRuntimeDependencies(database, &deviceID, client)
+	deps.startAPI = func(context.Context, config.Config, *outbound.Store) <-chan error {
+		done := make(chan error, 1)
+		done <- want
+		close(done)
+		return done
+	}
+	deps.startScheduler = func(context.Context, *sql.DB, utils.MessageSender, *outbound.Store) <-chan struct{} {
+		t.Error("scheduler started after API startup failure")
+		return nil
+	}
+
+	err = runWithDependencies(context.Background(), baseTestConfig(true), deps)
+	if !errors.Is(err, want) {
+		t.Fatalf("runWithDependencies error = %v, want wrapped bind error", err)
+	}
+	if !client.isDisconnected() {
+		t.Fatal("client was not disconnected after API startup failure")
+	}
+	if err := database.Ping(); err == nil {
+		t.Fatal("database remained open after API startup failure")
+	}
+}
+
+func enabledRuntimeDependencies(database *sql.DB, deviceID *types.JID, client *fakeLifecycleClient) runtimeDependencies {
+	return runtimeDependencies{
+		setupStore: func(context.Context, string) (*store.Device, *sql.DB, error) {
+			return &store.Device{ID: deviceID}, database, nil
+		},
+		newClient: func(*store.Device, config.Config) lifecycleClient { return client },
+		newToneManager: func(utils.MessageSender) (toneResponder, error) {
+			return &fakeToneResponder{}, nil
+		},
+		newOutboundStore: func(database *sql.DB, target string) *outbound.Store {
+			return outbound.NewStore(database, target)
+		},
+		recoverSending: func(context.Context, *outbound.Store) (int64, error) { return 0, nil },
+		renderQR:       func(string) {},
+	}
+}
+
+func baseTestConfig(apiEnabled bool) config.Config {
+	return config.Config{
+		AdminNumbers:   []string{"456"},
+		AllowedGroups:  []string{"123@g.us"},
+		DBPath:         "ignored.db",
+		LogLevel:       "INFO",
+		APIEnabled:     apiEnabled,
+		APIAddr:        "127.0.0.1:0",
+		APIToken:       "01234567890123456789012345678901",
+		APITargetGroup: "123@g.us",
+	}
+}
+
+func assertRuntimeStillOpen(t *testing.T, done <-chan error, client *fakeLifecycleClient, database *sql.DB) {
+	t.Helper()
+	select {
+	case err := <-done:
+		t.Fatalf("runWithDependencies returned before lifecycle waits completed: %v", err)
+	default:
+	}
+	if client.isDisconnected() {
+		t.Fatal("client disconnected before lifecycle waits completed")
+	}
+	if err := database.Ping(); err != nil {
+		t.Fatalf("database closed before lifecycle waits completed: %v", err)
 	}
 }
 

@@ -18,15 +18,17 @@ type rateEntry struct {
 }
 
 type fixedWindowLimiter struct {
-	mu      sync.Mutex
-	entries map[string]rateEntry
-	now     func() time.Time
+	mu          sync.Mutex
+	entries     map[string]rateEntry
+	now         func() time.Time
+	nextCleanup time.Time
 }
 
 func newFixedWindowLimiter(now func() time.Time) *fixedWindowLimiter {
 	return &fixedWindowLimiter{
-		entries: make(map[string]rateEntry),
-		now:     now,
+		entries:     make(map[string]rateEntry),
+		now:         now,
+		nextCleanup: now().Add(rateWindow),
 	}
 }
 
@@ -39,6 +41,15 @@ func (limiter *fixedWindowLimiter) allow(request *http.Request) bool {
 	now := limiter.now()
 	limiter.mu.Lock()
 	defer limiter.mu.Unlock()
+
+	if !now.Before(limiter.nextCleanup) {
+		for key, candidate := range limiter.entries {
+			if !now.Before(candidate.windowStart.Add(rateWindow)) {
+				delete(limiter.entries, key)
+			}
+		}
+		limiter.nextCleanup = now.Add(rateWindow)
+	}
 
 	entry := limiter.entries[address]
 	if entry.windowStart.IsZero() || !now.Before(entry.windowStart.Add(rateWindow)) {

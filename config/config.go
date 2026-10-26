@@ -81,11 +81,13 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 
 	apiEnabledRaw := strings.TrimSpace(getenv("ASG_BOT_API_ENABLED"))
-	if apiEnabledRaw != "" {
-		cfg.APIEnabled, err = strconv.ParseBool(apiEnabledRaw)
-		if err != nil {
-			return Config{}, fmt.Errorf("ASG_BOT_API_ENABLED must be true or false: %w", err)
-		}
+	switch {
+	case apiEnabledRaw == "", strings.EqualFold(apiEnabledRaw, "false"):
+		cfg.APIEnabled = false
+	case strings.EqualFold(apiEnabledRaw, "true"):
+		cfg.APIEnabled = true
+	default:
+		return Config{}, fmt.Errorf("ASG_BOT_API_ENABLED must be true or false")
 	}
 	if !cfg.APIEnabled {
 		return cfg, nil

@@ -1,13 +1,15 @@
 # ASG Bot
 
-ASG Bot is a local Windows WhatsApp companion. It responds only in explicitly
-allowed groups, provides commands and reminders, and explains recognized tone
-indicators. Ordinary group messages are not stored. The SQLite database stores
-the linked-device session, WhatsApp client state, and reminders.
+ASG Bot is a local WhatsApp companion for Windows or Android Termux. It responds
+only in explicitly allowed groups, provides commands and reminders, explains
+recognized tone indicators, and can optionally accept queued messages through
+an authenticated HTTP API. Ordinary group messages are not stored. The SQLite
+database stores the linked-device session, WhatsApp client state, reminders,
+and outbound API jobs.
 
 ## Prerequisites
 
-- Windows PowerShell.
+- Windows PowerShell, or Termux on Android.
 - Go 1.26 (`go version` must report `go1.26.x`).
 - A WhatsApp account and phone able to scan a linked-device QR code.
 
@@ -31,6 +33,11 @@ The process reads configuration from environment variables at startup.
 | `ASG_BOT_ALLOWED_GROUPS` | Yes | Comma-separated numeric WhatsApp group JIDs in `<digits>@g.us` form. Messages from every other chat are ignored. Display names are not accepted. |
 | `ASG_BOT_DB_PATH` | No | SQLite file path. Defaults to `whatsmeow.db` in the current directory. |
 | `ASG_BOT_LOG_LEVEL` | No | One of `TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`, or `DISABLED`. Defaults to `INFO`; values are case-sensitive. |
+| `ASG_BOT_API_ENABLED` | No | Case-insensitive literal `true` or `false`; no other aliases are accepted. Defaults to `false`. |
+| `ASG_BOT_API_ADDR` | No | Listen address used when the API is enabled. Defaults to `127.0.0.1:8080`. Keep the loopback host when using a local tunnel. |
+| `ASG_BOT_API_TOKEN` | When API enabled | Bearer token containing at least 32 characters. Generate a random secret; never commit or expose it in extension source. |
+| `ASG_BOT_API_TARGET_GROUP` | When API enabled | The one destination group JID. It must also be present in `ASG_BOT_ALLOWED_GROUPS`. Clients cannot override it. |
+| `ASG_BOT_API_ALLOWED_ORIGINS` | No | Comma-separated exact `chrome-extension://<extension-id>` origins. Empty denies browser cross-origin requests while allowing clients that send no `Origin`, such as curl. |
 
 Whitespace around comma-separated entries is removed, but empty entries are
 invalid. Obtain the numeric group JID from trusted WhatsApp/whatsmeow diagnostic
@@ -43,6 +50,18 @@ $env:ASG_BOT_ADMIN_NUMBERS = "15551234567,15557654321"
 $env:ASG_BOT_ALLOWED_GROUPS = "120363012345678901@g.us"
 $env:ASG_BOT_DB_PATH = (Join-Path $PWD "whatsmeow.db")
 $env:ASG_BOT_LOG_LEVEL = "INFO"
+```
+
+Enable the API for a desktop session with a randomly generated token:
+
+```powershell
+$bytes = New-Object byte[] 48
+[Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+$env:ASG_BOT_API_TOKEN = [Convert]::ToBase64String($bytes)
+$env:ASG_BOT_API_ENABLED = "true"
+$env:ASG_BOT_API_ADDR = "127.0.0.1:8080"
+$env:ASG_BOT_API_TARGET_GROUP = "120363012345678901@g.us"
+$env:ASG_BOT_API_ALLOWED_ORIGINS = "chrome-extension://abcdefghijklmnop"
 ```
 
 For an isolated acceptance run, use a new temporary database:
@@ -129,12 +148,111 @@ Messages containing a tone indicator defined in `tone/tone_commands.json`
 (for example, `That was easy /s`) receive an automatic explanation. This
 behavior, like commands, is limited to allowed groups.
 
+## Message queue API
+
+The API starts only after WhatsApp authentication succeeds. Submitted jobs are
+stored in SQLite, survive restarts, and are always sent to
+`ASG_BOT_API_TARGET_GROUP`. An omitted `sendAt` means immediate delivery; a
+scheduled value must be a future RFC 3339 timestamp no more than one year away.
+Message text is limited to 4,096 Unicode code points and request bodies to
+16 KiB.
+
+Submit from PowerShell with `curl.exe` (PowerShell's `curl` alias has different
+argument handling):
+
+```powershell
+$body = @{
+  text = "Queued from the desktop"
+  idempotencyKey = [guid]::NewGuid().ToString()
+} | ConvertTo-Json -Compress
+
+$job = curl.exe --fail-with-body -sS `
+  -H "Authorization: Bearer $env:ASG_BOT_API_TOKEN" `
+  -H "Content-Type: application/json" `
+  --data-binary $body `
+  http://127.0.0.1:8080/v1/messages | ConvertFrom-Json
+
+curl.exe --fail-with-body -sS `
+  -H "Authorization: Bearer $env:ASG_BOT_API_TOKEN" `
+  "http://127.0.0.1:8080/v1/messages/$($job.id)"
+```
+
+For a scheduled request, include a timestamp such as
+`"sendAt":"2026-10-27T09:30:00+05:30"`. Submission returns `202 Accepted`.
+Status is one of `pending`, `sending`, `sent`, or `failed`.
+
+The `idempotencyKey` must be stable across client retries. Repeating the same
+key and payload returns the existing job; reusing a key with different text or
+schedule returns `409 Conflict`. Delivery is best-effort at-least-once. A
+stable WhatsApp message ID reduces duplicates after a crash, but cannot
+transactionally couple WhatsApp delivery to SQLite. Send failures retry up to
+five times with delays of 5 seconds, 30 seconds, 2 minutes, and 10 minutes;
+the fifth failed attempt becomes `failed`.
+
+All routes, including `/healthz`, require the bearer token. The service also
+limits each remote address to 30 requests per minute. Treat the token, database,
+group JIDs, and API responses as secrets. Do not log request bodies or tokens,
+put tokens in URLs, commit them, or embed them in a distributed extension.
+Use a per-install secret storage mechanism for the extension.
+
+### Chrome extension and Cloudflare Tunnel
+
+Copy the installed extension ID from `chrome://extensions` and configure its
+exact origin as `chrome-extension://<extension-id>`. Keep
+`ASG_BOT_API_ALLOWED_ORIGINS` empty until browser access is required. CORS is a
+browser boundary, not authentication; every extension request still needs the
+bearer token.
+
+Keep the bot bound to `127.0.0.1`. Configure Cloudflare Tunnel to forward one
+HTTPS hostname to `http://127.0.0.1:8080`; do not expose port 8080 directly on
+the LAN or Internet. TLS terminates at Cloudflare and the loopback hop remains
+local to the device. Cloudflare Access is recommended as a second
+authentication layer, but it does not replace the application bearer token.
+Restrict the tunnel hostname to this service and configure a catch-all
+not-found rule. Consult current Cloudflare documentation for tunnel
+installation, credentials, DNS, and Access policy because those commands and
+dashboards can change.
+
+### Termux operation
+
+Install Go and build in Termux, then keep the database in the app's private
+home directory rather than shared storage. Export the same variables shown
+above using shell syntax:
+
+```sh
+export ASG_BOT_ADMIN_NUMBERS='15551234567'
+export ASG_BOT_ALLOWED_GROUPS='120363012345678901@g.us'
+export ASG_BOT_DB_PATH="$HOME/asg-bot/whatsmeow.db"
+export ASG_BOT_LOG_LEVEL='INFO'
+export ASG_BOT_API_ENABLED='true'
+export ASG_BOT_API_ADDR='127.0.0.1:8080'
+export ASG_BOT_API_TOKEN="$(openssl rand -base64 48)"
+export ASG_BOT_API_TARGET_GROUP='120363012345678901@g.us'
+export ASG_BOT_API_ALLOWED_ORIGINS=''
+```
+
+Persist the generated token in a private, mode-`600` environment file instead
+of generating a new value at every boot. Do not place secrets directly in a
+world-readable Termux:Boot script. Install the official Termux:API companion
+and its Termux package from the same trusted source as Termux. Before starting
+the bot, run `termux-wake-lock`; release it with `termux-wake-unlock` only after
+shutdown. In Android settings, disable battery optimization for Termux and
+allow background activity. Android can still stop background processes, so
+monitor the service and expect queued jobs to resume after restart.
+
+For boot startup, install the official Termux:Boot companion from the same
+source as Termux, open it once, and place an executable launcher under
+`~/.termux/boot/`. The launcher should acquire the wake lock, source the
+private environment file, change to the repository or binary directory, and
+start the bot and tunnel with logs redirected to private files. Test the
+launcher interactively before relying on reboot behavior.
+
 ## Stop
 
 Press **Ctrl+C** in the running PowerShell window. The bot cancels its scheduler,
-disconnects WhatsApp, closes SQLite, and prints `Shutting down bot...`. The
-admin-only `/die` command performs the same application shutdown after its
-reply is sent.
+stops and waits for the API, waits for scheduler work, disconnects WhatsApp,
+closes SQLite, and prints `Shutting down bot...`. The admin-only `/die` command
+performs the same application shutdown after its reply is sent.
 
 ## Verify
 
@@ -176,6 +294,22 @@ Automated tests do not authenticate with WhatsApp. Complete this check manually:
 10. Confirm the same commands are ignored in an unlisted group.
 11. Confirm the bot log contains no SQLite lock errors.
 12. Press Ctrl+C and confirm clean shutdown.
+
+For message-queue release acceptance, use a controlled maintenance window.
+Never start a second process against the active production database. Stop the
+old process cleanly, preserve and reuse its database, enable the API with a new
+32-or-more-character random token and loopback address, and initially leave
+browser origins empty. Confirm the existing WhatsApp session authenticates and
+existing reminders still work. Then:
+
+1. Verify an invalid bearer token returns `401`.
+2. Submit one immediate job with a unique idempotency key and verify it appears
+   exactly once in the configured target group.
+3. Submit one job scheduled a few minutes ahead and verify it appears exactly
+   once at the expected time.
+4. Poll both status URLs until each reports `sent`.
+5. Confirm the logs contain no SQLite lock errors.
+6. Stop the process cleanly before restoring normal service configuration.
 
 ## Troubleshooting
 

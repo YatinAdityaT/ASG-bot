@@ -225,13 +225,39 @@ func TestLoadRejectsInvalidEnabledAPI(t *testing.T) {
 }
 
 func TestLoadRejectsMalformedAPIEnabled(t *testing.T) {
-	env := map[string]string{
-		"ASG_BOT_ADMIN_NUMBERS":  "111",
-		"ASG_BOT_ALLOWED_GROUPS": "123@g.us",
-		"ASG_BOT_API_ENABLED":    "yes",
-	}
+	for _, value := range []string{"yes", "1", "t", "T", "0", "f", "F", "TRUE-ish"} {
+		t.Run(value, func(t *testing.T) {
+			env := map[string]string{
+				"ASG_BOT_ADMIN_NUMBERS":    "111",
+				"ASG_BOT_ALLOWED_GROUPS":   "123@g.us",
+				"ASG_BOT_API_ENABLED":      value,
+				"ASG_BOT_API_TOKEN":        "01234567890123456789012345678901",
+				"ASG_BOT_API_TARGET_GROUP": "123@g.us",
+			}
 
-	if _, err := Load(func(key string) string { return env[key] }); err == nil {
-		t.Fatal("Load() error = nil, want boolean validation error")
+			if _, err := Load(func(key string) string { return env[key] }); err == nil {
+				t.Fatal("Load() error = nil, want boolean validation error")
+			}
+		})
+	}
+}
+
+func TestLoadAPIEnabledAcceptsCaseInsensitiveLiterals(t *testing.T) {
+	for _, value := range []string{"false", "FALSE", " False "} {
+		t.Run(value, func(t *testing.T) {
+			env := map[string]string{
+				"ASG_BOT_ADMIN_NUMBERS":  "111",
+				"ASG_BOT_ALLOWED_GROUPS": "123@g.us",
+				"ASG_BOT_API_ENABLED":    value,
+			}
+
+			cfg, err := Load(func(key string) string { return env[key] })
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.APIEnabled {
+				t.Fatal("APIEnabled = true, want false")
+			}
+		})
 	}
 }
