@@ -171,12 +171,12 @@ func (s *Store) Due(ctx context.Context, now time.Time, limit int) ([]Job, error
 	return jobs, nil
 }
 
-func (s *Store) Claim(ctx context.Context, id int64) (bool, error) {
+func (s *Store) Claim(ctx context.Context, id int64, expectedNextAttemptAt time.Time) (bool, error) {
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE outbound_jobs
 		SET status = ?
-		WHERE id = ? AND status = ?
-	`, StatusSending, id, StatusPending)
+		WHERE id = ? AND status = ? AND next_attempt_at = ?
+	`, StatusSending, id, StatusPending, toDatabaseTime(expectedNextAttemptAt))
 	if err != nil {
 		return false, fmt.Errorf("claim outbound job: %w", err)
 	}

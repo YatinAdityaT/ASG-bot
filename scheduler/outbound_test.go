@@ -187,11 +187,40 @@ func TestOutboundTaskClaimsBeforeSendToPreventConcurrentDuplicates(t *testing.T)
 	}
 }
 
+func TestStaleOutboundTaskCannotBypassRetryBackoff(t *testing.T) {
+	now := time.Date(2026, 10, 26, 15, 0, 0, 0, time.UTC)
+	store := newSchedulerOutboundStore(t, &now)
+	job := createSchedulerOutboundJob(t, store, "stale-retry", "retry later", now)
+	firstTask := dueOutboundTasks(t, store, now)[0]
+	staleTask := dueOutboundTasks(t, store, now)[0]
+	sendErr := errors.New("temporary send failure")
+	sender := &outboundSender{err: sendErr}
+
+	if err := firstTask.Run(context.Background(), sender); !errors.Is(err, sendErr) {
+		t.Fatalf("first Run() error = %v, want send error", err)
+	}
+	afterFirst := getSchedulerOutboundJob(t, store, job.ID)
+	if afterFirst.Status != outbound.StatusPending || afterFirst.Attempts != 1 {
+		t.Fatalf("job after first failure = %#v, want pending attempt 1", afterFirst)
+	}
+
+	if err := staleTask.Run(context.Background(), sender); err != nil {
+		t.Fatalf("stale Run() error = %v, want nil", err)
+	}
+	afterStale := getSchedulerOutboundJob(t, store, job.ID)
+	if len(sender.snapshot()) != 1 {
+		t.Fatalf("send count = %d, want 1", len(sender.snapshot()))
+	}
+	if afterStale.Attempts != 1 || !afterStale.NextAttemptAt.Equal(afterFirst.NextAttemptAt) {
+		t.Fatalf("job after stale task = %#v, want unchanged retry state %#v", afterStale, afterFirst)
+	}
+}
+
 func TestOutboundProviderExposesRecoveredSendingJob(t *testing.T) {
 	now := time.Date(2026, 10, 26, 15, 0, 0, 0, time.UTC)
 	store := newSchedulerOutboundStore(t, &now)
 	job := createSchedulerOutboundJob(t, store, "recover", "recover me", now.Add(-time.Minute))
-	if claimed, err := store.Claim(context.Background(), job.ID); err != nil || !claimed {
+	if claimed, err := store.Claim(context.Background(), job.ID, job.NextAttemptAt); err != nil || !claimed {
 		t.Fatalf("Claim() = %v, %v; want true, nil", claimed, err)
 	}
 	provider := NewOutboundProvider(store)

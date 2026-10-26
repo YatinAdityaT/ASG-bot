@@ -61,7 +61,7 @@ func (p *OutboundProvider) GetDueTasks(
 }
 
 func (t *OutboundTask) Run(ctx context.Context, sender utils.MessageSender) error {
-	claimed, err := t.store.Claim(ctx, t.jobID)
+	claimed, err := t.store.Claim(ctx, t.jobID, t.schedule)
 	if err != nil {
 		return fmt.Errorf("claim outbound job %d: %w", t.jobID, err)
 	}

@@ -196,11 +196,11 @@ func TestClaimIsAtomic(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	claimed, err := store.Claim(context.Background(), job.ID)
+	claimed, err := store.Claim(context.Background(), job.ID, job.NextAttemptAt)
 	if err != nil || !claimed {
 		t.Fatalf("first Claim() = %v, %v; want true, nil", claimed, err)
 	}
-	claimed, err = store.Claim(context.Background(), job.ID)
+	claimed, err = store.Claim(context.Background(), job.ID, job.NextAttemptAt)
 	if err != nil || claimed {
 		t.Fatalf("second Claim() = %v, %v; want false, nil", claimed, err)
 	}
@@ -223,7 +223,7 @@ func TestMarkSentTransitionsSendingJob(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if claimed, err := store.Claim(context.Background(), job.ID); err != nil || !claimed {
+	if claimed, err := store.Claim(context.Background(), job.ID, job.NextAttemptAt); err != nil || !claimed {
 		t.Fatalf("Claim() = %v, %v", claimed, err)
 	}
 	if err := store.MarkSent(context.Background(), job.ID); err != nil {
@@ -251,7 +251,7 @@ func TestMarkFailedRetriesThenStopsAtFiveAttempts(t *testing.T) {
 	}
 	backoffs := []time.Duration{5 * time.Second, 30 * time.Second, 2 * time.Minute, 10 * time.Minute}
 	for attempt := 1; attempt <= 5; attempt++ {
-		if claimed, err := store.Claim(context.Background(), job.ID); err != nil || !claimed {
+		if claimed, err := store.Claim(context.Background(), job.ID, now); err != nil || !claimed {
 			t.Fatalf("attempt %d Claim() = %v, %v", attempt, claimed, err)
 		}
 		if err := store.MarkFailed(context.Background(), job.ID, "send failed"); err != nil {
@@ -285,7 +285,7 @@ func TestRecoverSendingReturnsJobsToPending(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if claimed, err := store.Claim(context.Background(), job.ID); err != nil || !claimed {
+	if claimed, err := store.Claim(context.Background(), job.ID, job.NextAttemptAt); err != nil || !claimed {
 		t.Fatalf("Claim() = %v, %v", claimed, err)
 	}
 
