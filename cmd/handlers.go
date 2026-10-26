@@ -12,6 +12,8 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
+const reminderUsage = `Sorry, I couldn't understand that reminder. Try /remind @Alex "submit the form" tomorrow at 3pm or /remind me to stretch in 30 minutes.`
+
 func (cm *CommandManager) handlePing(ctx context.Context, client utils.MessageSender, info types.MessageInfo, args []string) error {
 	return utils.ReplyToMessage(ctx, client, info.Chat, "Pong!", info.ID, info.Sender)
 }
@@ -48,28 +50,53 @@ func (cm *CommandManager) handleDie(ctx context.Context, client utils.MessageSen
 
 func (cm *CommandManager) handleReminder(db *sql.DB, ctx context.Context, client utils.MessageSender, commandCtx CommandContext, args []string) error {
 	info := commandCtx.Info
-	input := args[0]
-	t, msg, err := utils.ExtractTimeAndMessage(input)
+	if commandCtx.MentionError != nil {
+		return utils.ReplyToMessage(ctx, client, info.Chat, reminderUsage, info.ID, info.Sender)
+	}
+
+	request, err := utils.ParseReminder(
+		"/remind "+args[0],
+		commandCtx.Mentions,
+		info.Sender,
+		info.PushName,
+		time.Now(),
+	)
 	if err != nil {
-		return utils.ReplyToMessage(ctx, client, info.Chat, "Sorry, I couldn't parse that time. Please try again.", info.ID, info.Sender)
+		return utils.ReplyToMessage(ctx, client, info.Chat, reminderUsage, info.ID, info.Sender)
 	}
 
 	_, err = db.ExecContext(ctx,
-		"INSERT INTO reminders (chat_id, to_id, message, remind_at) VALUES (?, ?, ?, ?)",
-		info.Chat.String(), info.Sender.ToNonAD().String(), "@"+info.Sender.User+" you had asked me to \""+msg+"\"", t,
+		"INSERT INTO reminders (chat_id, to_id, requested_by, message, remind_at) VALUES (?, ?, ?, ?, ?)",
+		info.Chat.String(),
+		request.Target.String(),
+		request.Requester.String(),
+		reminderDeliveryMessage(request),
+		request.RemindAt,
 	)
 	if err != nil {
 		return utils.ReplyToMessage(ctx, client, info.Chat, "Failed to save reminder: "+err.Error(), info.ID, info.Sender)
 	}
 
-	resp := fmt.Sprintf("✅ Reminder set for %s: \"%s\"", t.Format("3:04PM Jan 2"), msg)
+	resp := fmt.Sprintf("✅ Reminder set for %s: \"%s\"", request.RemindAt.Format("3:04PM Jan 2"), request.Body)
 	return utils.ReplyToMessage(ctx, client, info.Chat, resp, info.ID, info.Sender)
+}
+
+func reminderDeliveryMessage(request utils.ReminderRequest) string {
+	if request.Target == request.Requester {
+		return fmt.Sprintf(`@%s you asked me to remind you to %q`, request.Target.User, request.Body)
+	}
+	return fmt.Sprintf(
+		`@%s %s asked me to remind you to %q`,
+		request.Target.User,
+		request.RequesterName,
+		request.Body,
+	)
 }
 
 func (cm *CommandManager) handleRemindList(db *sql.DB, ctx context.Context, client utils.MessageSender, commandCtx CommandContext, args []string) error {
 	info := commandCtx.Info
 	rows, err := db.QueryContext(ctx,
-		"SELECT id, message, remind_at FROM reminders WHERE chat_id = ? AND to_id = ? ORDER BY remind_at ASC",
+		"SELECT id, message, remind_at FROM reminders WHERE chat_id = ? AND requested_by = ? ORDER BY remind_at ASC",
 		info.Chat.String(), info.Sender.ToNonAD().String(),
 	)
 	if err != nil {
@@ -110,7 +137,7 @@ func (cm *CommandManager) handleRemindDelete(db *sql.DB, ctx context.Context, cl
 	}
 
 	res, err := db.ExecContext(ctx,
-		"DELETE FROM reminders WHERE id = ? AND chat_id = ? AND to_id = ?",
+		"DELETE FROM reminders WHERE id = ? AND chat_id = ? AND requested_by = ?",
 		id, info.Chat.String(), info.Sender.ToNonAD().String(),
 	)
 	if err != nil {
@@ -128,6 +155,9 @@ func (cm *CommandManager) handleRemindDelete(db *sql.DB, ctx context.Context, cl
 
 func (cm *CommandManager) handleRemindUpdate(db *sql.DB, ctx context.Context, client utils.MessageSender, commandCtx CommandContext, args []string) error {
 	info := commandCtx.Info
+	if commandCtx.MentionError != nil {
+		return utils.ReplyToMessage(ctx, client, info.Chat, reminderUsage, info.ID, info.Sender)
+	}
 	if len(args) < 2 {
 		return utils.ReplyToMessage(ctx, client, info.Chat, "Usage: /remind update <id> <new time> <message>", info.ID, info.Sender)
 	}
@@ -137,14 +167,37 @@ func (cm *CommandManager) handleRemindUpdate(db *sql.DB, ctx context.Context, cl
 		return utils.ReplyToMessage(ctx, client, info.Chat, "Invalid ID format.", info.ID, info.Sender)
 	}
 
-	t, msg, err := utils.ExtractTimeAndMessage(args[1])
+	request, err := utils.ParseReminder(
+		"/remind "+args[1],
+		nil,
+		info.Sender,
+		info.PushName,
+		time.Now(),
+	)
 	if err != nil {
 		return utils.ReplyToMessage(ctx, client, info.Chat, "Failed to parse time or message.", info.ID, info.Sender)
 	}
 
+	var targetRaw string
+	err = db.QueryRowContext(ctx,
+		"SELECT to_id FROM reminders WHERE id = ? AND chat_id = ? AND requested_by = ?",
+		id, info.Chat.String(), info.Sender.ToNonAD().String(),
+	).Scan(&targetRaw)
+	if err == sql.ErrNoRows {
+		return utils.ReplyToMessage(ctx, client, info.Chat, "Reminder not found or doesn't belong to this chat.", info.ID, info.Sender)
+	}
+	if err != nil {
+		return utils.ReplyToMessage(ctx, client, info.Chat, "Failed to update reminder.", info.ID, info.Sender)
+	}
+	target, err := types.ParseJID(targetRaw)
+	if err != nil {
+		return utils.ReplyToMessage(ctx, client, info.Chat, "Failed to update reminder.", info.ID, info.Sender)
+	}
+	request.Target = target.ToNonAD()
+
 	res, err := db.ExecContext(ctx,
-		"UPDATE reminders SET message = ?, remind_at = ? WHERE id = ? AND chat_id = ? AND to_id = ?",
-		"@"+info.Sender.User+" you had asked me to \""+msg+"\"", t, id, info.Chat.String(), info.Sender.ToNonAD().String(),
+		"UPDATE reminders SET message = ?, remind_at = ? WHERE id = ? AND chat_id = ? AND requested_by = ?",
+		reminderDeliveryMessage(request), request.RemindAt, id, info.Chat.String(), info.Sender.ToNonAD().String(),
 	)
 	if err != nil {
 		return utils.ReplyToMessage(ctx, client, info.Chat, "Failed to update reminder.", info.ID, info.Sender)

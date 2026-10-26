@@ -14,6 +14,7 @@ var createRemindersTable = `
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	chat_id TEXT NOT NULL,
 	to_id TEXT NOT NULL,
+	requested_by TEXT,
 	message TEXT NOT NULL,
 	remind_at DATETIME NOT NULL);
 	CREATE INDEX IF NOT EXISTS idx_remind_at ON reminders(remind_at);
@@ -47,6 +48,10 @@ func SetupDB(ctx context.Context, path string) (*sqlstore.Container, *sql.DB, er
 		database.Close()
 		return nil, nil, fmt.Errorf("create reminders schema: %w", err)
 	}
+	if err := migrateReminderRequester(ctx, database); err != nil {
+		database.Close()
+		return nil, nil, err
+	}
 
 	_, err = database.ExecContext(ctx, createBirthdaysTable)
 	if err != nil {
@@ -55,4 +60,36 @@ func SetupDB(ctx context.Context, path string) (*sqlstore.Container, *sql.DB, er
 	}
 
 	return container, database, nil
+}
+
+func migrateReminderRequester(ctx context.Context, database *sql.DB) error {
+	var requestedByColumns int
+	err := database.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM pragma_table_info('reminders')
+		WHERE name = 'requested_by'
+	`).Scan(&requestedByColumns)
+	if err != nil {
+		return fmt.Errorf("inspect reminders schema: %w", err)
+	}
+
+	if requestedByColumns == 0 {
+		if _, err := database.ExecContext(ctx, "ALTER TABLE reminders ADD COLUMN requested_by TEXT"); err != nil {
+			return fmt.Errorf("add reminders requested_by: %w", err)
+		}
+	}
+	if _, err := database.ExecContext(ctx, `
+		UPDATE reminders
+		SET requested_by = to_id
+		WHERE requested_by IS NULL
+	`); err != nil {
+		return fmt.Errorf("backfill reminders requested_by: %w", err)
+	}
+	if _, err := database.ExecContext(ctx, `
+		CREATE INDEX IF NOT EXISTS idx_reminders_requester_chat
+		ON reminders(requested_by, chat_id)
+	`); err != nil {
+		return fmt.Errorf("index reminders requester and chat: %w", err)
+	}
+	return nil
 }

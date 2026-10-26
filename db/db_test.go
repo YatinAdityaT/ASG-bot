@@ -2,6 +2,7 @@ package db_test
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -17,7 +18,7 @@ func TestSetupDBCreatesApplicationSchema(t *testing.T) {
 	}
 	t.Cleanup(func() { conn.Close() })
 
-	for _, name := range []string{"reminders", "birthdays", "idx_remind_at", "idx_birth_date"} {
+	for _, name := range []string{"reminders", "birthdays", "idx_remind_at", "idx_reminders_requester_chat", "idx_birth_date"} {
 		var found string
 		err := conn.QueryRow(
 			"SELECT name FROM sqlite_master WHERE name = ?",
@@ -26,6 +27,79 @@ func TestSetupDBCreatesApplicationSchema(t *testing.T) {
 		if err != nil {
 			t.Fatalf("schema object %q: %v", name, err)
 		}
+	}
+
+	var requestedByColumnCount int
+	if err := conn.QueryRow(`
+		SELECT COUNT(*)
+		FROM pragma_table_info('reminders')
+		WHERE name = 'requested_by'
+	`).Scan(&requestedByColumnCount); err != nil {
+		t.Fatal(err)
+	}
+	if requestedByColumnCount != 1 {
+		t.Fatalf("requested_by column count = %d, want 1", requestedByColumnCount)
+	}
+}
+
+func TestSetupDBMigratesAndBackfillsLegacyRemindersIdempotently(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "legacy.db")
+	legacy, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacy.Exec(`
+		CREATE TABLE reminders (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			chat_id TEXT NOT NULL,
+			to_id TEXT NOT NULL,
+			message TEXT NOT NULL,
+			remind_at DATETIME NOT NULL
+		);
+		INSERT INTO reminders (chat_id, to_id, message, remind_at)
+		VALUES ('123@g.us', '456@s.whatsapp.net', 'legacy', '2030-01-01 12:00:00');
+	`); err != nil {
+		legacy.Close()
+		t.Fatal(err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	_, conn, err := db.SetupDB(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var requestedBy string
+	if err := conn.QueryRow("SELECT requested_by FROM reminders WHERE id = 1").Scan(&requestedBy); err != nil {
+		conn.Close()
+		t.Fatal(err)
+	}
+	if requestedBy != "456@s.whatsapp.net" {
+		conn.Close()
+		t.Fatalf("requested_by = %q, want legacy to_id", requestedBy)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	_, conn, err = db.SetupDB(ctx, path)
+	if err != nil {
+		t.Fatalf("second SetupDB() failed: %v", err)
+	}
+	t.Cleanup(func() { conn.Close() })
+
+	var requestedByColumnCount int
+	if err := conn.QueryRow(`
+		SELECT COUNT(*)
+		FROM pragma_table_info('reminders')
+		WHERE name = 'requested_by'
+	`).Scan(&requestedByColumnCount); err != nil {
+		t.Fatal(err)
+	}
+	if requestedByColumnCount != 1 {
+		t.Fatalf("requested_by column count after second migration = %d, want 1", requestedByColumnCount)
 	}
 }
 
