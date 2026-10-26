@@ -3,53 +3,54 @@ package db
 import (
 	"context"
 	"database/sql"
-	"log"
+	"fmt"
 
-	_ "github.com/mattn/go-sqlite3"
 	"go.mau.fi/whatsmeow/store/sqlstore"
+	_ "modernc.org/sqlite"
 )
 
 var createRemindersTable = `
 	CREATE TABLE IF NOT EXISTS reminders (
-	id INTEGER PRIMARY KEY AUTOINCREMENT, 
-	chat_id TEXT NOT NULL, 
-	to_id TEXT NOT NULL, 
-	message TEXT NOT NULL, 
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	chat_id TEXT NOT NULL,
+	to_id TEXT NOT NULL,
+	message TEXT NOT NULL,
 	remind_at DATETIME NOT NULL);
-	CREATE INDEX IF NOT EXISTS idx_remind_at ON reminders(remind_at);	
+	CREATE INDEX IF NOT EXISTS idx_remind_at ON reminders(remind_at);
 	`
 
 var createBirthdaysTable = `
 	CREATE TABLE IF NOT EXISTS birthdays (
-	id INTEGER PRIMARY KEY AUTOINCREMENT, 
-	chat_id TEXT NOT NULL, 
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	chat_id TEXT NOT NULL,
 	name TEXT NOT NULL,
 	birth_date DATE NOT NULL);
 	CREATE INDEX IF NOT EXISTS idx_birth_date ON birthdays(birth_date);`
 
-func SetupDB(ctx *context.Context) (*sqlstore.Container, *sql.DB) {
-	db, err := sql.Open("sqlite3", "file:whatsmeow.db?_foreign_keys=on")
+func SetupDB(ctx context.Context, path string) (*sqlstore.Container, *sql.DB, error) {
+	database, err := sql.Open("sqlite", "file:"+path+"?_foreign_keys=on")
 	if err != nil {
-		log.Fatalf("Failed to open database: %v", err)
+		return nil, nil, fmt.Errorf("open database: %w", err)
 	}
 
-	container := sqlstore.NewWithDB(db, "sqlite3", nil)
+	container := sqlstore.NewWithDB(database, "sqlite3", nil)
 
-	if err := container.Upgrade(*ctx); err != nil {
-		log.Fatalf("Failed to upgrade whatsmeow store: %v", err)
+	if err := container.Upgrade(ctx); err != nil {
+		database.Close()
+		return nil, nil, fmt.Errorf("upgrade whatsmeow store: %w", err)
 	}
 
-	_, err = db.Exec(createRemindersTable)
+	_, err = database.ExecContext(ctx, createRemindersTable)
 	if err != nil {
-		log.Fatalf("Failed to create Reminders Table: %v", err)
+		database.Close()
+		return nil, nil, fmt.Errorf("create reminders schema: %w", err)
 	}
 
-	_, err = db.Exec(createBirthdaysTable)
+	_, err = database.ExecContext(ctx, createBirthdaysTable)
 	if err != nil {
-		log.Fatalf("Failed to create Birthdays Table: %v", err)
+		database.Close()
+		return nil, nil, fmt.Errorf("create birthdays schema: %w", err)
 	}
 
-	log.Println("Successfully created whatsmeow tables and my_custom_table.")
-
-	return container, db
+	return container, database, nil
 }

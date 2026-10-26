@@ -80,8 +80,13 @@ func (cm *CommandManager) handleRemindList(db *sql.DB, ctx context.Context, clie
 		var id int
 		var msg string
 		var remindAt time.Time
-		rows.Scan(&id, &msg, &remindAt)
+		if err := rows.Scan(&id, &msg, &remindAt); err != nil {
+			return utils.ReplyToMessage(ctx, client, info.Chat, "Failed to retrieve reminders", info.ID, info.Sender)
+		}
 		response.WriteString(fmt.Sprintf("[ID: %d]: %s – %s\n", id, remindAt.Format("3:04PM Jan 2"), msg))
+	}
+	if err := rows.Err(); err != nil {
+		return utils.ReplyToMessage(ctx, client, info.Chat, "Failed to retrieve reminders", info.ID, info.Sender)
 	}
 
 	if response.Len() == 0 {
@@ -102,13 +107,16 @@ func (cm *CommandManager) handleRemindDelete(db *sql.DB, ctx context.Context, cl
 	}
 
 	res, err := db.ExecContext(ctx,
-		"DELETE FROM reminders WHERE id = ? AND chat_id = ?",
-		id, info.Chat.String(),
+		"DELETE FROM reminders WHERE id = ? AND chat_id = ? AND to_id = ?",
+		id, info.Chat.String(), info.Sender.ToNonAD().String(),
 	)
 	if err != nil {
 		return utils.ReplyToMessage(ctx, client, info.Chat, "Failed to delete reminder.", info.ID, info.Sender)
 	}
-	n, _ := res.RowsAffected()
+	n, err := res.RowsAffected()
+	if err != nil {
+		return utils.ReplyToMessage(ctx, client, info.Chat, "Failed to delete reminder.", info.ID, info.Sender)
+	}
 	if n == 0 {
 		return utils.ReplyToMessage(ctx, client, info.Chat, "Reminder not found or doesn't belong to this chat.", info.ID, info.Sender)
 	}
@@ -130,18 +138,17 @@ func (cm *CommandManager) handleRemindUpdate(db *sql.DB, ctx context.Context, cl
 		return utils.ReplyToMessage(ctx, client, info.Chat, "Failed to parse time or message.", info.ID, info.Sender)
 	}
 
-	_, err = db.ExecContext(ctx,
-		"INSERT INTO reminders (chat_id, to_id, message, remind_at) VALUES (?, ?, ?, ?)",
-	)
-
 	res, err := db.ExecContext(ctx,
-		"UPDATE reminders SET message = ?, remind_at = ? WHERE id = ? AND chat_id = ?",
-		"@"+info.Sender.User+" you had asked me to \""+msg+"\"", t, id, info.Chat.String(),
+		"UPDATE reminders SET message = ?, remind_at = ? WHERE id = ? AND chat_id = ? AND to_id = ?",
+		"@"+info.Sender.User+" you had asked me to \""+msg+"\"", t, id, info.Chat.String(), info.Sender.ToNonAD().String(),
 	)
 	if err != nil {
 		return utils.ReplyToMessage(ctx, client, info.Chat, "Failed to update reminder.", info.ID, info.Sender)
 	}
-	n, _ := res.RowsAffected()
+	n, err := res.RowsAffected()
+	if err != nil {
+		return utils.ReplyToMessage(ctx, client, info.Chat, "Failed to update reminder.", info.ID, info.Sender)
+	}
 	if n == 0 {
 		return utils.ReplyToMessage(ctx, client, info.Chat, "Reminder not found or doesn't belong to this chat.", info.ID, info.Sender)
 	}

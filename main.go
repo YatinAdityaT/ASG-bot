@@ -14,7 +14,6 @@ import (
 	"whatsappBot/scheduler"
 	"whatsappBot/tone"
 
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/mdp/qrterminal"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types/events"
@@ -52,7 +51,10 @@ func main() {
 		"916355442207",
 	}
 
-	container, db := db.SetupDB(&ctx)
+	container, db, err := db.SetupDB(ctx, "whatsmeow.db")
+	if err != nil {
+		panic(fmt.Errorf("failed to set up database: %w", err))
+	}
 	dev, err := container.GetFirstDevice(ctx)
 	if err != nil {
 		panic(fmt.Errorf("failed to get first device: %w", err))
