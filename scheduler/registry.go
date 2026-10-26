@@ -35,7 +35,6 @@ func NewRegistry(dbConn *sql.DB) *Registry {
 	return &Registry{
 		Providers: []TaskProvider{
 			NewReminderProvider(dbConn),
-			NewBirthdayProvider(dbConn),
 		},
 	}
 }

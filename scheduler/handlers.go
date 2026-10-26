@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"time"
 
-	"go.mau.fi/whatsmeow"
 	"google.golang.org/protobuf/proto"
 
 	waProto "go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
+	"whatsappBot/utils"
 )
 
 // ----------------- Reminder Provider -----------------
@@ -24,7 +24,7 @@ type ReminderTask struct {
 	to       string
 }
 
-func (r *ReminderTask) Run(ctx context.Context, client *whatsmeow.Client) error {
+func (r *ReminderTask) Run(ctx context.Context, sender utils.MessageSender) error {
 	emsg := &waProto.ExtendedTextMessage{
 		Text: proto.String(r.message),
 		ContextInfo: &waProto.ContextInfo{
@@ -36,13 +36,14 @@ func (r *ReminderTask) Run(ctx context.Context, client *whatsmeow.Client) error 
 		ExtendedTextMessage: emsg,
 	}
 
-	_, err := client.SendMessage(ctx, r.chatID, msg)
+	_, err := sender.SendMessage(ctx, r.chatID, msg)
 	if err != nil {
-		fmt.Println("Error running task %s: %v\n", r.id, err)
-	} else {
-		r.CleanUp(ctx)
+		return fmt.Errorf("send reminder %s: %w", r.id, err)
 	}
-	return err
+	if err := r.CleanUp(ctx); err != nil {
+		return fmt.Errorf("clean up reminder %s: %w", r.id, err)
+	}
+	return nil
 }
 
 func (r *ReminderTask) Time() time.Time {
@@ -53,8 +54,9 @@ func (r *ReminderTask) ID() string {
 	return r.id
 }
 
-func (r *ReminderTask) CleanUp(ctx context.Context) {
-	r.db.ExecContext(ctx, `DELETE FROM reminders WHERE id = ?`, r.id)
+func (r *ReminderTask) CleanUp(ctx context.Context) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM reminders WHERE id = ?`, r.id)
+	return err
 }
 
 func (r *ReminderProvider) GetDueTasks(ctx context.Context, now time.Time) ([]ScheduledTask, error) {
@@ -94,6 +96,9 @@ func (r *ReminderProvider) GetDueTasks(ctx context.Context, now time.Time) ([]Sc
 		}
 		tasks = append(tasks, task)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate reminders: %w", err)
+	}
 	return tasks, nil
 }
 
@@ -105,9 +110,9 @@ type BirthdayTask struct {
 	id       string
 }
 
-func (r *BirthdayTask) Run(ctx context.Context, client *whatsmeow.Client) error {
+func (r *BirthdayTask) Run(ctx context.Context, sender utils.MessageSender) error {
 	msg := &waProto.Message{Conversation: &r.message}
-	_, err := client.SendMessage(ctx, r.chatID, msg)
+	_, err := sender.SendMessage(ctx, r.chatID, msg)
 	return err
 }
 
