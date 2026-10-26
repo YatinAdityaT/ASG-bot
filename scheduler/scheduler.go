@@ -38,8 +38,10 @@ func (s *Scheduler) RunOnce(ctx context.Context, now time.Time) error {
 	return errors.Join(taskErrors...)
 }
 
-func (s *Scheduler) Start(ctx context.Context) {
+func (s *Scheduler) Start(ctx context.Context) <-chan struct{} {
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		ticker := time.NewTicker(s.interval)
 		defer ticker.Stop()
 
@@ -54,4 +56,5 @@ func (s *Scheduler) Start(ctx context.Context) {
 			}
 		}
 	}()
+	return done
 }

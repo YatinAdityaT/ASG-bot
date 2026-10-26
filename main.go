@@ -45,7 +45,7 @@ type runtimeDependencies struct {
 	setupStore     func(context.Context, string) (*store.Device, *sql.DB, error)
 	newClient      func(*store.Device, config.Config) lifecycleClient
 	newToneManager func(utils.MessageSender) (toneResponder, error)
-	startScheduler func(context.Context, *sql.DB, utils.MessageSender)
+	startScheduler func(context.Context, *sql.DB, utils.MessageSender) <-chan struct{}
 	renderQR       func(string)
 }
 
@@ -106,9 +106,9 @@ func defaultRuntimeDependencies() runtimeDependencies {
 		newToneManager: func(sender utils.MessageSender) (toneResponder, error) {
 			return tone.NewToneIManager(sender)
 		},
-		startScheduler: func(ctx context.Context, database *sql.DB, sender utils.MessageSender) {
+		startScheduler: func(ctx context.Context, database *sql.DB, sender utils.MessageSender) <-chan struct{} {
 			registry := scheduler.NewRegistry(database)
-			scheduler.NewScheduler(registry, sender, time.Second).Start(ctx)
+			return scheduler.NewScheduler(registry, sender, time.Second).Start(ctx)
 		},
 		renderQR: func(code string) {
 			qrterminal.GenerateHalfBlock(code, qrterminal.L, os.Stdout)
@@ -155,9 +155,10 @@ func runWithDependencies(ctx context.Context, cfg config.Config, deps runtimeDep
 		return err
 	}
 
-	deps.startScheduler(ctx, database, client)
+	schedulerDone := deps.startScheduler(ctx, database, client)
 	fmt.Println("Bot is running. Press Ctrl+C to exit.")
 	<-ctx.Done()
+	<-schedulerDone
 	fmt.Println("Shutting down bot...")
 	return nil
 }

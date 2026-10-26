@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"whatsappBot/config"
+	"whatsappBot/scheduler"
 	"whatsappBot/utils"
 
 	"go.mau.fi/whatsmeow"
@@ -85,15 +86,31 @@ func TestConnectClientFailsWhenQRChannelClosesWithoutPairing(t *testing.T) {
 	}
 }
 
-func TestRunStartsSchedulerAfterConnectionAndCleansUpOnCancellation(t *testing.T) {
+func TestRunWaitsForActiveSchedulerWorkBeforeCleanup(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	database, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, err = database.Exec(`
+		CREATE TABLE reminders (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			chat_id TEXT NOT NULL,
+			to_id TEXT NOT NULL,
+			message TEXT NOT NULL,
+			remind_at DATETIME NOT NULL
+		);
+		INSERT INTO reminders (chat_id, to_id, message, remind_at)
+		VALUES ('123@g.us', '456@s.whatsapp.net', 'blocked reminder', ?);
+	`, time.Now().Add(-time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
 	deviceID := types.NewJID("123", types.DefaultUserServer)
-	client := &fakeLifecycleClient{}
-	schedulerStarted := make(chan struct{})
+	client := &fakeLifecycleClient{
+		sendStarted: make(chan struct{}),
+		releaseSend: make(chan struct{}),
+	}
 
 	deps := runtimeDependencies{
 		setupStore: func(context.Context, string) (*store.Device, *sql.DB, error) {
@@ -105,11 +122,15 @@ func TestRunStartsSchedulerAfterConnectionAndCleansUpOnCancellation(t *testing.T
 		newToneManager: func(utils.MessageSender) (toneResponder, error) {
 			return &fakeToneResponder{}, nil
 		},
-		startScheduler: func(context.Context, *sql.DB, utils.MessageSender) {
+		startScheduler: func(ctx context.Context, database *sql.DB, sender utils.MessageSender) <-chan struct{} {
 			if !client.IsConnected() {
 				t.Error("scheduler started before client connected")
 			}
-			close(schedulerStarted)
+			return scheduler.NewScheduler(
+				scheduler.NewRegistry(database),
+				sender,
+				time.Nanosecond,
+			).Start(ctx)
 		},
 		renderQR: func(string) {},
 	}
@@ -125,22 +146,35 @@ func TestRunStartsSchedulerAfterConnectionAndCleansUpOnCancellation(t *testing.T
 	}()
 
 	select {
-	case <-schedulerStarted:
-	case <-time.After(2 * time.Second):
-		t.Fatal("scheduler did not start")
+	case <-client.sendStarted:
+	case <-time.After(time.Second):
+		t.Fatal("scheduler work did not start")
 	}
 	cancel()
 
 	select {
 	case err := <-done:
+		t.Fatalf("runWithDependencies returned before scheduler work exited: %v", err)
+	default:
+	}
+	if client.isDisconnected() {
+		t.Fatal("client disconnected while scheduler work was active")
+	}
+	if err := database.Ping(); err != nil {
+		t.Fatalf("database closed while scheduler work was active: %v", err)
+	}
+
+	close(client.releaseSend)
+	select {
+	case err := <-done:
 		if err != nil {
 			t.Fatalf("runWithDependencies returned %v", err)
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("runWithDependencies did not stop after cancellation")
+	case <-time.After(time.Second):
+		t.Fatal("runWithDependencies did not stop after scheduler work exited")
 	}
 
-	if !client.disconnected {
+	if !client.isDisconnected() {
 		t.Fatal("client was not disconnected")
 	}
 	if err := database.Ping(); err == nil {
@@ -165,8 +199,9 @@ func TestRunReturnsToneLoadingErrorBeforeConnecting(t *testing.T) {
 		newToneManager: func(utils.MessageSender) (toneResponder, error) {
 			return nil, want
 		},
-		startScheduler: func(context.Context, *sql.DB, utils.MessageSender) {
+		startScheduler: func(context.Context, *sql.DB, utils.MessageSender) <-chan struct{} {
 			t.Error("scheduler started after tone loading failure")
+			return nil
 		},
 		renderQR: func(string) {},
 	}
@@ -191,6 +226,9 @@ type fakeLifecycleClient struct {
 	connected    bool
 	disconnected bool
 	handler      whatsmeow.EventHandler
+	sendStarted  chan struct{}
+	releaseSend  chan struct{}
+	sendOnce     sync.Once
 }
 
 func (f *fakeLifecycleClient) AddEventHandler(handler whatsmeow.EventHandler) uint32 {
@@ -215,6 +253,12 @@ func (f *fakeLifecycleClient) Disconnect() {
 	f.disconnected = true
 }
 
+func (f *fakeLifecycleClient) isDisconnected() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.disconnected
+}
+
 func (f *fakeLifecycleClient) GetQRChannel(context.Context) (<-chan whatsmeow.QRChannelItem, error) {
 	return f.qr, nil
 }
@@ -231,6 +275,10 @@ func (f *fakeLifecycleClient) SendMessage(
 	*waProto.Message,
 	...whatsmeow.SendRequestExtra,
 ) (whatsmeow.SendResponse, error) {
+	if f.sendStarted != nil {
+		f.sendOnce.Do(func() { close(f.sendStarted) })
+		<-f.releaseSend
+	}
 	return whatsmeow.SendResponse{}, nil
 }
 

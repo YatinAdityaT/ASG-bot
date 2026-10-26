@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"whatsappBot/utils"
+
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
@@ -139,11 +141,77 @@ func TestStartStopsSchedulingAfterCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	sched.Start(ctx)
-	time.Sleep(25 * time.Millisecond)
+	done := sched.Start(ctx)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("scheduler did not stop after cancellation")
+	}
 
 	if got := sender.count(); got != 0 {
 		t.Fatalf("sent messages after cancellation = %d, want 0", got)
 	}
 	assertReminderCount(t, database, 1)
+}
+
+func TestStartCompletionWaitsForActiveRunOnce(t *testing.T) {
+	task := &blockingTask{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	sched := NewScheduler(
+		&Registry{Providers: []TaskProvider{blockingProvider{task: task}}},
+		&fakeSender{},
+		time.Nanosecond,
+	)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := sched.Start(ctx)
+
+	select {
+	case <-task.started:
+	case <-time.After(time.Second):
+		t.Fatal("scheduled task did not start")
+	}
+	cancel()
+
+	select {
+	case <-done:
+		t.Fatal("scheduler completed while RunOnce was active")
+	default:
+	}
+
+	close(task.release)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("scheduler did not complete after RunOnce exited")
+	}
+}
+
+type blockingProvider struct {
+	task ScheduledTask
+}
+
+func (p blockingProvider) GetDueTasks(context.Context, time.Time) ([]ScheduledTask, error) {
+	return []ScheduledTask{p.task}, nil
+}
+
+type blockingTask struct {
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (t *blockingTask) Run(context.Context, utils.MessageSender) error {
+	t.once.Do(func() { close(t.started) })
+	<-t.release
+	return nil
+}
+
+func (t *blockingTask) Time() time.Time {
+	return time.Time{}
+}
+
+func (t *blockingTask) ID() string {
+	return "blocking"
 }
