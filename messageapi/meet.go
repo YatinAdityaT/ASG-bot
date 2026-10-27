@@ -177,16 +177,20 @@ func normalizeAndFormatMeetEvent(event *meetEvent) (string, error) {
 }
 
 func meetIdempotencyKey(event meetEvent) (string, error) {
+	identityTS := event.TS
+	if event.Type == "chat_message" {
+		identityTS = ""
+	}
 	identity := struct {
 		Type    string `json:"type"`
 		ID      string `json:"id"`
 		Meeting string `json:"meeting"`
-		TS      string `json:"ts"`
+		TS      string `json:"ts,omitempty"`
 	}{
 		Type:    event.Type,
 		ID:      event.ID,
 		Meeting: event.Meeting,
-		TS:      event.TS,
+		TS:      identityTS,
 	}
 	normalized, err := json.Marshal(identity)
 	if err != nil {

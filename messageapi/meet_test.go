@@ -72,6 +72,48 @@ func TestMeetEventReplayIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestMeetChatReplayIgnoresObservationTimestamp(t *testing.T) {
+	server, store := newFixture(t, func() time.Time { return fixedNow })
+	firstEvent := meetEvent("chat_message", "Hello")
+	secondEvent := meetEvent("chat_message", "Hello")
+	secondEvent["ts"] = "2026-10-27T08:00:02Z"
+
+	first := submitMeet(t, server.Handler(), firstEvent)
+	second := submitMeet(t, server.Handler(), secondEvent)
+
+	if first.Code != http.StatusAccepted || second.Code != http.StatusAccepted {
+		t.Fatalf("statuses = %d, %d; bodies = %q, %q", first.Code, second.Code, first.Body.String(), second.Body.String())
+	}
+	jobs, err := store.Due(t.Context(), fixedNow, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("queued jobs = %d, want 1", len(jobs))
+	}
+}
+
+func TestMeetStateIdentityIncludesObservationTimestamp(t *testing.T) {
+	server, store := newFixture(t, func() time.Time { return fixedNow })
+	firstEvent := meetEvent("cam_on", "")
+	secondEvent := meetEvent("cam_on", "")
+	secondEvent["ts"] = "2026-10-27T08:00:02Z"
+
+	first := submitMeet(t, server.Handler(), firstEvent)
+	second := submitMeet(t, server.Handler(), secondEvent)
+
+	if first.Code != http.StatusAccepted || second.Code != http.StatusAccepted {
+		t.Fatalf("statuses = %d, %d; bodies = %q, %q", first.Code, second.Code, first.Body.String(), second.Body.String())
+	}
+	jobs, err := store.Due(t.Context(), fixedNow, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(jobs) != 2 {
+		t.Fatalf("queued jobs = %d, want 2", len(jobs))
+	}
+}
+
 func TestMeetEventIdempotencyUsesNormalizedEventIdentity(t *testing.T) {
 	server, store := newFixture(t, func() time.Time { return fixedNow })
 	firstEvent := meetEvent("join", "")
