@@ -4,12 +4,14 @@
   window.__mmLoaded = true;
 
   const meeting = S.meetingCode();
-  const participantTracker = new window.MMParticipantTracker();
+  const participantTracker = new window.MMParticipantTracker(2000);
   const roster = participantTracker.roster;
   const events = [];
   const seenChats = new Set();
   const recentLeaveAnnouncements = new Map();
   const MAX = 2000;
+  let confirmationTimer = null;
+  let confirmationGeneration = 0;
 
   const emit = (type, id, cur) => {
     const rec = {
@@ -24,6 +26,21 @@
     events.push(rec);
     if (events.length > MAX) events.splice(0, events.length - MAX);
     chrome.runtime.sendMessage({ kind: 'event', rec }).catch(() => {});
+  };
+
+  const scheduleConfirmation = () => {
+    const generation = ++confirmationGeneration;
+    if (confirmationTimer !== null) {
+      clearTimeout(confirmationTimer);
+      confirmationTimer = null;
+    }
+    const deadline = participantTracker.nextDeadline();
+    if (deadline === null) return;
+    confirmationTimer = setTimeout(() => {
+      if (generation !== confirmationGeneration) return;
+      confirmationTimer = null;
+      scan();
+    }, Math.max(0, deadline - Date.now()));
   };
 
   const scan = () => {
@@ -54,11 +71,11 @@
       break;
     }
 
-    for (const change of participantTracker.update(now)) {
+    const observedAt = Date.now();
+    for (const change of participantTracker.update(now, observedAt)) {
       emit(change.type, change.id, change.cur);
     }
 
-    const observedAt = Date.now();
     for (const element of document.querySelectorAll(S.announcementSel)) {
       const text = (element.innerText || element.textContent || '').trim();
       const name = window.MMLeftParticipantName(text);
@@ -92,6 +109,8 @@
         if (text) emit('chat_message', msgId, { name: senderName, text });
       }
     }
+
+    scheduleConfirmation();
   };
 
   let t = null;
