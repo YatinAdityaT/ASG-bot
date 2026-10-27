@@ -3,7 +3,11 @@ importScripts('delivery.js');
 const DEFAULTS = { webhook: '', botAPIURL: '', consentBanner: true };
 const OUTBOX_KEY = 'botAPIOutbox';
 const RETRY_ALARM = 'bot-api-outbox';
-const SEND_SPACING_MS = 2_100;
+const SEND_SPACING_MS = 2_500;
+const MIN_ALARM_DELAY_MS = 30_000;
+const MAX_BATCH_SIZE = 10;
+const MAX_OUTBOX_SIZE = 500;
+const MAX_ATTEMPTS = 10;
 const storageProtection = chrome.storage.local.setAccessLevel({
   accessLevel: 'TRUSTED_CONTEXTS'
 });
@@ -17,6 +21,24 @@ chrome.runtime.onInstalled.addListener(async () => {
 });
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.kind === 'setBotAPIConfig') {
+    if (!isTrustedOptionsPage(_sender)) {
+      sendResponse({ saved: false });
+      return false;
+    }
+    saveBotAPIConfig(msg.config)
+      .then(saved => {
+        sendResponse({ saved });
+        if (saved) {
+          flushBotAPIOutbox().catch(() => {
+            console.warn('Meet event bot API configuration retry failed');
+          });
+        }
+      })
+      .catch(() => sendResponse({ saved: false }));
+    return true;
+  }
+
   if (msg?.kind === 'event') {
     const rec = msg.rec;
 
@@ -32,8 +54,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
     forwardWebhook(rec).catch(() => {});
     enqueueBotAPI(rec)
-      .then(queued => queued ? flushBotAPIOutbox() : null)
-      .then(() => sendResponse({ queued: true }))
+      .then(async queued => {
+        if (queued) await flushBotAPIOutbox();
+        sendResponse({ queued });
+      })
       .catch(() => {
         console.warn('Meet event bot API queue failed');
         sendResponse({ queued: false });
@@ -68,23 +92,35 @@ async function forwardWebhook(rec) {
 
 async function botAPIConfig() {
   await storageProtection;
-  const [{ botAPIURL }, { botAPIToken }] = await Promise.all([
-    chrome.storage.sync.get({ botAPIURL: '' }),
-    chrome.storage.local.get({ botAPIToken: '' })
-  ]);
-  return { botAPIURL, botAPIToken };
+  const { botAPIConfig } = await chrome.storage.local.get({ botAPIConfig: null });
+  return {
+    botAPIURL: botAPIConfig?.url || '',
+    botAPIToken: botAPIConfig?.token || '',
+    generation: botAPIConfig?.generation || ''
+  };
 }
 
-async function enqueueBotAPI(rec) {
-  const { botAPIURL, botAPIToken } = await botAPIConfig();
-  if (!MMDelivery.requestFor(rec, botAPIURL, botAPIToken)) return false;
-
+function enqueueBotAPI(rec) {
   return withOutboxLock(async () => {
+    const { botAPIURL, botAPIToken, generation } = await botAPIConfig();
+    if (!MMDelivery.requestFor(rec, botAPIURL, botAPIToken)) return false;
+
     const stored = await chrome.storage.local.get({ [OUTBOX_KEY]: [] });
     const outbox = stored[OUTBOX_KEY];
     const key = MMDelivery.eventKey(rec);
     if (!outbox.some(entry => entry.key === key)) {
-      outbox.push({ key, rec, attempts: 0, nextAttemptAt: 0 });
+      if (outbox.length >= MAX_OUTBOX_SIZE) {
+        console.warn('Meet event bot API outbox is full');
+        chrome.notifications.create({
+          type: 'basic',
+          iconUrl: 'https://www.gstatic.com/images/branding/product/1x/hangouts_48dp.png',
+          title: 'Meet Monitor forwarding paused',
+          message: 'The local WhatsApp forwarding queue is full. Check the bot API settings.',
+          priority: 2
+        }).catch(() => {});
+        return false;
+      }
+      outbox.push({ key, rec, generation, attempts: 0, nextAttemptAt: 0 });
       await chrome.storage.local.set({ [OUTBOX_KEY]: outbox });
     }
     return true;
@@ -98,32 +134,81 @@ function flushBotAPIOutbox() {
     const outbox = stored[OUTBOX_KEY];
     if (!outbox.length) return;
 
-    const entry = outbox[0];
-    const delay = Math.max(entry.nextAttemptAt, nextSendAllowedAt) - Date.now();
-    if (delay > 0) {
-      scheduleRetry(delay);
-      return;
-    }
-
-    const request = MMDelivery.requestFor(entry.rec, botAPIURL, botAPIToken);
-    if (!request) return;
-
-    try {
-      nextSendAllowedAt = Date.now() + SEND_SPACING_MS;
-      const response = await fetch(request.url, request.options);
-      if (!response.ok && response.status !== 409) {
-        throw new Error(`HTTP ${response.status}`);
+    let changed = false;
+    for (let processed = 0; outbox.length && processed < MAX_BATCH_SIZE; processed++) {
+      const entry = outbox[0];
+      const delay = Math.max(entry.nextAttemptAt, nextSendAllowedAt) - Date.now();
+      if (delay > 0) {
+        scheduleRetry(delay);
+        break;
       }
-      outbox.shift();
-      await chrome.storage.local.set({ [OUTBOX_KEY]: outbox });
-      if (outbox.length) scheduleRetry(nextSendAllowedAt - Date.now());
-    } catch {
-      entry.attempts += 1;
-      entry.nextAttemptAt = Date.now() + MMDelivery.retryDelay(entry.attempts - 1);
-      await chrome.storage.local.set({ [OUTBOX_KEY]: outbox });
-      scheduleRetry(entry.nextAttemptAt - Date.now());
-      console.warn('Meet event bot API delivery deferred');
+
+      const request = MMDelivery.requestFor(entry.rec, botAPIURL, botAPIToken);
+      if (!request) return;
+
+      let response;
+      try {
+        nextSendAllowedAt = Date.now() + SEND_SPACING_MS;
+        response = await fetch(request.url, request.options);
+      } catch {
+        response = null;
+      }
+
+      if (response?.ok || response?.status === 409) {
+        outbox.shift();
+        changed = true;
+      } else if (response && isPermanentClientError(response.status)) {
+        outbox.shift();
+        changed = true;
+        console.warn('Meet event bot API rejected an event permanently');
+      } else {
+        entry.attempts += 1;
+        changed = true;
+        if (entry.attempts >= MAX_ATTEMPTS) {
+          outbox.shift();
+          console.warn('Meet event bot API retry limit reached');
+        } else {
+          entry.nextAttemptAt = Date.now() + MMDelivery.retryDelay(entry.attempts - 1);
+          scheduleRetry(entry.nextAttemptAt - Date.now());
+          break;
+        }
+      }
+
+      if (outbox.length && processed+1 < MAX_BATCH_SIZE) {
+        await sleep(Math.max(nextSendAllowedAt - Date.now(), 0));
+      }
     }
+
+    if (changed) {
+      await chrome.storage.local.set({ [OUTBOX_KEY]: outbox });
+    }
+    if (outbox.length) {
+      scheduleRetry(Math.max(outbox[0].nextAttemptAt, nextSendAllowedAt) - Date.now());
+    }
+  });
+}
+
+function saveBotAPIConfig(config) {
+  return withOutboxLock(async () => {
+    await storageProtection;
+    const url = String(config?.url || '').trim();
+    const token = String(config?.token || '').trim();
+    if (!url && !token) {
+      await chrome.storage.local.set({
+        botAPIConfig: null,
+        [OUTBOX_KEY]: []
+      });
+      return true;
+    }
+    if (!MMDelivery.requestFor({}, url, token)) return false;
+    await chrome.storage.local.set({
+      botAPIConfig: {
+        url,
+        token,
+        generation: String(config?.generation || '')
+      }
+    });
+    return true;
   });
 }
 
@@ -133,7 +218,23 @@ function withOutboxLock(operation) {
 }
 
 function scheduleRetry(delay) {
-  chrome.alarms.create(RETRY_ALARM, { when: Date.now() + Math.max(delay, 500) });
+  chrome.alarms.create(RETRY_ALARM, {
+    when: Date.now() + Math.max(delay, MIN_ALARM_DELAY_MS)
+  });
+}
+
+function sleep(delay) {
+  return new Promise(resolve => setTimeout(resolve, delay));
+}
+
+function isPermanentClientError(status) {
+  return status >= 400 && status < 500 &&
+    ![408, 409, 425, 429].includes(status);
+}
+
+function isTrustedOptionsPage(sender) {
+  return !sender?.tab &&
+    sender?.url === chrome.runtime.getURL('src/options.html');
 }
 
 storageProtection

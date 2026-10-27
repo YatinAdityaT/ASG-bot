@@ -98,9 +98,12 @@ Secrets are never committed or displayed outside the password input.
 Before sending, the service worker persists events in a local outbox keyed by
 Meet event identity. It submits one event at a time, removes it only after a
 successful or already-conflicted response, and retries network, rate-limit,
-authentication, and server failures with delays of 5 seconds, 30 seconds, 2
-minutes, 10 minutes, then 1 hour. A Chrome alarm resumes pending delivery
-after service-worker or browser restarts.
+and server failures with delays of 30 seconds, 1 minute, 2 minutes, 10
+minutes, then 1 hour. It sends batches of at most 10 with 2.5-second spacing,
+stays below Chrome's local-storage quota with a 500-event cap, and stops
+retrying an event after 10 transient failures. Non-retryable `4xx` responses
+are removed so one malformed event cannot block the queue. A Chrome alarm
+resumes pending delivery after service-worker or browser restarts.
 
 ## Errors
 

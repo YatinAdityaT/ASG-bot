@@ -108,9 +108,10 @@ Create a browser/Node-compatible `MMDelivery` helper. Load it before
 from sync storage and `botAPIToken` from local storage, then send authenticated
 events to the bot API. Restrict local storage to trusted extension contexts.
 Persist configured events in a local outbox, submit them sequentially, remove
-them only after acceptance, and use Chrome alarms plus 5-second, 30-second,
-2-minute, 10-minute, and 1-hour retry delays. Keep `forwardWebhook` unchanged
-and independent.
+them only after acceptance, and use Chrome alarms plus 30-second, 1-minute,
+2-minute, 10-minute, and 1-hour retry delays. Cap the queue and attempt count,
+discard non-retryable client errors, and drain bounded batches with rate-safe
+spacing. Keep `forwardWebhook` unchanged and independent.
 
 Add URL and password inputs to options. Validate HTTP(S), request exact origin
 permission, require HTTPS except for loopback HTTP, save the URL in sync

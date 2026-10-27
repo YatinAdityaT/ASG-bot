@@ -101,7 +101,10 @@ Events awaiting API acceptance are retained in a local extension outbox and
 retried sequentially with backoff, including after Chrome restarts. Every
 accepted event then enters the bot's persistent outbound queue and is sent only
 to the server-configured group. The extension cannot provide a destination
-JID. Clearing the Bot API URL and token also clears the local outbox.
+JID. The outbox holds at most 500 events; a desktop notification warns if it
+fills. Non-retryable request errors and events that exhaust 10 transient
+attempts are removed so one bad record cannot block later activity. Clearing
+the Bot API URL and token also clears the local outbox.
 
 The ASG bot forwarding and generic webhook are independent; configuring both
 sends each raw event to both endpoints.

@@ -53,6 +53,6 @@ test('event keys use stable Meet identity fields', () => {
 test('retry delays back off and cap at one hour', () => {
   assert.deepEqual(
     [0, 1, 2, 3, 4, 20].map(retryDelay),
-    [5000, 30000, 120000, 600000, 3600000, 3600000]
+    [30000, 60000, 120000, 600000, 3600000, 3600000]
   );
 });

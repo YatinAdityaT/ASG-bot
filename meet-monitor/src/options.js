@@ -2,11 +2,11 @@ const $ = s => document.querySelector(s);
 
 Promise.all([
   chrome.storage.sync.get({ webhook: '', botAPIURL: '', consentBanner: true }),
-  chrome.storage.local.get({ botAPIToken: '' })
+  chrome.storage.local.get({ botAPIConfig: null })
 ]).then(([sync, local]) => {
   $('#webhook').value = sync.webhook;
-  $('#botAPIURL').value = sync.botAPIURL;
-  $('#botAPIToken').value = local.botAPIToken;
+  $('#botAPIURL').value = local.botAPIConfig?.url || sync.botAPIURL;
+  $('#botAPIToken').value = local.botAPIConfig?.token || '';
   $('#consentBanner').checked = sync.consentBanner;
 });
 
@@ -48,14 +48,24 @@ $('#save').onclick = async () => {
     }
   }
 
+  const saved = await chrome.runtime.sendMessage({
+    kind: 'setBotAPIConfig',
+    config: botAPIURL ? {
+      url: botAPIURL,
+      token: botAPIToken,
+      generation: crypto.randomUUID()
+    } : null
+  });
+  if (!saved?.saved) {
+    $('#saved').textContent = 'Bot API settings could not be saved';
+    return;
+  }
+
   await chrome.storage.sync.set({
     webhook,
     botAPIURL,
     consentBanner: $('#consentBanner').checked
   });
-  await chrome.storage.local.set(botAPIURL
-    ? { botAPIToken }
-    : { botAPIToken: '', botAPIOutbox: [] });
 
   const previousOrigins = new Set(
     [previous.webhook, previous.botAPIURL]

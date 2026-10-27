@@ -3,7 +3,7 @@
   root.MMDelivery = api;
   if (typeof module === 'object' && module.exports) module.exports = api;
 })(typeof globalThis === 'object' ? globalThis : this, () => {
-  const retryDelays = [5_000, 30_000, 120_000, 600_000, 3_600_000];
+  const retryDelays = [30_000, 60_000, 120_000, 600_000, 3_600_000];
 
   const isAllowedBotAPIURL = raw => {
     try {
