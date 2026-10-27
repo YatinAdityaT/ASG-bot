@@ -12,8 +12,50 @@
   const MAX = 2000;
   let confirmationTimer = null;
   let confirmationGeneration = 0;
+  let mutationTimer = null;
+  let scanInterval = null;
+  let observer = null;
+  let stopped = false;
+
+  const isContextInvalidated = error =>
+    /extension context invalidated/i.test(error?.message || '');
+
+  const stopStaleWork = () => {
+    if (stopped) return;
+    stopped = true;
+    confirmationGeneration += 1;
+    observer?.disconnect();
+    observer = null;
+    if (mutationTimer !== null) clearTimeout(mutationTimer);
+    mutationTimer = null;
+    if (confirmationTimer !== null) clearTimeout(confirmationTimer);
+    confirmationTimer = null;
+    if (scanInterval !== null) clearInterval(scanInterval);
+    scanInterval = null;
+  };
+
+  const handleContextFailure = error => {
+    if (!isContextInvalidated(error)) return false;
+    stopStaleWork();
+    return true;
+  };
+
+  const deliver = message => {
+    if (stopped) return;
+    let delivery;
+    try {
+      delivery = chrome.runtime.sendMessage(message);
+    } catch (error) {
+      if (!handleContextFailure(error)) throw error;
+      return;
+    }
+    Promise.resolve(delivery).catch(error => {
+      if (!handleContextFailure(error)) throw error;
+    });
+  };
 
   const emit = (type, id, cur) => {
+    if (stopped) return;
     const rec = {
       type, id, meeting, ts: new Date().toISOString(),
       name: cur?.name ?? null,
@@ -25,10 +67,11 @@
     };
     events.push(rec);
     if (events.length > MAX) events.splice(0, events.length - MAX);
-    chrome.runtime.sendMessage({ kind: 'event', rec }).catch(() => {});
+    deliver({ kind: 'event', rec });
   };
 
   const scheduleConfirmation = () => {
+    if (stopped) return;
     const generation = ++confirmationGeneration;
     if (confirmationTimer !== null) {
       clearTimeout(confirmationTimer);
@@ -37,13 +80,14 @@
     const deadline = participantTracker.nextDeadline();
     if (deadline === null) return;
     confirmationTimer = setTimeout(() => {
-      if (generation !== confirmationGeneration) return;
+      if (stopped || generation !== confirmationGeneration) return;
       confirmationTimer = null;
       scan();
     }, Math.max(0, deadline - Date.now()));
   };
 
   const scan = () => {
+    if (stopped) return;
     const groups = new Map();
     for (const tile of document.querySelectorAll(S.tileSel)) {
       const id = tile.getAttribute(S.idAttr);
@@ -113,21 +157,23 @@
     scheduleConfirmation();
   };
 
-  let t = null;
   const schedule = () => {
-    if (!t) t = setTimeout(() => {
-      t = null;
+    if (stopped || mutationTimer !== null) return;
+    mutationTimer = setTimeout(() => {
+      mutationTimer = null;
       scan();
     }, 200);
   };
-  new MutationObserver(schedule).observe(document.body, {
+  observer = new MutationObserver(schedule);
+  observer.observe(document.body, {
     childList: true, subtree: true, attributes: true, attributeFilter: ['data-is-muted']
   });
-  setInterval(scan, 3000);
+  scanInterval = setInterval(scan, 3000);
   scan();
+  if (stopped) return;
 
   chrome.storage.sync.get({ consentBanner: true }).then(({ consentBanner }) => {
-    if (!consentBanner) return;
+    if (stopped || !consentBanner) return;
     const b = document.createElement('div');
     b.textContent = 'This call is being monitored (join/leave, camera, mute, chat).';
     Object.assign(b.style, {
@@ -137,6 +183,8 @@
       pointerEvents: 'none'
     });
     document.body.appendChild(b);
+  }).catch(error => {
+    if (!handleContextFailure(error)) throw error;
   });
 
   chrome.runtime.onMessage.addListener((msg, _s, sendResponse) => {
