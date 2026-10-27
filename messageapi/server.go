@@ -140,6 +140,12 @@ func (server *Server) serveHTTP(writer http.ResponseWriter, request *http.Reques
 			return
 		}
 		server.submitMessage(writer, request)
+	case request.URL.Path == "/v1/meet-events":
+		if request.Method != http.MethodPost {
+			methodNotAllowed(writer, http.MethodPost)
+			return
+		}
+		server.submitMeetEvent(writer, request)
 	case strings.HasPrefix(request.URL.Path, "/v1/messages/"):
 		if request.Method != http.MethodGet {
 			methodNotAllowed(writer, http.MethodGet)

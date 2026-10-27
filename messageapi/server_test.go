@@ -234,10 +234,17 @@ func TestGetMessageStatusAndNotFound(t *testing.T) {
 	assertError(t, notFound, http.StatusNotFound, "not_found")
 }
 
-func TestHealthAndMessageStatusRequireAuthentication(t *testing.T) {
+func TestAPIRoutesRequireAuthentication(t *testing.T) {
 	server, _ := newFixture(t, func() time.Time { return fixedNow })
-	for _, path := range []string{"/healthz", "/v1/messages/1"} {
-		response := request(t, server.Handler(), http.MethodGet, path, nil, nil)
+	for _, route := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/healthz"},
+		{http.MethodGet, "/v1/messages/1"},
+		{http.MethodPost, "/v1/meet-events"},
+	} {
+		response := request(t, server.Handler(), route.method, route.path, nil, nil)
 		assertError(t, response, http.StatusUnauthorized, "unauthorized")
 	}
 }
@@ -252,6 +259,7 @@ func TestUnsupportedMethodsAndPaths(t *testing.T) {
 	}{
 		{http.MethodPost, "/healthz", http.StatusMethodNotAllowed, "method_not_allowed"},
 		{http.MethodGet, "/v1/messages", http.StatusMethodNotAllowed, "method_not_allowed"},
+		{http.MethodGet, "/v1/meet-events", http.StatusMethodNotAllowed, "method_not_allowed"},
 		{http.MethodPost, "/v1/messages/1", http.StatusMethodNotAllowed, "method_not_allowed"},
 		{http.MethodGet, "/missing", http.StatusNotFound, "not_found"},
 		{http.MethodGet, "/v1/messages/not-a-number", http.StatusNotFound, "not_found"},
