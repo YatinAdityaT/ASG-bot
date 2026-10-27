@@ -97,12 +97,109 @@ test('batch progress is persisted after each accepted request', async () => {
   assert.equal(harness.localData.botAPIOutbox[0].key, 'two');
 });
 
+test('equivalent events from separate contexts forward once within five seconds', async () => {
+  const harness = await createHarness([202]);
+  const first = {
+    ...meetEvent('participant-1'),
+    type: 'chat_message',
+    text: 'Hello'
+  };
+
+  await harness.sendEvent(first);
+  harness.advance(1_000);
+  const response = await harness.sendEvent({
+    ...first,
+    ts: '2026-10-27T08:00:02Z'
+  });
+
+  assert.equal(response.queued, false);
+  assert.equal(
+    harness.fetchRequests.filter(request =>
+      request.url === 'https://bot.example.com/v1/meet-events'
+    ).length,
+    1
+  );
+});
+
+test('events from another meeting reach neither outbound path', async () => {
+  const harness = await createHarness([]);
+  harness.syncData.webhook = 'https://webhook.example.com/events';
+
+  const response = await harness.sendEvent({
+    ...meetEvent('participant-1'),
+    meeting: 'abc-defg-hij'
+  });
+
+  assert.equal(response.queued, false);
+  assert.equal(harness.fetchRequests.length, 0);
+  assert.equal(harness.localData.botAPIOutbox.length, 0);
+});
+
+test('disabled sending reaches neither outbound path', async () => {
+  const harness = await createHarness([]);
+  harness.syncData.webhook = 'https://webhook.example.com/events';
+  harness.syncData.sendingEnabled = false;
+
+  const response = await harness.sendEvent(meetEvent('participant-1'));
+
+  assert.equal(response.queued, false);
+  assert.equal(harness.fetchRequests.length, 0);
+  assert.equal(harness.localData.botAPIOutbox.length, 0);
+});
+
+test('sending defaults to enabled when the extension is installed', async () => {
+  const harness = await createHarness([]);
+  delete harness.syncData.sendingEnabled;
+
+  await harness.listeners.installed();
+
+  assert.equal(harness.syncData.sendingEnabled, true);
+});
+
+test('chat events create no browser notifications', async () => {
+  const harness = await createHarness([202]);
+
+  await harness.sendEvent({
+    ...meetEvent('participant-1'),
+    type: 'chat_message',
+    text: 'Hello'
+  });
+
+  assert.equal(harness.notificationCalls.length, 0);
+});
+
+test('popup contains a labeled sending control with ON/OFF status', () => {
+  const html = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'popup.html'),
+    'utf8'
+  );
+
+  assert.match(html, /<label id="sending-control">/);
+  assert.match(html, /<input type="checkbox" id="sending"> Sending/);
+  assert.match(html, /<strong id="sending-state">ON<\/strong>/);
+});
+
+test('popup loads and persists the sending toggle', async () => {
+  const harness = createPopupHarness(false);
+
+  await waitFor(() => harness.elements['#sending-state'].textContent === 'OFF');
+  assert.equal(harness.elements['#sending'].checked, false);
+
+  harness.elements['#sending'].checked = true;
+  await harness.elements['#sending'].onchange();
+
+  assert.equal(harness.syncWrites.length, 1);
+  assert.equal(harness.syncWrites[0].sendingEnabled, true);
+  assert.equal(harness.elements['#sending-state'].textContent, 'ON');
+});
+
 async function createHarness(fetchStatuses, fetchOverride) {
   const listeners = {};
   const syncData = {
     webhook: '',
     botAPIURL: 'https://bot.example.com/v1/meet-events',
-    consentBanner: true
+    consentBanner: true,
+    sendingEnabled: true
   };
   const localData = {
     botAPIToken: 'private-token',
@@ -114,6 +211,8 @@ async function createHarness(fetchStatuses, fetchOverride) {
     botAPIOutbox: []
   };
   const accessLevels = [];
+  const fetchRequests = [];
+  const notificationCalls = [];
   let now = 1_000_000;
 
   const clone = value => JSON.parse(JSON.stringify(value));
@@ -127,6 +226,7 @@ async function createHarness(fetchStatuses, fetchOverride) {
     Date: { now: () => now },
     Promise,
     setTimeout(fn, delay) {
+      if (delay === 15_000) return 1;
       now += delay;
       Promise.resolve().then(fn);
       return 1;
@@ -136,10 +236,12 @@ async function createHarness(fetchStatuses, fetchOverride) {
     importScripts() {
       sandbox.MMDelivery = require('../src/delivery.js');
     },
-    fetch: fetchOverride || (async () => {
+    async fetch(url, options) {
+      fetchRequests.push({ url, options });
+      if (fetchOverride) return fetchOverride(url, options);
       const status = fetchStatuses.shift();
       return { ok: status >= 200 && status < 300, status };
-    }),
+    },
     chrome: {
       storage: {
         sync: storageArea(syncData),
@@ -159,7 +261,11 @@ async function createHarness(fetchStatuses, fetchOverride) {
         create() {},
         onAlarm: { addListener(fn) { listeners.alarm = fn; } }
       },
-      notifications: { create: async () => {} }
+      notifications: {
+        async create(options) {
+          notificationCalls.push(options);
+        }
+      }
     }
   };
 
@@ -172,9 +278,12 @@ async function createHarness(fetchStatuses, fetchOverride) {
 
   return {
     accessLevels,
+    fetchRequests,
     fetchStatuses,
     listeners,
     localData,
+    notificationCalls,
+    syncData,
     advance(milliseconds) { now += milliseconds; },
     sendEvent(rec) {
       return new Promise(resolve => {
@@ -197,11 +306,83 @@ async function createHarness(fetchStatuses, fetchOverride) {
   };
 }
 
+function createPopupHarness(sendingEnabled) {
+  const elements = Object.fromEntries(
+    [
+      '#meeting',
+      '#count',
+      '#roster',
+      '#self',
+      '#feed',
+      '#csv',
+      '#opts',
+      '#sending',
+      '#sending-state'
+    ].map(selector => [selector, {
+      checked: false,
+      innerHTML: '',
+      textContent: '',
+      onclick: null,
+      onchange: null
+    }])
+  );
+  const syncWrites = [];
+  const sandbox = {
+    Blob,
+    Date,
+    MMCSV: { row: values => values.join(',') },
+    Promise,
+    URL: {
+      createObjectURL: () => 'blob:test',
+      revokeObjectURL() {}
+    },
+    chrome: {
+      runtime: { openOptionsPage() {} },
+      storage: {
+        sync: {
+          async get(defaults) {
+            return { ...defaults, sendingEnabled };
+          },
+          async set(values) {
+            syncWrites.push(values);
+          }
+        }
+      },
+      tabs: {
+        async query() {
+          return [];
+        },
+        async sendMessage() {
+          return null;
+        }
+      }
+    },
+    document: {
+      querySelector(selector) {
+        return elements[selector];
+      },
+      createElement() {
+        return { click() {} };
+      }
+    },
+    setInterval() {},
+    setTimeout(fn) {
+      fn();
+    }
+  };
+  const source = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'popup.js'),
+    'utf8'
+  );
+  vm.runInNewContext(source, sandbox, { filename: 'popup.js' });
+  return { elements, syncWrites };
+}
+
 function meetEvent(id) {
   return {
     type: 'join',
     id,
-    meeting: 'abc-defg-hij',
+    meeting: 'jpy-ymgz-tdo',
     ts: `2026-10-27T08:00:0${id === 'good' ? '2' : '1'}Z`,
     name: 'Alex'
   };

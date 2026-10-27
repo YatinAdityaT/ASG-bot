@@ -1,7 +1,13 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { eventKey, isAllowedBotAPIURL, requestFor, retryDelay } = require('../src/delivery.js');
+const {
+  eventKey,
+  forwardingKey,
+  isAllowedBotAPIURL,
+  requestFor,
+  retryDelay
+} = require('../src/delivery.js');
 
 test('configured bot API request includes bearer authentication and exact event JSON', () => {
   const event = { type: 'join', id: 'participant-1', name: 'Alex' };
@@ -47,6 +53,54 @@ test('event keys use stable Meet identity fields', () => {
   assert.equal(
     eventKey({ ...base, name: 'Alex', cam: false }),
     eventKey({ ...base, name: 'Alex Renamed', cam: true })
+  );
+});
+
+test('chat event keys ignore timestamp', () => {
+  const event = {
+    type: 'chat_message',
+    id: 'participant-1',
+    meeting: 'jpy-ymgz-tdo',
+    ts: '2026-10-27T08:00:00Z'
+  };
+
+  assert.equal(
+    eventKey(event),
+    eventKey({ ...event, ts: '2026-10-27T08:00:01Z' })
+  );
+});
+
+test('non-chat event keys retain timestamp', () => {
+  const event = {
+    type: 'join',
+    id: 'participant-1',
+    meeting: 'jpy-ymgz-tdo',
+    ts: '2026-10-27T08:00:00Z'
+  };
+
+  assert.notEqual(
+    eventKey(event),
+    eventKey({ ...event, ts: '2026-10-27T08:00:01Z' })
+  );
+});
+
+test('forwarding keys ignore timestamp but include event content', () => {
+  const event = {
+    type: 'chat_message',
+    id: 'participant-1',
+    meeting: 'jpy-ymgz-tdo',
+    name: 'Alex',
+    text: 'Hello',
+    ts: '2026-10-27T08:00:00Z'
+  };
+
+  assert.equal(
+    forwardingKey(event),
+    forwardingKey({ ...event, ts: '2026-10-27T08:00:01Z' })
+  );
+  assert.notEqual(
+    forwardingKey(event),
+    forwardingKey({ ...event, text: 'Different message' })
   );
 });
 

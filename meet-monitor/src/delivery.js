@@ -23,7 +23,17 @@
     event?.type || '',
     event?.id || '',
     event?.meeting || '',
-    event?.ts || ''
+    event?.type === 'chat_message' ? '' : event?.ts || ''
+  ]);
+
+  const forwardingKey = event => JSON.stringify([
+    event?.type || '',
+    event?.id || '',
+    event?.meeting || '',
+    event?.name || '',
+    event?.cam ?? null,
+    event?.mic ?? null,
+    event?.text ?? null
   ]);
 
   const retryDelay = attempts =>
@@ -47,5 +57,5 @@
     };
   };
 
-  return { eventKey, isAllowedBotAPIURL, requestFor, retryDelay };
+  return { eventKey, forwardingKey, isAllowedBotAPIURL, requestFor, retryDelay };
 });
