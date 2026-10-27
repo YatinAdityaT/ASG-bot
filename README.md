@@ -7,6 +7,12 @@ an authenticated HTTP API. Ordinary group messages are not stored. The SQLite
 database stores the linked-device session, WhatsApp client state, reminders,
 and outbound API jobs.
 
+## Meet Monitor browser extension
+
+The companion Google Meet extension is in [`meet-monitor/`](meet-monitor/).
+See [`meet-monitor/README.md`](meet-monitor/README.md) for Chrome installation,
+webhook configuration, permissions, updates, and troubleshooting.
+
 ## Prerequisites
 
 - Windows PowerShell, or Termux on Android.
