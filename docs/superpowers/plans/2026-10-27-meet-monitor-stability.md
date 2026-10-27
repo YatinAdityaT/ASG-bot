@@ -15,6 +15,9 @@
 - Full participant tile text is never a name fallback.
 - Chat identity is event type + meeting code + Meet message ID, without observation timestamp.
 - The existing authenticated outbox, generic webhook, CSV export, consent banner, and WhatsApp destination policy remain intact.
+- Both outbound paths are allowed only for meeting `jpy-ymgz-tdo` and while the persisted Sending toggle is ON.
+- Sending defaults to ON and is controlled from the main extension popup.
+- Browser/desktop chat notifications and their permissions are removed.
 - Remote extension distribution and automatic updates remain out of scope.
 
 ## File Structure
@@ -27,7 +30,8 @@
 - Modify `meet-monitor/src/delivery.js`: stable chat event keys and cross-context forwarding keys.
 - Modify `meet-monitor/test/delivery.test.js`: identity-key tests.
 - Modify `meet-monitor/src/background.js`: five-second duplicate guard before every forwarding path.
-- Modify `meet-monitor/test/background.test.js`: duplicate forwarding and notification tests.
+- Modify `meet-monitor/test/background.test.js`: duplicate forwarding, meeting lock, send-toggle, and no-notification tests.
+- Modify `meet-monitor/src/popup.html` and `meet-monitor/src/popup.js`: persisted Sending ON/OFF control.
 - Modify `messageapi/meet.go`: server-side stable chat idempotency.
 - Modify `messageapi/meet_test.go`: repeated-chat and repeated-state API tests.
 - Modify `meet-monitor/manifest.json`, `meet-monitor/src/options.html`, and `meet-monitor/README.md`: version and behavior documentation.
@@ -323,18 +327,22 @@ git commit -m "fix: stabilize Meet participant state changes"
 
 ---
 
-### Task 3: Suppress Duplicate Extension Events
+### Task 3: Enforce Outbound Policy and Suppress Duplicate Events
 
 **Files:**
 - Modify: `meet-monitor/src/delivery.js`
 - Modify: `meet-monitor/test/delivery.test.js`
 - Modify: `meet-monitor/src/background.js`
 - Modify: `meet-monitor/test/background.test.js`
+- Modify: `meet-monitor/src/popup.html`
+- Modify: `meet-monitor/src/popup.js`
 
 **Interfaces:**
 - Changes: `eventKey(event)` excludes `ts` only for `chat_message`
 - Produces: `forwardingKey(event) -> string`
 - Background rule: equivalent forwarding keys received within 5,000 ms are ignored
+- Background rule: all outbound paths require `sendingEnabled === true` and meeting `jpy-ymgz-tdo`
+- Popup rule: sending defaults ON, persists in `chrome.storage.sync`, and changes apply immediately
 
 - [ ] **Step 1: Add failing identity tests**
 
@@ -397,9 +405,47 @@ test('equivalent events from multiple contexts forward once within five seconds'
   await waitFor(() => harness.localData.botAPIOutbox.length === 0);
 
   assert.equal(harness.requests.length, 1);
-  assert.equal(harness.notifications.length, 1);
+  assert.equal(harness.notifications.length, 0);
+});
+
+test('blocks every outbound path for a different meeting', async () => {
+  const harness = await createHarness([202]);
+  harness.syncData.webhook = 'https://webhook.example.com/events';
+
+  const response = await harness.sendEvent({
+    ...meetEvent('participant-1'),
+    meeting: 'different-meet'
+  });
+
+  assert.equal(response.queued, false);
+  assert.equal(harness.requests.length, 0);
+});
+
+test('sending toggle defaults on and blocks every outbound path when off', async () => {
+  const harness = await createHarness([202]);
+  assert.equal(harness.syncData.sendingEnabled, true);
+
+  harness.syncData.sendingEnabled = false;
+  const response = await harness.sendEvent(meetEvent('participant-1'));
+
+  assert.equal(response.queued, false);
+  assert.equal(harness.requests.length, 0);
+});
+
+test('chat events never create browser notifications', async () => {
+  const harness = await createHarness([202]);
+  await harness.sendEvent({
+    ...meetEvent('message-1'),
+    type: 'chat_message',
+    text: 'Hello'
+  });
+
+  assert.equal(harness.notifications.length, 0);
 });
 ```
+
+Set the harness meeting to `jpy-ymgz-tdo`, expose `syncData`, `requests`, and
+`notifications`, and make its storage default include `sendingEnabled: true`.
 
 - [ ] **Step 3: Run identity and background tests and verify failure**
 
@@ -410,7 +456,8 @@ node --test meet-monitor/test/delivery.test.js meet-monitor/test/background.test
 ```
 
 Expected: FAIL because chat keys include timestamps, `forwardingKey` is absent,
-and both events are processed.
+both duplicate events are processed, outbound policy is not enforced, and chat
+notifications are still created.
 
 - [ ] **Step 4: Implement stable keys**
 
@@ -461,7 +508,53 @@ At the start of the `event` message branch, return `{ queued: false }` without
 notification, webhook forwarding, or outbox insertion when `shouldForward(rec)`
 is false.
 
-- [ ] **Step 6: Run all extension tests**
+- [ ] **Step 6: Enforce meeting and sending policy and remove notifications**
+
+Add constants and defaults in `background.js`:
+
+```js
+const ALLOWED_MEETING = 'jpy-ymgz-tdo';
+const DEFAULTS = {
+  webhook: '',
+  botAPIURL: '',
+  consentBanner: true,
+  sendingEnabled: true
+};
+```
+
+At the beginning of event processing, read `sendingEnabled` from
+`chrome.storage.sync`. Return `{ queued: false }` before both outbound paths
+when it is false or `rec.meeting !== ALLOWED_MEETING`. Remove the
+`chrome.notifications.create` chat block entirely.
+
+Add this control above the popup button row:
+
+```html
+<label id="sending-control">
+  <input type="checkbox" id="sending"> Sending <strong id="sending-state">ON</strong>
+</label>
+```
+
+Initialize and persist it in `popup.js`:
+
+```js
+async function loadSendingState() {
+  const { sendingEnabled } = await chrome.storage.sync.get({ sendingEnabled: true });
+  $('#sending').checked = sendingEnabled;
+  $('#sending-state').textContent = sendingEnabled ? 'ON' : 'OFF';
+}
+
+$('#sending').onchange = async event => {
+  const sendingEnabled = event.target.checked;
+  await chrome.storage.sync.set({ sendingEnabled });
+  $('#sending-state').textContent = sendingEnabled ? 'ON' : 'OFF';
+};
+```
+
+Call `loadSendingState()` during popup startup. The control affects forwarding
+only; local popup state and CSV history remain available.
+
+- [ ] **Step 7: Run all extension tests**
 
 Run:
 
@@ -471,11 +564,11 @@ node --test meet-monitor/test/*.test.js
 
 Expected: all tests PASS.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```powershell
-git add meet-monitor/src/delivery.js meet-monitor/src/background.js meet-monitor/test/delivery.test.js meet-monitor/test/background.test.js
-git commit -m "fix: deduplicate Meet events across extension contexts"
+git add meet-monitor/src/delivery.js meet-monitor/src/background.js meet-monitor/src/popup.html meet-monitor/src/popup.js meet-monitor/test/delivery.test.js meet-monitor/test/background.test.js
+git commit -m "fix: control and deduplicate Meet forwarding"
 ```
 
 ---
@@ -601,17 +694,22 @@ git commit -m "fix: make Meet chat delivery idempotent"
 **Interfaces:**
 - Extension version becomes `1.3.1`.
 - User-visible event list no longer advertises `rename`.
+- Manifest no longer requests `notifications` or `https://www.gstatic.com/*`.
 
 - [ ] **Step 1: Update release metadata and documentation**
 
-Set `"version": "1.3.1"` in `manifest.json`. Remove `rename` from the options
-event list. Update the README behavior and troubleshooting sections to state:
+Set `"version": "1.3.1"` in `manifest.json`. Remove `notifications` from
+`permissions` and `https://www.gstatic.com/*` from `host_permissions`. Remove
+`rename` from the options event list. Update the README behavior and
+troubleshooting sections to state:
 
 ```text
 Participant names are read only from Meet's dedicated name element. Camera and
 microphone changes must remain stable for two seconds before they are logged.
 Rename events are intentionally not emitted. Chat delivery uses Meet's stable
 message ID so refreshes, retries, and multiple tabs do not duplicate a message.
+Outbound sending defaults ON, can be toggled in the popup, and is restricted to
+meeting jpy-ymgz-tdo. Desktop chat notifications have been removed.
 ```
 
 Add update instructions: pull the branch, reload Meet Monitor from
@@ -628,6 +726,7 @@ node --check meet-monitor/src/state.js
 node --check meet-monitor/src/content.js
 node --check meet-monitor/src/delivery.js
 node --check meet-monitor/src/background.js
+node --check meet-monitor/src/popup.js
 node --test meet-monitor/test/*.test.js
 ```
 
@@ -670,6 +769,12 @@ On the user's extension laptop:
 7. Send one uniquely worded chat message with the same meeting open in a second
    tab; confirm one WhatsApp message.
 8. Have the other participant leave; confirm one departure message.
+9. Turn Sending OFF in the popup and confirm neither the webhook nor WhatsApp
+   receives new events while the local feed continues updating.
+10. Turn Sending ON and confirm forwarding resumes.
+11. Open a different Meet code and confirm its local feed works but no outbound
+    request is made.
+12. Confirm Chrome displays no desktop notification for a chat message.
 
 - [ ] **Step 6: Push the branch**
 

@@ -10,6 +10,20 @@ events.
 
 Remote extension distribution and automatic updates are out of scope.
 
+## Outbound Policy and User Control
+
+Outbound sending is locked to meeting code `jpy-ymgz-tdo`. Events from every
+other meeting remain available in the local popup and CSV export but cannot be
+sent to either the generic webhook or the authenticated bot API.
+
+The main extension popup will contain a clear Sending ON/OFF control. Sending
+defaults to ON after a fresh installation, and the selected state persists
+across Chrome restarts. Turning it OFF blocks both outbound paths immediately
+without deleting local event history or changing endpoint credentials.
+
+Desktop/browser chat notifications will be removed. The extension will no
+longer request the `notifications` permission or the Google-hosted icon origin.
+
 ## Evidence
 
 The current Meet DOM exposes a participant's clean display name in
@@ -60,8 +74,8 @@ The extension background will suppress equivalent events received within five
 seconds from multiple Meet tabs or content-script contexts. The equivalence key
 excludes the local observation timestamp and includes the event type, Meet
 code, participant or message ID, name, media state, and chat text. This
-cross-context guard applies before notification, generic webhook forwarding,
-and bot API queueing.
+cross-context guard applies before generic webhook forwarding and bot API
+queueing.
 
 Chat idempotency will additionally use the stable tuple of event type, meeting,
 and Meet message ID without the local observation timestamp. The bot server
@@ -78,8 +92,10 @@ participant can legitimately perform the same transition multiple times.
 2. `selectors.js` returns only clean names and raw media states.
 3. `state.js` converts observations into joins, explicit leaves, and confirmed
    two-second media transitions. It never generates rename events.
-4. `background.js` applies the short cross-context duplicate guard.
-5. The existing persistent extension outbox submits accepted events.
+4. `background.js` enforces the persisted send toggle and locked meeting code,
+   then applies the short cross-context duplicate guard.
+5. The existing persistent extension outbox submits accepted events only while
+   sending is enabled.
 6. The Go endpoint validates and formats events. Stable chat identity prevents
    duplicate persistent jobs.
 7. The existing scheduler delivers jobs only to the configured WhatsApp group.
@@ -99,8 +115,11 @@ Automated extension tests will verify:
 - a transition confirmed for two seconds produces exactly one event;
 - returning to the prior state cancels a pending transition;
 - missing tiles do not create state changes;
-- equivalent cross-context events are forwarded once; and
-- chat keys ignore observation timestamps while non-chat keys retain them.
+- equivalent cross-context events are forwarded once;
+- chat keys ignore observation timestamps while non-chat keys retain them;
+- outbound events are rejected when sending is disabled or the meeting code
+  does not equal `jpy-ymgz-tdo`; and
+- browser notifications are never created.
 
 Go tests will verify that repeated chat events with the same meeting and
 message ID but different timestamps create one outbound job, while legitimate
@@ -118,5 +137,8 @@ In a live Meet with at least two participants:
 - opening tile controls or changing Meet layout creates no rename or camera
   noise;
 - a real camera or microphone transition appears once after about two seconds;
-- a chat message appears once even when another tab observes the meeting; and
-- joins and explicit departures continue to appear once.
+- a chat message appears once even when another tab observes the meeting;
+- joins and explicit departures continue to appear once;
+- the popup toggle immediately stops and resumes both outbound paths; and
+- a different meeting remains locally visible but produces no outbound
+  request.
