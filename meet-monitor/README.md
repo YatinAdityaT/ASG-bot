@@ -24,9 +24,12 @@ first established non-empty name for each participant. Camera and microphone
 changes must remain stable for two seconds before an event is emitted, reducing
 false state changes during Meet layout updates.
 
-Chat events use Meet's stable message IDs. Those IDs provide deduplication
-across delivery retries, extension refreshes, and multiple open tabs so the same
-chat message is not forwarded repeatedly.
+For the authenticated bot API, chat events use Meet's stable message IDs as
+idempotency keys. The server persists that identity, preventing duplicate bot
+API delivery across extension retries, page refreshes, multiple tabs, and
+service-worker restarts. The optional generic webhook has only the extension
+background's five-second in-memory cross-context guard; it may receive a
+repeated historical event after an extension or service-worker restart.
 
 ## Install in Chrome
 
@@ -133,8 +136,11 @@ generic webhook and the bot API. Outbound delivery is locked to meeting
 ## Export CSV
 
 While a Meet tab is active, open the popup and click **Export CSV**. The export
-contains the latest events retained by the content script, up to 2,000 events.
-Reloading or closing the Meet page clears its in-memory history.
+contains at most the latest 500 events because the popup's `getState` response
+exposes only that portion of the content script's history. The content script
+retains up to 2,000 events in memory, but older retained events are not currently
+available to popup export. Reloading or closing the Meet page clears its
+in-memory history.
 
 ## Permissions
 
