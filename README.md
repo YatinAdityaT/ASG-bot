@@ -187,6 +187,24 @@ For a scheduled request, include a timestamp such as
 `"sendAt":"2026-10-27T09:30:00+05:30"`. Submission returns `202 Accepted`.
 Status is one of `pending`, `sending`, `sent`, or `failed`.
 
+### Google Meet events
+
+The Meet Monitor extension submits its raw event records to
+`POST /v1/meet-events` using the same bearer token. The server validates,
+deduplicates, formats, and queues them for the configured target group:
+
+- `🎥 Meet abc-defg-hij: Alex joined the call.`
+- `🎥 Meet abc-defg-hij: Alex left the call.`
+- `🎙️ Meet abc-defg-hij: Alex muted their mic.`
+- `🎙️ Meet abc-defg-hij: Alex unmuted their mic.`
+- `📷 Meet abc-defg-hij: Alex turned their camera on.`
+- `📷 Meet abc-defg-hij: Alex turned their camera off.`
+- `💬 Meet abc-defg-hij: Alex said: "Hello"`
+
+The endpoint also accepts `rename`. It never accepts a destination; every
+event goes through the same persistent single-group outbound queue. Replaying
+an identical event returns the existing job.
+
 The `idempotencyKey` must be stable across client retries. Repeating the same
 key and payload returns the existing job; reusing a key with different text or
 schedule returns `409 Conflict`. Delivery is best-effort at-least-once. A
@@ -335,8 +353,10 @@ existing reminders still work. Then:
 3. Submit one job scheduled a few minutes ahead and verify it appears exactly
    once at the expected time.
 4. Poll both status URLs until each reports `sent`.
-5. Confirm the logs contain no SQLite lock errors.
-6. Stop the process cleanly before restoring normal service configuration.
+5. Submit a synthetic event to `POST /v1/meet-events`, poll the returned job,
+   and confirm the formatted Meet message appears exactly once.
+6. Confirm the logs contain no SQLite lock errors.
+7. Stop the process cleanly before restoring normal service configuration.
 
 ## Troubleshooting
 

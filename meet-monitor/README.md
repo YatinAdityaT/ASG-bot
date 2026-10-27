@@ -77,6 +77,29 @@ The extension forwards webhook requests from its background service worker.
 Use an authenticated HTTPS endpoint for sensitive meeting data. Do not embed
 long-lived secrets in this source tree.
 
+### ASG Bot WhatsApp forwarding
+
+To forward Meet activity to the configured WhatsApp test group:
+
+1. Run the ASG bot with its authenticated message API enabled.
+2. If Chrome and the bot are on different devices, expose the loopback API
+   through an authenticated HTTPS tunnel; never expose port 8080 directly.
+3. Copy the extension ID from `chrome://extensions`.
+4. Add `chrome-extension://<extension-id>` to
+   `ASG_BOT_API_ALLOWED_ORIGINS` and restart the bot.
+5. In extension options, enter the public URL ending in
+   `/v1/meet-events` and the bot's API token.
+6. Save, approve Chrome's exact-origin permission request, reload the
+   extension, and refresh the Meet tab.
+
+The token is stored in `chrome.storage.local`, not Chrome synced storage. The
+bot URL and banner preference are synced. Every accepted event enters the
+bot's persistent outbound queue and is sent only to the server-configured
+group. The extension cannot provide a destination JID.
+
+The ASG bot forwarding and generic webhook are independent; configuring both
+sends each raw event to both endpoints.
+
 ## Export CSV
 
 While a Meet tab is active, open the popup and click **Export CSV**. The export
@@ -85,11 +108,13 @@ Reloading or closing the Meet page clears its in-memory history.
 
 ## Permissions
 
-- `storage`: saves the webhook URL and banner preference.
+- `storage`: saves endpoint settings, the local API token, and banner
+  preference.
 - `notifications`: shows desktop notifications for visible Meet chat messages.
 - `https://meet.google.com/*`: runs the monitor in Meet tabs.
 - `https://www.gstatic.com/*`: loads the notification icon.
-- Optional HTTP(S) origins: granted only when you save a webhook URL.
+- Optional HTTP(S) origins: granted only when you save a webhook or bot API
+  URL.
 
 ## Troubleshooting
 
@@ -113,6 +138,17 @@ Reloading or closing the Meet page clears its in-memory history.
   check its console.
 - Verify the endpoint supports `POST`, accepts JSON, and permits the request.
 
+### WhatsApp forwarding receives nothing
+
+- Confirm the Bot API URL ends exactly in `/v1/meet-events`.
+- Confirm the API token matches `ASG_BOT_API_TOKEN`.
+- Confirm `ASG_BOT_API_ALLOWED_ORIGINS` contains the exact
+  `chrome-extension://<extension-id>` origin, then restart the bot.
+- Check the extension service-worker console for the generic delivery failure
+  warning; tokens and event bodies are intentionally not logged.
+- Submit a synthetic event with `curl` to isolate extension configuration from
+  server or WhatsApp delivery problems.
+
 ### Desktop notifications do not appear
 
 - Allow Chrome notifications in the operating system.
@@ -127,6 +163,7 @@ From the repository root:
 node -e "JSON.parse(require('fs').readFileSync('meet-monitor/manifest.json','utf8'))"
 node --check meet-monitor/src/selectors.js
 node --check meet-monitor/src/content.js
+node --check meet-monitor/src/delivery.js
 node --check meet-monitor/src/background.js
 node --check meet-monitor/src/state.js
 node --check meet-monitor/src/csv.js
