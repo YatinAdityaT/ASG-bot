@@ -37,4 +37,3 @@ test('Meet leave announcements expose the participant name', () => {
   assert.equal(leftParticipantName('Alex left the call'), 'Alex');
   assert.equal(leftParticipantName('Alex joined the call'), null);
 });
-

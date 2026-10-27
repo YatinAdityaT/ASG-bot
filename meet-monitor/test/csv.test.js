@@ -9,4 +9,3 @@ test('CSV rows quote commas, quotes, and newlines correctly', () => {
     'plain,"comma,value","say ""hello""","two\nlines"'
   );
 });
-
