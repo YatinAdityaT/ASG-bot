@@ -57,7 +57,7 @@ func (cm *CommandManager) handleReminder(db *sql.DB, ctx context.Context, client
 	request, err := utils.ParseReminder(
 		"/remind "+args[0],
 		commandCtx.Mentions,
-		info.Sender,
+		commandCtx.SenderIdentity,
 		info.PushName,
 		time.Now(),
 	)
@@ -97,7 +97,7 @@ func (cm *CommandManager) handleRemindList(db *sql.DB, ctx context.Context, clie
 	info := commandCtx.Info
 	rows, err := db.QueryContext(ctx,
 		"SELECT id, message, remind_at FROM reminders WHERE chat_id = ? AND requested_by = ? ORDER BY remind_at ASC",
-		info.Chat.String(), info.Sender.ToNonAD().String(),
+		info.Chat.String(), commandCtx.SenderIdentity.String(),
 	)
 	if err != nil {
 		return utils.ReplyToMessage(ctx, client, info.Chat, "Failed to retrieve reminders", info.ID, info.Sender)
@@ -138,7 +138,7 @@ func (cm *CommandManager) handleRemindDelete(db *sql.DB, ctx context.Context, cl
 
 	res, err := db.ExecContext(ctx,
 		"DELETE FROM reminders WHERE id = ? AND chat_id = ? AND requested_by = ?",
-		id, info.Chat.String(), info.Sender.ToNonAD().String(),
+		id, info.Chat.String(), commandCtx.SenderIdentity.String(),
 	)
 	if err != nil {
 		return utils.ReplyToMessage(ctx, client, info.Chat, "Failed to delete reminder.", info.ID, info.Sender)
@@ -170,7 +170,7 @@ func (cm *CommandManager) handleRemindUpdate(db *sql.DB, ctx context.Context, cl
 	request, err := utils.ParseReminder(
 		"/remind "+args[1],
 		nil,
-		info.Sender,
+		commandCtx.SenderIdentity,
 		info.PushName,
 		time.Now(),
 	)
@@ -181,7 +181,7 @@ func (cm *CommandManager) handleRemindUpdate(db *sql.DB, ctx context.Context, cl
 	var targetRaw string
 	err = db.QueryRowContext(ctx,
 		"SELECT to_id FROM reminders WHERE id = ? AND chat_id = ? AND requested_by = ?",
-		id, info.Chat.String(), info.Sender.ToNonAD().String(),
+		id, info.Chat.String(), commandCtx.SenderIdentity.String(),
 	).Scan(&targetRaw)
 	if err == sql.ErrNoRows {
 		return utils.ReplyToMessage(ctx, client, info.Chat, "Reminder not found or doesn't belong to this chat.", info.ID, info.Sender)
@@ -197,7 +197,7 @@ func (cm *CommandManager) handleRemindUpdate(db *sql.DB, ctx context.Context, cl
 
 	res, err := db.ExecContext(ctx,
 		"UPDATE reminders SET message = ?, remind_at = ? WHERE id = ? AND chat_id = ? AND requested_by = ?",
-		reminderDeliveryMessage(request), request.RemindAt, id, info.Chat.String(), info.Sender.ToNonAD().String(),
+		reminderDeliveryMessage(request), request.RemindAt, id, info.Chat.String(), commandCtx.SenderIdentity.String(),
 	)
 	if err != nil {
 		return utils.ReplyToMessage(ctx, client, info.Chat, "Failed to update reminder.", info.ID, info.Sender)

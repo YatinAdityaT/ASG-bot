@@ -63,14 +63,17 @@ func TestNewRegistryAddsOutboundProviderWhenStoreSupplied(t *testing.T) {
 
 	registry := NewRegistry(database, store)
 
-	if len(registry.Providers) != 2 {
-		t.Fatalf("provider count = %d, want 2", len(registry.Providers))
+	if len(registry.Providers) != 3 {
+		t.Fatalf("provider count = %d, want 3", len(registry.Providers))
 	}
 	if _, ok := registry.Providers[0].(*ReminderProvider); !ok {
 		t.Fatalf("first provider type = %T, want *ReminderProvider", registry.Providers[0])
 	}
-	if _, ok := registry.Providers[1].(*OutboundProvider); !ok {
-		t.Fatalf("second provider type = %T, want *OutboundProvider", registry.Providers[1])
+	if _, ok := registry.Providers[1].(*BirthdayProvider); !ok {
+		t.Fatalf("second provider type = %T, want *BirthdayProvider", registry.Providers[1])
+	}
+	if _, ok := registry.Providers[2].(*OutboundProvider); !ok {
+		t.Fatalf("third provider type = %T, want *OutboundProvider", registry.Providers[2])
 	}
 }
 

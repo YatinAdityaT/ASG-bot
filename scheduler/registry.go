@@ -33,7 +33,10 @@ func NewBirthdayProvider(dbConn *sql.DB) TaskProvider {
 }
 
 func NewRegistry(dbConn *sql.DB, outboundStores ...*outbound.Store) *Registry {
-	providers := []TaskProvider{NewReminderProvider(dbConn)}
+	providers := []TaskProvider{
+		NewReminderProvider(dbConn),
+		NewBirthdayProvider(dbConn),
+	}
 	for _, store := range outboundStores {
 		if store != nil {
 			providers = append(providers, NewOutboundProvider(store))

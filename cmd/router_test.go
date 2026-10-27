@@ -206,6 +206,34 @@ func TestRouteMessagePassesInfoAndTrustedMentionsToCallback(t *testing.T) {
 	}
 }
 
+func TestRouteMessageUsesPhoneNumberAlternativeForIdentity(t *testing.T) {
+	manager := NewCommandManager(&fakeSender{}, []string{"456"}, func() {})
+	var got CommandContext
+	manager.RegisterCommand(Command{
+		Name:           "/admin-test",
+		Regex:          regexp.MustCompile(`^/admin-test$`),
+		IsAdminCommand: true,
+		Callback: func(_ *sql.DB, _ context.Context, _ utils.MessageSender, commandCtx CommandContext, _ []string) error {
+			got = commandCtx
+			return nil
+		},
+	})
+	evt := messageEvent("/admin-test")
+	evt.Info.Sender = types.NewJID("123456789", types.HiddenUserServer)
+	evt.Info.SenderAlt = types.NewJID("456", types.DefaultUserServer)
+	evt.Info.AddressingMode = types.AddressingModeLID
+
+	if err := manager.RouteMessage(nil, context.Background(), evt); err != nil {
+		t.Fatalf("RouteMessage() error = %v", err)
+	}
+	if got.SenderIdentity != evt.Info.SenderAlt {
+		t.Fatalf("SenderIdentity = %v, want %v", got.SenderIdentity, evt.Info.SenderAlt)
+	}
+	if got.Info.Sender != evt.Info.Sender {
+		t.Fatalf("reply sender = %v, want original %v", got.Info.Sender, evt.Info.Sender)
+	}
+}
+
 func TestRouteMessagePreservesInvalidMentionMetadataError(t *testing.T) {
 	manager := NewCommandManager(&fakeSender{}, nil, func() {})
 	var got CommandContext

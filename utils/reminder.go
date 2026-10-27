@@ -94,9 +94,13 @@ func ParseReminder(
 	}
 	request.RemindAt = result.Time
 
+	bodyMentionRanges := visibleMentions
+	if len(visibleMentions) == 1 {
+		bodyMentionRanges = [][2]int{extendMentionRange(commandText, visibleMentions[0], result)}
+	}
 	var body string
 	residual := blankReminderRange(commandText, result.Index, result.Index+len(result.Text))
-	for _, location := range visibleMentions {
+	for _, location := range bodyMentionRanges {
 		residual = blankReminderRange(residual, location[0], location[1])
 	}
 	if quoteCount == 2 {
@@ -127,6 +131,22 @@ func ParseReminder(
 	}
 	request.Body = body
 	return request, nil
+}
+
+func extendMentionRange(text string, mention [2]int, parsedTime *when.Result) [2]int {
+	end := mention[1]
+	for _, boundary := range []int{
+		strings.Index(text[mention[0]:], `"`),
+		parsedTime.Index - mention[0],
+	} {
+		if boundary > 0 {
+			candidate := mention[0] + boundary
+			if candidate > end && (end == mention[1] || candidate < end) {
+				end = candidate
+			}
+		}
+	}
+	return [2]int{mention[0], end}
 }
 
 func visibleMentionRanges(text string) [][2]int {

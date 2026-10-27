@@ -4,7 +4,8 @@
   window.__mmLoaded = true;
 
   const meeting = S.meetingCode();
-  const roster = new Map();
+  const participantTracker = new window.MMParticipantTracker();
+  const roster = participantTracker.roster;
   const events = [];
   const seenChats = new Set();
   const MAX = 2000;
@@ -52,20 +53,9 @@
       break;
     }
 
-    for (const [id, cur] of now) {
-      const prev = roster.get(id);
-      if (!prev) {
-        emit('join', id, cur);
-      } else {
-        if (prev.cam !== cur.cam) emit(cur.cam ? 'cam_on' : 'cam_off', id, cur);
-        if (prev.mic !== cur.mic) emit(cur.mic === 'muted' ? 'mic_muted' : 'mic_unmuted', id, cur);
-        if (cur.name && prev.name !== cur.name) emit('rename', id, cur);
-      }
+    for (const change of participantTracker.update(now)) {
+      emit(change.type, change.id, change.cur);
     }
-    for (const [id, prev] of roster) if (!now.has(id)) emit('leave', id, prev);
-
-    roster.clear();
-    for (const [k, v] of now) roster.set(k, v);
 
     for (const group of document.querySelectorAll(S.chatGroupSel)) {
       const senderEl = group.querySelector(S.chatSenderSel);

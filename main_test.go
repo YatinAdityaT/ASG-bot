@@ -107,6 +107,18 @@ func TestRunWaitsForActiveSchedulerWorkBeforeCleanup(t *testing.T) {
 			message TEXT NOT NULL,
 			remind_at DATETIME NOT NULL
 		);
+		CREATE TABLE birthdays (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			chat_id TEXT NOT NULL,
+			name TEXT NOT NULL,
+			birth_date DATE NOT NULL
+		);
+		CREATE TABLE birthday_deliveries (
+			birthday_id INTEGER NOT NULL,
+			delivery_year INTEGER NOT NULL,
+			delivered_at DATETIME NOT NULL,
+			PRIMARY KEY (birthday_id, delivery_year)
+		);
 		INSERT INTO reminders (chat_id, to_id, message, remind_at)
 		VALUES ('123@g.us', '456@s.whatsapp.net', 'blocked reminder', ?);
 	`, time.Now().Add(-time.Minute))

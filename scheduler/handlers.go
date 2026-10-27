@@ -104,15 +104,25 @@ func (r *ReminderProvider) GetDueTasks(ctx context.Context, now time.Time) ([]Sc
 
 // ----------------- Birthday Provider -----------------
 type BirthdayTask struct {
-	chatID   types.JID
-	message  string
-	schedule time.Time
-	id       string
+	db           *sql.DB
+	birthdayID   string
+	deliveryYear int
+	chatID       types.JID
+	message      string
+	schedule     time.Time
+	id           string
 }
 
 func (r *BirthdayTask) Run(ctx context.Context, sender utils.MessageSender) error {
 	msg := &waProto.Message{Conversation: &r.message}
-	_, err := sender.SendMessage(ctx, r.chatID, msg)
+	if _, err := sender.SendMessage(ctx, r.chatID, msg); err != nil {
+		return err
+	}
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO birthday_deliveries (birthday_id, delivery_year, delivered_at)
+		VALUES (?, ?, ?)
+		ON CONFLICT (birthday_id, delivery_year) DO NOTHING
+	`, r.birthdayID, r.deliveryYear, r.schedule)
 	return err
 }
 
@@ -127,11 +137,17 @@ func (b *BirthdayTask) ID() string {
 func (b *BirthdayProvider) GetDueTasks(ctx context.Context, now time.Time) ([]ScheduledTask, error) {
 	today := now.Format("01-02") // MM-DD
 	query := `
-		SELECT id, chat_id, name
-		FROM birthdays
-		WHERE strftime('%m-%d', birth_date) = ?
+		SELECT birthday.id, birthday.chat_id, birthday.name
+		FROM birthdays AS birthday
+		WHERE strftime('%m-%d', birthday.birth_date) = ?
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM birthday_deliveries AS delivery
+			WHERE delivery.birthday_id = birthday.id
+			  AND delivery.delivery_year = ?
+		  )
 	`
-	rows, err := b.db.QueryContext(ctx, query, today)
+	rows, err := b.db.QueryContext(ctx, query, today, now.Year())
 	if err != nil {
 		return nil, err
 	}
@@ -151,12 +167,18 @@ func (b *BirthdayProvider) GetDueTasks(ctx context.Context, now time.Time) ([]Sc
 		}
 
 		task := &BirthdayTask{
-			id:       "birthday-" + id,
-			chatID:   jid,
-			message:  msg,
-			schedule: now,
+			db:           b.db,
+			birthdayID:   id,
+			deliveryYear: now.Year(),
+			id:           "birthday-" + id,
+			chatID:       jid,
+			message:      msg,
+			schedule:     now,
 		}
 		tasks = append(tasks, task)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate birthdays: %w", err)
 	}
 	return tasks, nil
 }

@@ -65,6 +65,12 @@ func openSchedulerDB(t *testing.T) *sql.DB {
 			name TEXT NOT NULL,
 			birth_date DATE NOT NULL
 		);
+		CREATE TABLE birthday_deliveries (
+			birthday_id INTEGER NOT NULL,
+			delivery_year INTEGER NOT NULL,
+			delivered_at DATETIME NOT NULL,
+			PRIMARY KEY (birthday_id, delivery_year)
+		);
 	`)
 	if err != nil {
 		t.Fatalf("create schema: %v", err)
@@ -122,14 +128,41 @@ func TestRunOnceSendsDueReminderOnceAndDeletesIt(t *testing.T) {
 	assertReminderCount(t, database, 0)
 }
 
-func TestNewRegistryRegistersOnlyReminderProvider(t *testing.T) {
+func TestNewRegistryRegistersReminderAndBirthdayProviders(t *testing.T) {
 	registry := NewRegistry(openSchedulerDB(t))
 
-	if len(registry.Providers) != 1 {
-		t.Fatalf("provider count = %d, want 1", len(registry.Providers))
+	if len(registry.Providers) != 2 {
+		t.Fatalf("provider count = %d, want 2", len(registry.Providers))
 	}
 	if _, ok := registry.Providers[0].(*ReminderProvider); !ok {
-		t.Fatalf("provider type = %T, want *ReminderProvider", registry.Providers[0])
+		t.Fatalf("first provider type = %T, want *ReminderProvider", registry.Providers[0])
+	}
+	if _, ok := registry.Providers[1].(*BirthdayProvider); !ok {
+		t.Fatalf("second provider type = %T, want *BirthdayProvider", registry.Providers[1])
+	}
+}
+
+func TestRunOnceSendsBirthdayOnlyOncePerYear(t *testing.T) {
+	database := openSchedulerDB(t)
+	now := time.Date(2026, time.October, 27, 9, 0, 0, 0, time.UTC)
+	if _, err := database.Exec(
+		`INSERT INTO birthdays (chat_id, name, birth_date) VALUES (?, ?, ?)`,
+		"120363000000000000@g.us", "Alex", "1990-10-27",
+	); err != nil {
+		t.Fatalf("insert birthday: %v", err)
+	}
+	sender := &fakeSender{}
+	sched := NewScheduler(NewRegistry(database), sender, time.Second)
+
+	if err := sched.RunOnce(context.Background(), now); err != nil {
+		t.Fatalf("first RunOnce: %v", err)
+	}
+	if err := sched.RunOnce(context.Background(), now.Add(time.Minute)); err != nil {
+		t.Fatalf("second RunOnce: %v", err)
+	}
+
+	if got := sender.count(); got != 1 {
+		t.Fatalf("sent messages = %d, want 1", got)
 	}
 }
 

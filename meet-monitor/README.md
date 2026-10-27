@@ -10,6 +10,11 @@ Google Meet does not provide stable public DOM APIs for these features. The
 selectors can stop working after a Meet update; update `src/selectors.js` when
 that happens.
 
+Meet can temporarily remove participant tiles during layout changes and
+virtualization. The extension retains a missing participant for 30 seconds
+before recording a leave, preventing brief DOM changes from producing an
+immediate false leave/join pair.
+
 ## Install in Chrome
 
 1. Clone or download this repository.
@@ -122,8 +127,11 @@ node -e "JSON.parse(require('fs').readFileSync('meet-monitor/manifest.json','utf
 node --check meet-monitor/src/selectors.js
 node --check meet-monitor/src/content.js
 node --check meet-monitor/src/background.js
+node --check meet-monitor/src/state.js
+node --check meet-monitor/src/csv.js
 node --check meet-monitor/src/popup.js
 node --check meet-monitor/src/options.js
+node --test meet-monitor/test/*.test.js
 ```
 
 These commands validate JSON and JavaScript syntax. They do not replace a live

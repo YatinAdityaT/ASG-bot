@@ -21,6 +21,7 @@ func TestSetupDBCreatesApplicationSchema(t *testing.T) {
 	for _, name := range []string{
 		"reminders",
 		"birthdays",
+		"birthday_deliveries",
 		"outbound_jobs",
 		"idx_remind_at",
 		"idx_reminders_requester_chat",

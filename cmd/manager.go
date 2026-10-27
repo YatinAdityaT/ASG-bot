@@ -10,9 +10,10 @@ import (
 )
 
 type CommandContext struct {
-	Info         types.MessageInfo
-	Mentions     []types.JID
-	MentionError error
+	Info           types.MessageInfo
+	SenderIdentity types.JID
+	Mentions       []types.JID
+	MentionError   error
 }
 
 type CommandHandlerFunc func(db *sql.DB, ctx context.Context, client utils.MessageSender, commandCtx CommandContext, args []string) error

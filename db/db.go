@@ -26,7 +26,13 @@ var createBirthdaysTable = `
 	chat_id TEXT NOT NULL,
 	name TEXT NOT NULL,
 	birth_date DATE NOT NULL);
-	CREATE INDEX IF NOT EXISTS idx_birth_date ON birthdays(birth_date);`
+	CREATE INDEX IF NOT EXISTS idx_birth_date ON birthdays(birth_date);
+	CREATE TABLE IF NOT EXISTS birthday_deliveries (
+	birthday_id INTEGER NOT NULL,
+	delivery_year INTEGER NOT NULL,
+	delivered_at DATETIME NOT NULL,
+	PRIMARY KEY (birthday_id, delivery_year),
+	FOREIGN KEY (birthday_id) REFERENCES birthdays(id) ON DELETE CASCADE);`
 
 var createOutboundJobsTable = `
 	CREATE TABLE IF NOT EXISTS outbound_jobs (

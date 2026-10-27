@@ -221,9 +221,20 @@ dashboards can change.
 
 ### Termux operation
 
-Install Go and build in Termux, then keep the database in the app's private
-home directory rather than shared storage. Export the same variables shown
-above using shell syntax:
+Install Termux from F-Droid or GitHub, then install the required packages,
+clone the repository, create the private runtime directory, and build:
+
+```sh
+pkg update
+pkg install git golang openssl termux-api
+git clone https://github.com/YatinAdityaT/ASG-bot.git "$HOME/asg-bot-src"
+cd "$HOME/asg-bot-src"
+mkdir -p "$HOME/asg-bot"
+go build -o "$HOME/asg-bot/asg-bot" .
+```
+
+Keep the database in Termux's private home directory rather than shared
+storage. Export the same variables shown above using shell syntax:
 
 ```sh
 export ASG_BOT_ADMIN_NUMBERS='15551234567'
@@ -235,6 +246,13 @@ export ASG_BOT_API_ADDR='127.0.0.1:8080'
 export ASG_BOT_API_TOKEN="$(openssl rand -base64 48)"
 export ASG_BOT_API_TARGET_GROUP='120363012345678901@g.us'
 export ASG_BOT_API_ALLOWED_ORIGINS=''
+```
+
+Start the built bot with:
+
+```sh
+cd "$HOME/asg-bot"
+./asg-bot
 ```
 
 Persist the generated token in a private, mode-`600` environment file instead

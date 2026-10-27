@@ -22,20 +22,31 @@ func (cm *CommandManager) RouteMessage(db *sql.DB, ctx context.Context, evt *eve
 	for _, cmd := range cm.commands {
 		matches := cmd.Regex.FindStringSubmatch(messageText)
 		if len(matches) > 0 {
-			if cmd.IsAdminCommand && !cm.isAdmin(info.Sender) {
+			senderIdentity := canonicalSenderIdentity(info.MessageSource)
+			if cmd.IsAdminCommand && !cm.isAdmin(senderIdentity) {
 				return utils.ReplyToMessage(ctx, cm.client, info.Chat, "You do not have permission to use this command.", info.ID, info.Sender)
 			}
 
 			mentions, mentionErr := extractMentions(evt)
 			commandCtx := CommandContext{
-				Info:         info,
-				Mentions:     mentions,
-				MentionError: mentionErr,
+				Info:           info,
+				SenderIdentity: senderIdentity,
+				Mentions:       mentions,
+				MentionError:   mentionErr,
 			}
 			return cmd.Callback(db, ctx, cm.client, commandCtx, matches[1:])
 		}
 	}
 	return nil
+}
+
+func canonicalSenderIdentity(source types.MessageSource) types.JID {
+	sender := source.Sender.ToNonAD()
+	if (sender.Server == types.HiddenUserServer || sender.Server == types.HostedLIDServer) &&
+		!source.SenderAlt.IsEmpty() {
+		return source.SenderAlt.ToNonAD()
+	}
+	return sender
 }
 
 func extractMentions(evt *events.Message) ([]types.JID, error) {

@@ -50,10 +50,12 @@ $('#csv').onclick = async () => {
   const state = await chrome.tabs.sendMessage(tab.id, { kind: 'getState' }).catch(() => null);
   if (!state) return;
 
-  const header = 'ts,type,participantId,name,self,host,cam,mic,text,meeting\n';
+  const header = MMCSV.row(['ts', 'type', 'participantId', 'name', 'self', 'host', 'cam', 'mic', 'text', 'meeting']) + '\n';
   const body = state.events.map(e =>
-    [e.ts, e.type, e.id, JSON.stringify(e.name || ''),
-     e.self, e.host, e.cam ?? '', e.mic ?? '', JSON.stringify(e.text || ''), e.meeting].join(',')
+    MMCSV.row([
+      e.ts, e.type, e.id, e.name || '', e.self, e.host,
+      e.cam ?? '', e.mic ?? '', e.text || '', e.meeting
+    ])
   ).join('\n');
 
   const url = URL.createObjectURL(new Blob([header + body], { type: 'text/csv' }));

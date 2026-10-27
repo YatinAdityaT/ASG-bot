@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -213,6 +214,26 @@ func TestParseReminderAllowsSingleMentionWithTrailingPunctuation(t *testing.T) {
 		}
 		if got.Body != "submit" {
 			t.Errorf("ParseReminder(%q).Body = %q, want submit", input, got.Body)
+		}
+	}
+}
+
+func TestParseReminderRemovesMultiwordAndHyphenatedMentionNames(t *testing.T) {
+	now := time.Date(2026, time.October, 26, 10, 0, 0, 0, time.Local)
+	requester := types.NewJID("456", types.DefaultUserServer)
+	target := types.NewJID("789", types.DefaultUserServer)
+
+	for _, input := range []string{
+		`/remind @Mary Jane "submit" tomorrow at 3pm`,
+		`/remind @Mary-Jane "submit" tomorrow at 3pm`,
+		`/remind @Mary Jane in 20 minutes to join the call`,
+	} {
+		got, err := ParseReminder(input, []types.JID{target}, requester, "Yatin", now)
+		if err != nil {
+			t.Fatalf("ParseReminder(%q) error = %v", input, err)
+		}
+		if got.Body != map[bool]string{true: "join the call", false: "submit"}[strings.Contains(input, "20 minutes")] {
+			t.Errorf("ParseReminder(%q).Body = %q", input, got.Body)
 		}
 	}
 }
