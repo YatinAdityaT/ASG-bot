@@ -97,8 +97,87 @@ test('batch progress is persisted after each accepted request', async () => {
   assert.equal(harness.localData.botAPIOutbox[0].key, 'two');
 });
 
-test('equivalent events from separate contexts forward once within five seconds', async () => {
+test('alarm flush preserves queued entries without fetching while sending is disabled', async () => {
+  const harness = await createHarness([]);
+  harness.syncData.sendingEnabled = false;
+  harness.localData.botAPIOutbox = [outboxEntry('alarm')];
+
+  harness.listeners.alarm({ name: 'bot-api-outbox' });
+  await settle();
+
+  assert.equal(harness.fetchRequests.length, 0);
+  assert.equal(harness.localData.botAPIOutbox.length, 1);
+});
+
+test('startup flush preserves queued entries without fetching while sending is disabled', async () => {
+  const harness = await createHarness([]);
+  harness.syncData.sendingEnabled = false;
+  harness.localData.botAPIOutbox = [outboxEntry('startup')];
+
+  harness.listeners.startup();
+  await settle();
+
+  assert.equal(harness.fetchRequests.length, 0);
+  assert.equal(harness.localData.botAPIOutbox.length, 1);
+});
+
+test('configuration flush preserves queued entries without fetching while sending is disabled', async () => {
+  const harness = await createHarness([]);
+  harness.syncData.sendingEnabled = false;
+  harness.localData.botAPIOutbox = [outboxEntry('configuration')];
+
+  await harness.updateConfig({
+    url: 'https://bot.example.com/v1/meet-events',
+    token: 'private-token',
+    generation: 'generation-2'
+  });
+  await settle();
+
+  assert.equal(harness.fetchRequests.length, 0);
+  assert.equal(harness.localData.botAPIOutbox.length, 1);
+});
+
+test('initial flush preserves queued entries without fetching while sending is disabled', async () => {
+  const harness = await createHarness([], null, {
+    syncData: { sendingEnabled: false },
+    localData: { botAPIOutbox: [outboxEntry('initialization')] }
+  });
+  await settle();
+
+  assert.equal(harness.fetchRequests.length, 0);
+  assert.equal(harness.localData.botAPIOutbox.length, 1);
+});
+
+test('flush permanently removes persisted entries from disallowed meetings', async () => {
+  const harness = await createHarness([]);
+  harness.localData.botAPIOutbox = [{
+    ...outboxEntry('disallowed'),
+    rec: {
+      ...meetEvent('disallowed'),
+      meeting: 'abc-defg-hij'
+    }
+  }];
+
+  harness.listeners.alarm({ name: 'bot-api-outbox' });
+  await waitFor(() => harness.localData.botAPIOutbox.length === 0);
+
+  assert.equal(harness.fetchRequests.length, 0);
+});
+
+test('re-enabling sending flushes the preserved outbox', async () => {
   const harness = await createHarness([202]);
+  harness.syncData.sendingEnabled = false;
+  harness.localData.botAPIOutbox = [outboxEntry('reenabled')];
+
+  harness.setSendingEnabled(true);
+  await waitFor(() => harness.localData.botAPIOutbox.length === 0);
+
+  assert.equal(harness.fetchRequests.length, 1);
+});
+
+test('equivalent events from separate contexts forward once within five seconds', async () => {
+  const harness = await createHarness([], async () => ({ ok: true, status: 202 }));
+  harness.syncData.webhook = 'https://webhook.example.com/events';
   const first = {
     ...meetEvent('participant-1'),
     type: 'chat_message',
@@ -119,6 +198,31 @@ test('equivalent events from separate contexts forward once within five seconds'
     ).length,
     1
   );
+  assert.equal(
+    harness.fetchRequests.filter(request =>
+      request.url === 'https://webhook.example.com/events'
+    ).length,
+    1
+  );
+});
+
+test('a stalled webhook does not block bot handling or event acknowledgement', async () => {
+  const harness = await createHarness([], async url => {
+    if (url === 'https://webhook.example.com/events') {
+      return new Promise(() => {});
+    }
+    return { ok: true, status: 202 };
+  });
+  harness.syncData.webhook = 'https://webhook.example.com/events';
+
+  const response = await Promise.race([
+    harness.sendEvent(meetEvent('stalled-webhook')),
+    new Promise(resolve => setTimeout(() => resolve('timeout'), 50))
+  ]);
+
+  assert.notEqual(response, 'timeout');
+  assert.equal(response.queued, true);
+  assert.equal(harness.localData.botAPIOutbox.length, 0);
 });
 
 test('events from another meeting reach neither outbound path', async () => {
@@ -193,7 +297,7 @@ test('popup loads and persists the sending toggle', async () => {
   assert.equal(harness.elements['#sending-state'].textContent, 'ON');
 });
 
-async function createHarness(fetchStatuses, fetchOverride) {
+async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
   const listeners = {};
   const syncData = {
     webhook: '',
@@ -210,6 +314,8 @@ async function createHarness(fetchStatuses, fetchOverride) {
     },
     botAPIOutbox: []
   };
+  Object.assign(syncData, initial.syncData);
+  Object.assign(localData, initial.localData);
   const accessLevels = [];
   const fetchRequests = [];
   const notificationCalls = [];
@@ -248,7 +354,8 @@ async function createHarness(fetchStatuses, fetchOverride) {
         local: {
           ...storageArea(localData),
           async setAccessLevel(options) { accessLevels.push(options); }
-        }
+        },
+        onChanged: { addListener(fn) { listeners.storageChanged = fn; } }
       },
       runtime: {
         id: 'extension-id',
@@ -285,6 +392,13 @@ async function createHarness(fetchStatuses, fetchOverride) {
     notificationCalls,
     syncData,
     advance(milliseconds) { now += milliseconds; },
+    setSendingEnabled(enabled) {
+      const oldValue = syncData.sendingEnabled;
+      syncData.sendingEnabled = enabled;
+      listeners.storageChanged({
+        sendingEnabled: { oldValue, newValue: enabled }
+      }, 'sync');
+    },
     sendEvent(rec) {
       return new Promise(resolve => {
         assert.equal(listeners.message({ kind: 'event', rec }, { tab: {} }, resolve), true);
@@ -303,6 +417,16 @@ async function createHarness(fetchStatuses, fetchOverride) {
         );
       });
     }
+  };
+}
+
+function outboxEntry(id) {
+  return {
+    key: id,
+    rec: meetEvent(id),
+    generation: 'generation-1',
+    attempts: 0,
+    nextAttemptAt: 0
   };
 }
 
@@ -394,4 +518,8 @@ async function waitFor(predicate) {
     await new Promise(resolve => setTimeout(resolve, 5));
   }
   throw new Error('condition was not reached');
+}
+
+async function settle() {
+  for (let turn = 0; turn < 10; turn++) await Promise.resolve();
 }

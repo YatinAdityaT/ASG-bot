@@ -73,6 +73,14 @@ chrome.runtime.onStartup.addListener(() => {
   });
 });
 
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === 'sync' && changes.sendingEnabled?.newValue === true) {
+    flushBotAPIOutbox().catch(() => {
+      console.warn('Meet event bot API re-enable retry failed');
+    });
+  }
+});
+
 async function forwardEvent(rec) {
   const { sendingEnabled } = await chrome.storage.sync.get({
     sendingEnabled: true
@@ -87,10 +95,9 @@ async function forwardEvent(rec) {
   if (recentlyForwarded.has(key)) return false;
   recentlyForwarded.set(key, now);
 
-  const webhookPromise = forwardWebhook(rec).catch(() => {});
+  forwardWebhook(rec).catch(() => {});
   const queued = await enqueueBotAPI(rec);
   if (queued) await flushBotAPIOutbox();
-  await webhookPromise;
   return queued;
 }
 
@@ -136,11 +143,23 @@ function enqueueBotAPI(rec) {
 
 function flushBotAPIOutbox() {
   return withOutboxLock(async () => {
-    const { botAPIURL, botAPIToken, generation } = await botAPIConfig();
     const stored = await chrome.storage.local.get({ [OUTBOX_KEY]: [] });
     const outbox = stored[OUTBOX_KEY];
+    const allowedOutbox = outbox.filter(
+      entry => entry.rec?.meeting === ALLOWED_MEETING
+    );
+    if (allowedOutbox.length !== outbox.length) {
+      outbox.splice(0, outbox.length, ...allowedOutbox);
+      await chrome.storage.local.set({ [OUTBOX_KEY]: outbox });
+    }
     if (!outbox.length) return;
 
+    const { sendingEnabled } = await chrome.storage.sync.get({
+      sendingEnabled: true
+    });
+    if (!sendingEnabled) return;
+
+    const { botAPIURL, botAPIToken, generation } = await botAPIConfig();
     for (let processed = 0; outbox.length && processed < MAX_BATCH_SIZE; processed++) {
       const entry = outbox[0];
       if (entry.generation !== generation) {
@@ -156,6 +175,11 @@ function flushBotAPIOutbox() {
 
       const request = MMDelivery.requestFor(entry.rec, botAPIURL, botAPIToken);
       if (!request) return;
+
+      const currentPolicy = await chrome.storage.sync.get({
+        sendingEnabled: true
+      });
+      if (!currentPolicy.sendingEnabled) return;
 
       let response;
       try {
