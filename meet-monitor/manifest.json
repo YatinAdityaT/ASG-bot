@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Meet Monitor",
-  "version": "1.2.0",
-  "description": "Logs join/leave, camera, mute, and chat in Google Meet.",
+  "version": "1.3.0",
+  "description": "Logs Google Meet activity and can forward it to an ASG WhatsApp bot.",
   "permissions": ["storage", "notifications"],
   "host_permissions": [
     "https://meet.google.com/*",

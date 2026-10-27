@@ -1,4 +1,6 @@
-const DEFAULTS = { webhook: '', consentBanner: true };
+importScripts('delivery.js');
+
+const DEFAULTS = { webhook: '', botAPIURL: '', consentBanner: true };
 
 chrome.runtime.onInstalled.addListener(async () => {
   const existing = await chrome.storage.sync.get(DEFAULTS);
@@ -20,6 +22,9 @@ chrome.runtime.onMessage.addListener((msg) => {
     }
 
     forwardWebhook(rec).catch(() => {});
+    forwardBotAPI(rec).catch(() => {
+      console.warn('Meet event bot API delivery failed');
+    });
   }
 });
 
@@ -31,4 +36,16 @@ async function forwardWebhook(rec) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(rec)
   });
+}
+
+async function forwardBotAPI(rec) {
+  const [{ botAPIURL }, { botAPIToken }] = await Promise.all([
+    chrome.storage.sync.get({ botAPIURL: '' }),
+    chrome.storage.local.get({ botAPIToken: '' })
+  ]);
+  const request = MMDelivery.requestFor(rec, botAPIURL, botAPIToken);
+  if (!request) return;
+
+  const response = await fetch(request.url, request.options);
+  if (!response.ok) throw new Error(`bot API returned HTTP ${response.status}`);
 }
