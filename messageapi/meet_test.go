@@ -22,7 +22,7 @@ func TestMeetEventsAreFormattedAndQueued(t *testing.T) {
 		{"camera on", meetEvent("cam_on", ""), "📷 Meet abc-defg-hij: Alex turned their camera on."},
 		{"camera off", meetEvent("cam_off", ""), "📷 Meet abc-defg-hij: Alex turned their camera off."},
 		{"rename", meetEvent("rename", ""), "✏️ Meet abc-defg-hij: A participant is now named Alex."},
-		{"chat", meetEvent("chat_message", "Hello"), `💬 Meet abc-defg-hij: Alex said: "Hello"`},
+		{"chat", meetEvent("chat_message", "Hello"), `💬 Meet abc-defg-hij: Alex said: Hello`},
 	}
 
 	for _, test := range tests {
@@ -69,6 +69,53 @@ func TestMeetEventReplayIsIdempotent(t *testing.T) {
 	}
 	if len(jobs) != 1 {
 		t.Fatalf("queued jobs = %d, want 1", len(jobs))
+	}
+}
+
+func TestMeetEventIdempotencyUsesNormalizedEventIdentity(t *testing.T) {
+	server, store := newFixture(t, func() time.Time { return fixedNow })
+	firstEvent := meetEvent("join", "")
+	delete(firstEvent, "text")
+	secondEvent := meetEvent("join", "   ")
+	secondEvent["cam"] = true
+	secondEvent["mic"] = "unmuted"
+	secondEvent["self"] = true
+	secondEvent["host"] = true
+
+	first := submitMeet(t, server.Handler(), firstEvent)
+	second := submitMeet(t, server.Handler(), secondEvent)
+
+	if first.Code != http.StatusAccepted || second.Code != http.StatusAccepted {
+		t.Fatalf("statuses = %d, %d; bodies = %q, %q", first.Code, second.Code, first.Body.String(), second.Body.String())
+	}
+	if first.Body.String() != second.Body.String() {
+		t.Fatalf("semantic replay responses differ: %q, %q", first.Body.String(), second.Body.String())
+	}
+	jobs, err := store.Due(t.Context(), fixedNow, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("queued jobs = %d, want 1", len(jobs))
+	}
+}
+
+func TestMeetEventSanitizesParticipantControlledText(t *testing.T) {
+	server, store := newFixture(t, func() time.Time { return fixedNow })
+	event := meetEvent("chat_message", "hello\r\nworld\u202e")
+	event["name"] = "Al\u202eex\nAdmin"
+
+	response := submitMeet(t, server.Handler(), event)
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, body %q", response.Code, response.Body.String())
+	}
+	var submitted struct {
+		ID string `json:"id"`
+	}
+	decodeResponse(t, response, &submitted)
+	job := getJob(t, store, submitted.ID)
+	if job.Message != "💬 Meet abc-defg-hij: Alex Admin said: hello world" {
+		t.Fatalf("sanitized message = %q", job.Message)
 	}
 }
 

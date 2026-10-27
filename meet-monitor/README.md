@@ -93,9 +93,15 @@ To forward Meet activity to the configured WhatsApp test group:
    extension, and refresh the Meet tab.
 
 The token is stored in `chrome.storage.local`, not Chrome synced storage. The
-bot URL and banner preference are synced. Every accepted event enters the
-bot's persistent outbound queue and is sent only to the server-configured
-group. The extension cannot provide a destination JID.
+background service worker restricts local storage to trusted extension
+contexts so Meet content scripts cannot read it. The bot URL and banner
+preference are synced. Use HTTPS except for loopback-only local development.
+
+Events awaiting API acceptance are retained in a local extension outbox and
+retried sequentially with backoff, including after Chrome restarts. Every
+accepted event then enters the bot's persistent outbound queue and is sent only
+to the server-configured group. The extension cannot provide a destination
+JID. Clearing the Bot API URL and token also clears the local outbox.
 
 The ASG bot forwarding and generic webhook are independent; configuring both
 sends each raw event to both endpoints.

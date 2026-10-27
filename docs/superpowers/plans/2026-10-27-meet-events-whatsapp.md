@@ -106,11 +106,16 @@ Expected: module-not-found failure for `src/delivery.js`.
 Create a browser/Node-compatible `MMDelivery` helper. Load it before
 `background.js` in the service worker using `importScripts`. Read `botAPIURL`
 from sync storage and `botAPIToken` from local storage, then send authenticated
-events to the bot API. Keep `forwardWebhook` unchanged and independent.
+events to the bot API. Restrict local storage to trusted extension contexts.
+Persist configured events in a local outbox, submit them sequentially, remove
+them only after acceptance, and use Chrome alarms plus 5-second, 30-second,
+2-minute, 10-minute, and 1-hour retry delays. Keep `forwardWebhook` unchanged
+and independent.
 
 Add URL and password inputs to options. Validate HTTP(S), request exact origin
-permission, save the URL in sync storage and token in local storage, and never
-render the saved token back into page text.
+permission, require HTTPS except for loopback HTTP, save the URL in sync
+storage and token in local storage, and never render the saved token back into
+page text.
 
 - [ ] **Step 4: Verify extension behavior**
 

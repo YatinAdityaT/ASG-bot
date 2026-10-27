@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"whatsappBot/outbound"
@@ -108,6 +109,11 @@ func normalizeAndFormatMeetEvent(event *meetEvent) (string, error) {
 		utf8.RuneCountInString(event.Name) > maxMeetNameRunes {
 		return "", errors.New("invalid meet event")
 	}
+	event.Meeting = sanitizeMeetText(event.Meeting)
+	event.Name = sanitizeMeetText(event.Name)
+	if event.Meeting == "" || event.Name == "" {
+		return "", errors.New("invalid meet event")
+	}
 	timestamp, err := time.Parse(time.RFC3339, event.TS)
 	if err != nil {
 		return "", errors.New("invalid meet event timestamp")
@@ -159,17 +165,47 @@ func normalizeAndFormatMeetEvent(event *meetEvent) (string, error) {
 		if strings.TrimSpace(text) == "" || utf8.RuneCountInString(text) > maxMeetChatRunes {
 			return "", errors.New("invalid chat text")
 		}
-		return "💬 " + prefix + event.Name + ` said: "` + text + `"`, nil
+		text = sanitizeMeetText(text)
+		if text == "" {
+			return "", errors.New("invalid chat text")
+		}
+		event.Text = &text
+		return "💬 " + prefix + event.Name + " said: " + text, nil
 	default:
 		return "", errors.New("unsupported event type")
 	}
 }
 
 func meetIdempotencyKey(event meetEvent) (string, error) {
-	normalized, err := json.Marshal(event)
+	identity := struct {
+		Type    string `json:"type"`
+		ID      string `json:"id"`
+		Meeting string `json:"meeting"`
+		TS      string `json:"ts"`
+	}{
+		Type:    event.Type,
+		ID:      event.ID,
+		Meeting: event.Meeting,
+		TS:      event.TS,
+	}
+	normalized, err := json.Marshal(identity)
 	if err != nil {
 		return "", err
 	}
 	sum := sha256.Sum256(normalized)
 	return "meet-" + hex.EncodeToString(sum[:]), nil
+}
+
+func sanitizeMeetText(value string) string {
+	value = strings.Map(func(r rune) rune {
+		switch {
+		case unicode.IsControl(r):
+			return ' '
+		case unicode.In(r, unicode.Cf):
+			return -1
+		default:
+			return r
+		}
+	}, value)
+	return strings.Join(strings.Fields(value), " ")
 }

@@ -11,6 +11,7 @@ Promise.all([
 });
 
 $('#save').onclick = async () => {
+  const previous = await chrome.storage.sync.get({ webhook: '', botAPIURL: '' });
   const webhook = $('#webhook').value.trim();
   const botAPIURL = $('#botAPIURL').value.trim();
   const botAPIToken = $('#botAPIToken').value.trim();
@@ -24,15 +25,18 @@ $('#save').onclick = async () => {
     if (!rawURL) continue;
     try {
       const url = new URL(rawURL);
-      if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) {
-        throw new Error('unsupported URL');
+      if (label === 'Bot API' && !MMDelivery.isAllowedBotAPIURL(rawURL)) {
+        throw new Error('unsafe bot API URL');
       }
-      if (label === 'Bot API' && (url.pathname !== '/v1/meet-events' || url.search || url.hash)) {
-        throw new Error('wrong endpoint');
+      if (label === 'Webhook' &&
+          (!['https:', 'http:'].includes(url.protocol) || url.username || url.password)) {
+        throw new Error('unsupported URL');
       }
       origins.add(`${url.origin}/*`);
     } catch {
-      $('#saved').textContent = `${label}: enter a valid HTTP(S) URL${label === 'Bot API' ? ' ending in /v1/meet-events' : ''}`;
+      $('#saved').textContent = label === 'Bot API'
+        ? 'Bot API: use HTTPS ending in /v1/meet-events (HTTP is allowed only on loopback)'
+        : 'Webhook: enter a valid HTTP(S) URL';
       return;
     }
   }
@@ -49,7 +53,22 @@ $('#save').onclick = async () => {
     botAPIURL,
     consentBanner: $('#consentBanner').checked
   });
-  await chrome.storage.local.set({ botAPIToken });
+  await chrome.storage.local.set(botAPIURL
+    ? { botAPIToken }
+    : { botAPIToken: '', botAPIOutbox: [] });
+
+  const previousOrigins = new Set(
+    [previous.webhook, previous.botAPIURL]
+      .filter(Boolean)
+      .flatMap(value => {
+        try { return [`${new URL(value).origin}/*`]; } catch { return []; }
+      })
+  );
+  for (const origin of previousOrigins) {
+    if (!origins.has(origin)) {
+      await chrome.permissions.remove({ origins: [origin] });
+    }
+  }
   $('#saved').textContent = 'Saved ✓';
   setTimeout(() => $('#saved').textContent = '', 1500);
 };

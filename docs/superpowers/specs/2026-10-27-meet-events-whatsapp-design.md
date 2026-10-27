@@ -63,18 +63,22 @@ Messages use these forms:
 - `📷 Meet abc-defg-hij: Alex turned their camera on.`
 - `📷 Meet abc-defg-hij: Alex turned their camera off.`
 - `✏️ Meet abc-defg-hij: A participant is now named Alex.`
-- `💬 Meet abc-defg-hij: Alex said: "Hello"`
+- `💬 Meet abc-defg-hij: Alex said: Hello`
 
 Names, meeting codes, and chat text are treated only as plain message content.
-They never affect the destination or authentication.
+They never affect the destination or authentication. Control characters,
+line breaks, and bidirectional formatting controls are removed before
+formatting so one event cannot visually impersonate multiple bot messages.
 
 ## Idempotency and Delivery
 
-The server hashes the normalized event fields into a stable `meet-<sha256>`
-idempotency key. Browser or network retries therefore return the existing
-outbound job instead of creating another WhatsApp message. Once accepted,
-events inherit the outbound queue's persistence, retry schedule, stable
-WhatsApp message ID, crash recovery, and best-effort at-least-once semantics.
+The server hashes the normalized event identity (`type`, `id`, `meeting`, and
+`ts`) into a stable `meet-<sha256>` idempotency key. Equivalent
+representations of ignored state therefore cannot create duplicate WhatsApp
+messages. Browser or network retries return the existing outbound job. Once
+accepted, events inherit the outbound queue's persistence, retry schedule,
+stable WhatsApp message ID, crash recovery, and best-effort at-least-once
+semantics.
 
 ## Extension Configuration
 
@@ -84,17 +88,26 @@ Options add:
 - Bot API token, stored in `chrome.storage.local` rather than synced storage.
 
 The URL and banner preference remain in synced storage. Saving requests the
-exact HTTP(S) origin permission. The service worker adds
+exact origin permission. Remote Bot API URLs require HTTPS; HTTP is allowed
+only for loopback development. The service worker restricts local storage to
+trusted extension contexts, adds
 `Authorization: Bearer <token>` only to the configured bot API request. It
 continues sending unauthenticated raw events to the optional generic webhook.
 Secrets are never committed or displayed outside the password input.
 
+Before sending, the service worker persists events in a local outbox keyed by
+Meet event identity. It submits one event at a time, removes it only after a
+successful or already-conflicted response, and retries network, rate-limit,
+authentication, and server failures with delays of 5 seconds, 30 seconds, 2
+minutes, 10 minutes, then 1 hour. A Chrome alarm resumes pending delivery
+after service-worker or browser restarts.
+
 ## Errors
 
 Validation errors return the existing generic JSON error shape. Queue failures
-return `500`. The extension logs delivery failures to its service-worker
-console without placing tokens or event bodies in the log. A failed browser
-request is not claimed as delivered.
+return `500`. The extension logs generic deferred-delivery warnings without
+placing tokens or event bodies in the log. A failed browser request remains in
+the local outbox and is not claimed as accepted.
 
 ## Testing and Acceptance
 

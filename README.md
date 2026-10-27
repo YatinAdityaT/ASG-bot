@@ -199,7 +199,7 @@ deduplicates, formats, and queues them for the configured target group:
 - `🎙️ Meet abc-defg-hij: Alex unmuted their mic.`
 - `📷 Meet abc-defg-hij: Alex turned their camera on.`
 - `📷 Meet abc-defg-hij: Alex turned their camera off.`
-- `💬 Meet abc-defg-hij: Alex said: "Hello"`
+- `💬 Meet abc-defg-hij: Alex said: Hello`
 
 The endpoint also accepts `rename`. It never accepts a destination; every
 event goes through the same persistent single-group outbound queue. Replaying
@@ -226,6 +226,12 @@ exact origin as `chrome-extension://<extension-id>`. Keep
 `ASG_BOT_API_ALLOWED_ORIGINS` empty until browser access is required. CORS is a
 browser boundary, not authentication; every extension request still needs the
 bearer token.
+
+Meet Monitor protects the token from content-script access, persists
+not-yet-accepted events in local extension storage, and retries them with
+backoff. It sends queued events sequentially to avoid exhausting the API's
+per-address rate limit. Use HTTPS for remote URLs; plain HTTP is accepted only
+for `localhost`, `127.0.0.1`, or `::1` development endpoints.
 
 Keep the bot bound to `127.0.0.1`. Configure Cloudflare Tunnel to forward one
 HTTPS hostname to `http://127.0.0.1:8080`; do not expose port 8080 directly on
