@@ -1,9 +1,14 @@
 // All Meet DOM assumptions live here. When Meet redesigns, fix only this file.
-window.MMSelectors = {
+(function (root, factory) {
+  const api = factory();
+  root.MMSelectors = api;
+  if (typeof module === 'object' && module.exports) module.exports = api;
+})(typeof globalThis === 'object' ? globalThis : this, () => ({
   // --- PARTICIPANT SELECTORS ---
   tileSel: '[data-participant-id]',
   idAttr: 'data-participant-id',
   videoSel: 'video',
+  nameSel: 'div[jsname="giiMnc"]',
   selfMicSel: 'button[jsname="hw0c9"]',
   selfCamSel: 'button[jsname="psRWwc"]',
   muteIconPathSel: 'path[d^="M19 11h"]', // The exact SVG path for the muted mic
@@ -21,30 +26,20 @@ window.MMSelectors = {
   },
 
   nameOf(tile) {
-    let raw = (tile.innerText || '').replace(/\s+/g, ' ').trim();
-    raw = raw
-      .replace(/\(You\)/g, '')
-      .replace(/Meeting host/gi, '')
-      .replace(/You can't unmute someone else/gi, '')
-      .replace(/You can't mute/gi, '')
-      .replace(/more_vert/gi, '')
-      .replace(/More actions/gi, '')
-      .replace(/\bdevices\b/gi, '')
-      .trim();
-    const doubled = raw.match(/^(.+?)\s+\1$/);
-    return doubled ? doubled[1] : (raw || null);
+    const raw = tile.querySelector(this.nameSel)?.innerText || '';
+    const lines = raw
+      .split(/\r?\n/)
+      .map(line => line.replace(/\s+/g, ' ').trim())
+      .filter(Boolean);
+    return [...new Set(lines)].join(' ') || null;
   },
 
   pickName(tiles) {
-    const scored = tiles.map(t => {
-      const txt = t.innerText || '';
-      const isPanelRow = /More actions|more_vert/.test(txt);
-      const name = this.nameOf(t);
-      const score = (isPanelRow ? 0 : 100) + (name ? name.length : 0);
-      return { name, score };
-    }).filter(x => x.name);
-    scored.sort((a, b) => b.score - a.score);
-    return scored[0]?.name || null;
+    for (const tile of tiles) {
+      const name = this.nameOf(tile);
+      if (name) return name;
+    }
+    return null;
   },
 
   camOf(tile) {
@@ -65,4 +60,4 @@ window.MMSelectors = {
     const onOff = s => /turn on/i.test(s) ? 'off' : /turn off/i.test(s) ? 'on' : 'unknown';
     return { mic: onOff(mic), cam: onOff(cam) };
   }
-};
+}));
