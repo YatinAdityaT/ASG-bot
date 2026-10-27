@@ -8,6 +8,7 @@ const MIN_ALARM_DELAY_MS = 30_000;
 const MAX_BATCH_SIZE = 10;
 const MAX_OUTBOX_SIZE = 500;
 const MAX_ATTEMPTS = 10;
+const REQUEST_TIMEOUT_MS = 15_000;
 const storageProtection = chrome.storage.local.setAccessLevel({
   accessLevel: 'TRUSTED_CONTEXTS'
 });
@@ -129,14 +130,18 @@ function enqueueBotAPI(rec) {
 
 function flushBotAPIOutbox() {
   return withOutboxLock(async () => {
-    const { botAPIURL, botAPIToken } = await botAPIConfig();
+    const { botAPIURL, botAPIToken, generation } = await botAPIConfig();
     const stored = await chrome.storage.local.get({ [OUTBOX_KEY]: [] });
     const outbox = stored[OUTBOX_KEY];
     if (!outbox.length) return;
 
-    let changed = false;
     for (let processed = 0; outbox.length && processed < MAX_BATCH_SIZE; processed++) {
       const entry = outbox[0];
+      if (entry.generation !== generation) {
+        outbox.shift();
+        await chrome.storage.local.set({ [OUTBOX_KEY]: outbox });
+        continue;
+      }
       const delay = Math.max(entry.nextAttemptAt, nextSendAllowedAt) - Date.now();
       if (delay > 0) {
         scheduleRetry(delay);
@@ -149,26 +154,27 @@ function flushBotAPIOutbox() {
       let response;
       try {
         nextSendAllowedAt = Date.now() + SEND_SPACING_MS;
-        response = await fetch(request.url, request.options);
+        response = await fetchWithTimeout(request);
       } catch {
         response = null;
       }
 
       if (response?.ok || response?.status === 409) {
         outbox.shift();
-        changed = true;
+        await chrome.storage.local.set({ [OUTBOX_KEY]: outbox });
       } else if (response && isPermanentClientError(response.status)) {
         outbox.shift();
-        changed = true;
+        await chrome.storage.local.set({ [OUTBOX_KEY]: outbox });
         console.warn('Meet event bot API rejected an event permanently');
       } else {
         entry.attempts += 1;
-        changed = true;
         if (entry.attempts >= MAX_ATTEMPTS) {
           outbox.shift();
+          await chrome.storage.local.set({ [OUTBOX_KEY]: outbox });
           console.warn('Meet event bot API retry limit reached');
         } else {
           entry.nextAttemptAt = Date.now() + MMDelivery.retryDelay(entry.attempts - 1);
+          await chrome.storage.local.set({ [OUTBOX_KEY]: outbox });
           scheduleRetry(entry.nextAttemptAt - Date.now());
           break;
         }
@@ -179,9 +185,6 @@ function flushBotAPIOutbox() {
       }
     }
 
-    if (changed) {
-      await chrome.storage.local.set({ [OUTBOX_KEY]: outbox });
-    }
     if (outbox.length) {
       scheduleRetry(Math.max(outbox[0].nextAttemptAt, nextSendAllowedAt) - Date.now());
     }
@@ -201,12 +204,24 @@ function saveBotAPIConfig(config) {
       return true;
     }
     if (!MMDelivery.requestFor({}, url, token)) return false;
+    const stored = await chrome.storage.local.get({
+      botAPIConfig: null,
+      [OUTBOX_KEY]: []
+    });
+    const oldConfig = stored.botAPIConfig;
+    const outbox = oldConfig?.url === url
+      ? stored[OUTBOX_KEY].map(entry => ({
+          ...entry,
+          generation: String(config?.generation || '')
+        }))
+      : [];
     await chrome.storage.local.set({
       botAPIConfig: {
         url,
         token,
         generation: String(config?.generation || '')
-      }
+      },
+      [OUTBOX_KEY]: outbox
     });
     return true;
   });
@@ -227,13 +242,26 @@ function sleep(delay) {
   return new Promise(resolve => setTimeout(resolve, delay));
 }
 
+async function fetchWithTimeout(request) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(request.url, {
+      ...request.options,
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function isPermanentClientError(status) {
   return status >= 400 && status < 500 &&
     ![408, 409, 425, 429].includes(status);
 }
 
 function isTrustedOptionsPage(sender) {
-  return !sender?.tab &&
+  return sender?.id === chrome.runtime.id &&
     sender?.url === chrome.runtime.getURL('src/options.html');
 }
 

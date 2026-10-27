@@ -54,6 +54,49 @@ test('trusted options update API URL and token atomically', async () => {
   assert.equal(response.saved, true);
 });
 
+test('changing API endpoint clears records bound to the previous generation', async () => {
+  const harness = await createHarness([]);
+  harness.localData.botAPIOutbox = [{
+    key: 'old',
+    rec: meetEvent('old'),
+    generation: 'generation-1',
+    attempts: 0,
+    nextAttemptAt: 0
+  }];
+
+  await harness.updateConfig({
+    url: 'https://different.example.com/v1/meet-events',
+    token: 'new-private-token',
+    generation: 'generation-2'
+  });
+
+  assert.equal(harness.localData.botAPIOutbox.length, 0);
+});
+
+test('batch progress is persisted after each accepted request', async () => {
+  let fetchCount = 0;
+  let secondStarted = false;
+  const harness = await createHarness([], async () => {
+    fetchCount += 1;
+    if (fetchCount === 1) return { ok: true, status: 202 };
+    secondStarted = true;
+    return new Promise(() => {});
+  });
+  harness.localData.botAPIOutbox = ['one', 'two'].map((id, index) => ({
+    key: id,
+    rec: meetEvent(id),
+    generation: 'generation-1',
+    attempts: 0,
+    nextAttemptAt: index
+  }));
+
+  harness.listeners.alarm({ name: 'bot-api-outbox' });
+  await waitFor(() => secondStarted);
+
+  assert.equal(harness.localData.botAPIOutbox.length, 1);
+  assert.equal(harness.localData.botAPIOutbox[0].key, 'two');
+});
+
 async function createHarness(fetchStatuses, fetchOverride) {
   const listeners = {};
   const syncData = {
@@ -73,12 +116,14 @@ async function createHarness(fetchStatuses, fetchOverride) {
   const accessLevels = [];
   let now = 1_000_000;
 
+  const clone = value => JSON.parse(JSON.stringify(value));
   const storageArea = data => ({
-    async get(defaults) { return { ...defaults, ...data }; },
-    async set(values) { Object.assign(data, values); }
+    async get(defaults) { return clone({ ...defaults, ...data }); },
+    async set(values) { Object.assign(data, clone(values)); }
   });
   const sandbox = {
     URL,
+    AbortController,
     Date: { now: () => now },
     Promise,
     setTimeout(fn, delay) {
@@ -86,6 +131,7 @@ async function createHarness(fetchStatuses, fetchOverride) {
       Promise.resolve().then(fn);
       return 1;
     },
+    clearTimeout() {},
     console: { warn() {} },
     importScripts() {
       sandbox.MMDelivery = require('../src/delivery.js');
@@ -138,6 +184,8 @@ async function createHarness(fetchStatuses, fetchOverride) {
     updateConfig(config) {
       return new Promise(resolve => {
         const sender = {
+          id: 'extension-id',
+          tab: { id: 99 },
           url: 'chrome-extension://extension-id/src/options.html'
         };
         assert.equal(
