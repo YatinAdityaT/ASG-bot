@@ -110,8 +110,10 @@
     const myState = S.selfState();
     for (const [, info] of now) {
       if (!info.self) continue;
-      info.mic = (myState.mic === 'off') ? 'muted' : 'unmuted';
-      info.cam = (myState.cam === 'on');
+      if (myState.mic === 'off') info.mic = 'muted';
+      if (myState.mic === 'on') info.mic = 'unmuted';
+      if (myState.cam === 'off') info.cam = false;
+      if (myState.cam === 'on') info.cam = true;
       break;
     }
 
@@ -146,11 +148,12 @@
       for (const row of group.querySelectorAll(S.chatMsgRowSel)) {
         const msgId = row.getAttribute('data-message-id');
         if (!msgId || seenChats.has(msgId)) continue;
-        seenChats.add(msgId);
 
         const textEl = row.querySelector(S.chatTextSel);
         const text = textEl ? textEl.innerText.trim() : '';
-        if (text) emit('chat_message', msgId, { name: senderName, text });
+        if (!text) continue;
+        emit('chat_message', msgId, { name: senderName, text });
+        seenChats.add(msgId);
       }
     }
 

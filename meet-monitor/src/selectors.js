@@ -26,7 +26,8 @@
   },
 
   nameOf(tile) {
-    const raw = tile.querySelector(this.nameSel)?.innerText || '';
+    const nameElement = tile.querySelector(this.nameSel);
+    const raw = nameElement?.innerText || nameElement?.textContent || '';
     const lines = raw
       .split(/\r?\n/)
       .map(line => line.replace(/\s+/g, ' ').trim())

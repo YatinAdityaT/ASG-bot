@@ -3,11 +3,12 @@ const assert = require('node:assert/strict');
 
 const selectors = require('../src/selectors.js');
 
-const tile = ({ name, text = '' }) => ({
+const tile = ({ name, text = '', nameTextContent }) => ({
   innerText: text,
   querySelector(selector) {
-    if (selector !== selectors.nameSel || name === undefined) return null;
-    return { innerText: name };
+    assert.equal(selector, 'div[jsname="giiMnc"]');
+    if (name === undefined && nameTextContent === undefined) return null;
+    return { innerText: name, textContent: nameTextContent };
   }
 });
 
@@ -17,6 +18,10 @@ test('collapses repeated Sruti dedicated-name lines', () => {
 
 test('collapses repeated Yatin T dedicated-name lines', () => {
   assert.equal(selectors.nameOf(tile({ name: 'Yatin T\nYatin T' })), 'Yatin T');
+});
+
+test('extracts a dedicated participant name available only through textContent', () => {
+  assert.equal(selectors.nameOf(tile({ nameTextContent: 'Alex' })), 'Alex');
 });
 
 test('returns null for controls-only tile text', () => {

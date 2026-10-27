@@ -49,6 +49,42 @@ test('a different observed name neither renames nor replaces the established nam
   assert.equal(tracker.roster.get('alex').name, 'Alex');
 });
 
+test('existing participants refresh self and host metadata without changing confirmed identity or media', () => {
+  const tracker = new ParticipantTracker(2000);
+  const alex = { name: 'Alex', cam: false, mic: 'muted', self: false, host: false };
+
+  tracker.update(new Map([['alex', alex]]), 0);
+  tracker.update(new Map([['alex', {
+    name: 'Wrong name',
+    cam: true,
+    mic: 'unmuted',
+    self: true,
+    host: true
+  }]]), 100);
+
+  assert.deepEqual(tracker.roster.get('alex'), {
+    name: 'Alex',
+    cam: false,
+    mic: 'muted',
+    self: true,
+    host: true
+  });
+
+  const media = tracker.update(new Map([['alex', {
+    ...alex,
+    cam: true,
+    self: true,
+    host: true
+  }]]), 2100);
+  assert.equal(media[0].type, 'cam_on');
+  assert.equal(media[0].cur.self, true);
+  assert.equal(media[0].cur.host, true);
+
+  const leave = tracker.leave('alex');
+  assert.equal(leave.cur.self, true);
+  assert.equal(leave.cur.host, true);
+});
+
 test('a transient camera change is canceled before it can be confirmed', () => {
   const tracker = new ParticipantTracker(2000);
   const alex = { name: 'Alex', cam: false, mic: 'muted' };
@@ -81,6 +117,32 @@ test('simultaneous camera and microphone changes confirm once after 2000 ms', ()
   );
   assert.deepEqual(tracker.update(new Map([['alex', changed]]), 3000), []);
   assert.equal(tracker.nextDeadline(), null);
+});
+
+test('nextDeadline advances from an earlier staggered candidate to a later one', () => {
+  const tracker = new ParticipantTracker(2000);
+  const alex = { name: 'Alex', cam: false, mic: 'muted' };
+  const blair = { name: 'Blair', cam: false, mic: 'muted' };
+
+  tracker.update(new Map([['alex', alex], ['blair', blair]]), 0);
+  tracker.update(new Map([
+    ['alex', { ...alex, cam: true }],
+    ['blair', blair]
+  ]), 100);
+  tracker.update(new Map([
+    ['alex', { ...alex, cam: true }],
+    ['blair', { ...blair, mic: 'unmuted' }]
+  ]), 500);
+
+  assert.equal(tracker.nextDeadline(), 2100);
+  assert.deepEqual(
+    tracker.update(new Map([
+      ['alex', { ...alex, cam: true }],
+      ['blair', { ...blair, mic: 'unmuted' }]
+    ]), 2100).map(event => event.type),
+    ['cam_on']
+  );
+  assert.equal(tracker.nextDeadline(), 2500);
 });
 
 test('a participant does not join until a usable name appears', () => {

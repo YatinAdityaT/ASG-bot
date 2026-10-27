@@ -69,9 +69,9 @@ or chat activity.
 
 ### Webhook
 
-Enter an `http://` or `https://` URL to POST every event as JSON. On save,
-Chrome asks for permission to contact that URL's origin. The webhook remains
-disabled if permission is denied or the field is blank.
+Enter an `http://` or `https://` URL to POST every eligible event as JSON. On
+save, Chrome asks for permission to contact that URL's origin. The webhook
+remains disabled if permission is denied or the field is blank.
 
 Example event:
 
@@ -79,7 +79,7 @@ Example event:
 {
   "type": "chat_message",
   "id": "message-id",
-  "meeting": "abc-defg-hij",
+  "meeting": "jpy-ymgz-tdo",
   "ts": "2026-10-27T07:30:00.000Z",
   "name": "Participant",
   "cam": null,

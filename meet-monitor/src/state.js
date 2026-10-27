@@ -33,6 +33,13 @@
           continue;
         }
 
+        this.roster.set(id, {
+          ...cur,
+          name: prev.name,
+          cam: prev.cam,
+          mic: prev.mic
+        });
+
         for (const field of ['cam', 'mic']) {
           const key = `${id}:${field}`;
           if (cur[field] === prev[field]) {
