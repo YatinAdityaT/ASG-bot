@@ -82,10 +82,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 });
 
 async function forwardEvent(rec) {
-  const { sendingEnabled } = await chrome.storage.sync.get({
-    sendingEnabled: true
-  });
-  if (!sendingEnabled || rec?.meeting !== ALLOWED_MEETING) return false;
+  if (!await outboundAllowed(rec)) return false;
 
   const now = Date.now();
   for (const [key, seenAt] of recentlyForwarded) {
@@ -104,6 +101,7 @@ async function forwardEvent(rec) {
 async function forwardWebhook(rec) {
   const { webhook } = await chrome.storage.sync.get({ webhook: '' });
   if (!webhook) return;
+  if (!await outboundAllowed(rec)) return;
   await fetch(webhook, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -130,6 +128,7 @@ function enqueueBotAPI(rec) {
     const outbox = stored[OUTBOX_KEY];
     const key = MMDelivery.eventKey(rec);
     if (!outbox.some(entry => entry.key === key)) {
+      if (!await outboundAllowed(rec)) return false;
       if (outbox.length >= MAX_OUTBOX_SIZE) {
         console.warn('Meet event bot API outbox is full');
         return false;
@@ -139,6 +138,13 @@ function enqueueBotAPI(rec) {
     }
     return true;
   });
+}
+
+async function outboundAllowed(rec) {
+  const { sendingEnabled } = await chrome.storage.sync.get({
+    sendingEnabled: true
+  });
+  return sendingEnabled && rec?.meeting === ALLOWED_MEETING;
 }
 
 function flushBotAPIOutbox() {

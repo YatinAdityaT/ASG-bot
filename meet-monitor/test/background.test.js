@@ -225,6 +225,56 @@ test('a stalled webhook does not block bot handling or event acknowledgement', a
   assert.equal(harness.localData.botAPIOutbox.length, 0);
 });
 
+test('disabling during webhook lookup prevents the webhook fetch', async () => {
+  const lookupStarted = deferred();
+  const releaseLookup = deferred();
+  const harness = await createHarness([], async () => ({ ok: true, status: 202 }), {
+    async beforeSyncGet(defaults) {
+      if (Object.hasOwn(defaults, 'webhook')) {
+        lookupStarted.resolve();
+        await releaseLookup.promise;
+      }
+    }
+  });
+  harness.syncData.webhook = 'https://webhook.example.com/events';
+
+  const responsePromise = harness.sendEvent(meetEvent('webhook-race'));
+  await lookupStarted.promise;
+  harness.setSendingEnabled(false);
+  releaseLookup.resolve();
+  await responsePromise;
+  await settle();
+
+  assert.equal(
+    harness.fetchRequests.filter(request =>
+      request.url === 'https://webhook.example.com/events'
+    ).length,
+    0
+  );
+});
+
+test('disabling during serialized enqueue prevents outbox insertion', async () => {
+  const operationStarted = deferred();
+  const releaseOperation = deferred();
+  const harness = await createHarness([], null, {
+    async beforeLocalGet(defaults) {
+      if (Object.hasOwn(defaults, 'botAPIConfig')) {
+        operationStarted.resolve();
+        await releaseOperation.promise;
+      }
+    }
+  });
+
+  const responsePromise = harness.sendEvent(meetEvent('enqueue-race'));
+  await operationStarted.promise;
+  harness.setSendingEnabled(false);
+  releaseOperation.resolve();
+  const response = await responsePromise;
+
+  assert.equal(response.queued, false);
+  assert.equal(harness.localData.botAPIOutbox.length, 0);
+});
+
 test('events from another meeting reach neither outbound path', async () => {
   const harness = await createHarness([]);
   harness.syncData.webhook = 'https://webhook.example.com/events';
@@ -322,8 +372,11 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
   let now = 1_000_000;
 
   const clone = value => JSON.parse(JSON.stringify(value));
-  const storageArea = data => ({
-    async get(defaults) { return clone({ ...defaults, ...data }); },
+  const storageArea = (data, beforeGet) => ({
+    async get(defaults) {
+      if (beforeGet) await beforeGet(defaults);
+      return clone({ ...defaults, ...data });
+    },
     async set(values) { Object.assign(data, clone(values)); }
   });
   const sandbox = {
@@ -350,9 +403,9 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
     },
     chrome: {
       storage: {
-        sync: storageArea(syncData),
+        sync: storageArea(syncData, initial.beforeSyncGet),
         local: {
-          ...storageArea(localData),
+          ...storageArea(localData, initial.beforeLocalGet),
           async setAccessLevel(options) { accessLevels.push(options); }
         },
         onChanged: { addListener(fn) { listeners.storageChanged = fn; } }
@@ -522,4 +575,12 @@ async function waitFor(predicate) {
 
 async function settle() {
   for (let turn = 0; turn < 10; turn++) await Promise.resolve();
+}
+
+function deferred() {
+  let resolve;
+  const promise = new Promise(done => {
+    resolve = done;
+  });
+  return { promise, resolve };
 }
