@@ -2,12 +2,16 @@ package scheduler
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	"google.golang.org/protobuf/proto"
 
+	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"whatsappBot/utils"
@@ -109,13 +113,19 @@ type BirthdayTask struct {
 	deliveryYear int
 	chatID       types.JID
 	message      string
+	messageID    types.MessageID
 	schedule     time.Time
 	id           string
 }
 
 func (r *BirthdayTask) Run(ctx context.Context, sender utils.MessageSender) error {
 	msg := &waProto.Message{Conversation: &r.message}
-	if _, err := sender.SendMessage(ctx, r.chatID, msg); err != nil {
+	if _, err := sender.SendMessage(
+		ctx,
+		r.chatID,
+		msg,
+		whatsmeow.SendRequestExtra{ID: r.messageID},
+	); err != nil {
 		return err
 	}
 	_, err := r.db.ExecContext(ctx, `
@@ -173,6 +183,7 @@ func (b *BirthdayProvider) GetDueTasks(ctx context.Context, now time.Time) ([]Sc
 			id:           "birthday-" + id,
 			chatID:       jid,
 			message:      msg,
+			messageID:    birthdayMessageID(id, now.Year()),
 			schedule:     now,
 		}
 		tasks = append(tasks, task)
@@ -181,4 +192,9 @@ func (b *BirthdayProvider) GetDueTasks(ctx context.Context, now time.Time) ([]Sc
 		return nil, fmt.Errorf("iterate birthdays: %w", err)
 	}
 	return tasks, nil
+}
+
+func birthdayMessageID(id string, year int) types.MessageID {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("birthday:%s:%d", id, year)))
+	return types.MessageID(strings.ToUpper(hex.EncodeToString(sum[:10])))
 }

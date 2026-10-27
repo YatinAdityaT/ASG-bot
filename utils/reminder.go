@@ -24,6 +24,7 @@ type ReminderRequest struct {
 
 var reminderClauseBoundaryPattern = regexp.MustCompile(`(?i)\band\b`)
 var relativeTimeStartPattern = regexp.MustCompile(`(?i)\bin\s+(?:an?|one|\d+)\b`)
+var mentionBodyBoundaryPattern = regexp.MustCompile(`(?i)\s+(?:to|about)\s+`)
 
 // ParseReminder parses reminder text using trusted WhatsApp mention metadata.
 func ParseReminder(
@@ -135,15 +136,16 @@ func ParseReminder(
 
 func extendMentionRange(text string, mention [2]int, parsedTime *when.Result) [2]int {
 	end := mention[1]
-	for _, boundary := range []int{
-		strings.Index(text[mention[0]:], `"`),
-		parsedTime.Index - mention[0],
-	} {
-		if boundary > 0 {
-			candidate := mention[0] + boundary
-			if candidate > end && (end == mention[1] || candidate < end) {
-				end = candidate
-			}
+	candidates := []int{parsedTime.Index}
+	if quote := strings.Index(text[mention[0]:], `"`); quote > 0 {
+		candidates = append(candidates, mention[0]+quote)
+	}
+	if boundary := mentionBodyBoundaryPattern.FindStringIndex(text[mention[1]:]); boundary != nil {
+		candidates = append(candidates, mention[1]+boundary[0])
+	}
+	for _, candidate := range candidates {
+		if candidate > mention[1] && (end == mention[1] || candidate < end) {
+			end = candidate
 		}
 	}
 	return [2]int{mention[0], end}

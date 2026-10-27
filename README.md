@@ -230,7 +230,7 @@ pkg install git golang openssl termux-api
 git clone https://github.com/YatinAdityaT/ASG-bot.git "$HOME/asg-bot-src"
 cd "$HOME/asg-bot-src"
 mkdir -p "$HOME/asg-bot"
-go build -o "$HOME/asg-bot/asg-bot" .
+go build -o "$HOME/asg-bot-src/asg-bot" .
 ```
 
 Keep the database in Termux's private home directory rather than shared
@@ -251,9 +251,12 @@ export ASG_BOT_API_ALLOWED_ORIGINS=''
 Start the built bot with:
 
 ```sh
-cd "$HOME/asg-bot"
+cd "$HOME/asg-bot-src"
 ./asg-bot
 ```
+
+Run from the source directory so the executable can read
+`tone/tone_commands.json`; keep only mutable runtime data in `$HOME/asg-bot`.
 
 Persist the generated token in a private, mode-`600` environment file instead
 of generating a new value at every boot. Do not place secrets directly in a

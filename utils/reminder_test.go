@@ -227,12 +227,17 @@ func TestParseReminderRemovesMultiwordAndHyphenatedMentionNames(t *testing.T) {
 		`/remind @Mary Jane "submit" tomorrow at 3pm`,
 		`/remind @Mary-Jane "submit" tomorrow at 3pm`,
 		`/remind @Mary Jane in 20 minutes to join the call`,
+		`/remind @Mary Jane to submit tomorrow at 3pm`,
 	} {
 		got, err := ParseReminder(input, []types.JID{target}, requester, "Yatin", now)
 		if err != nil {
 			t.Fatalf("ParseReminder(%q) error = %v", input, err)
 		}
-		if got.Body != map[bool]string{true: "join the call", false: "submit"}[strings.Contains(input, "20 minutes")] {
+		want := "submit"
+		if strings.Contains(input, "20 minutes") {
+			want = "join the call"
+		}
+		if got.Body != want {
 			t.Errorf("ParseReminder(%q).Body = %q", input, got.Body)
 		}
 	}

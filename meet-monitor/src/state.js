@@ -1,18 +1,22 @@
 (function (root, factory) {
   const api = factory();
   root.MMParticipantTracker = api.ParticipantTracker;
+  root.MMLeftParticipantName = api.leftParticipantName;
   if (typeof module === 'object' && module.exports) module.exports = api;
 })(typeof globalThis === 'object' ? globalThis : this, () => {
   class ParticipantTracker {
-    constructor(leaveGraceMs = 30_000) {
-      this.leaveGraceMs = leaveGraceMs;
+    constructor() {
       this.roster = new Map();
-      this.lastSeen = new Map();
+      this.departed = new Set();
     }
 
-    update(now, timestamp = Date.now()) {
+    update(now) {
       const changes = [];
+      for (const id of this.departed) {
+        if (!now.has(id)) this.departed.delete(id);
+      }
       for (const [id, cur] of now) {
+        if (this.departed.has(id)) continue;
         const prev = this.roster.get(id);
         if (!prev) {
           changes.push({ type: 'join', id, cur });
@@ -22,21 +26,23 @@
           if (cur.name && prev.name !== cur.name) changes.push({ type: 'rename', id, cur });
         }
         this.roster.set(id, cur);
-        this.lastSeen.set(id, timestamp);
-      }
-
-      for (const [id, prev] of this.roster) {
-        if (now.has(id)) continue;
-        const lastSeen = this.lastSeen.get(id);
-        if (lastSeen !== undefined && timestamp - lastSeen >= this.leaveGraceMs) {
-          changes.push({ type: 'leave', id, cur: prev });
-          this.roster.delete(id);
-          this.lastSeen.delete(id);
-        }
       }
       return changes;
     }
+
+    leave(id) {
+      const cur = this.roster.get(id);
+      if (!cur) return null;
+      this.roster.delete(id);
+      this.departed.add(id);
+      return { type: 'leave', id, cur };
+    }
   }
 
-  return { ParticipantTracker };
+  const leftParticipantName = text => {
+    const match = String(text || '').trim().match(/^(.+?) left the (?:call|meeting)$/i);
+    return match?.[1]?.trim() || null;
+  };
+
+  return { ParticipantTracker, leftParticipantName };
 });

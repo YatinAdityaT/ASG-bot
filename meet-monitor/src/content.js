@@ -8,6 +8,7 @@
   const roster = participantTracker.roster;
   const events = [];
   const seenChats = new Set();
+  const recentLeaveAnnouncements = new Map();
   const MAX = 2000;
 
   const emit = (type, id, cur) => {
@@ -55,6 +56,26 @@
 
     for (const change of participantTracker.update(now)) {
       emit(change.type, change.id, change.cur);
+    }
+
+    const observedAt = Date.now();
+    for (const element of document.querySelectorAll(S.announcementSel)) {
+      const text = (element.innerText || element.textContent || '').trim();
+      const name = window.MMLeftParticipantName(text);
+      if (!name || observedAt - (recentLeaveAnnouncements.get(text) || 0) < 10_000) continue;
+
+      for (const [id, info] of roster) {
+        if (info.name !== name) continue;
+        const change = participantTracker.leave(id);
+        if (change) {
+          recentLeaveAnnouncements.set(text, observedAt);
+          emit(change.type, change.id, change.cur);
+        }
+        break;
+      }
+    }
+    for (const [text, timestamp] of recentLeaveAnnouncements) {
+      if (observedAt - timestamp >= 60_000) recentLeaveAnnouncements.delete(text);
     }
 
     for (const group of document.querySelectorAll(S.chatGroupSel)) {

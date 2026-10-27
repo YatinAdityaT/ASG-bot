@@ -19,6 +19,7 @@ import (
 type fakeSender struct {
 	mu       sync.Mutex
 	messages []*waProto.Message
+	extras   []whatsmeow.SendRequestExtra
 	err      error
 }
 
@@ -26,11 +27,14 @@ func (f *fakeSender) SendMessage(
 	_ context.Context,
 	_ types.JID,
 	message *waProto.Message,
-	_ ...whatsmeow.SendRequestExtra,
+	extra ...whatsmeow.SendRequestExtra,
 ) (whatsmeow.SendResponse, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.messages = append(f.messages, message)
+	if len(extra) > 0 {
+		f.extras = append(f.extras, extra[0])
+	}
 	return whatsmeow.SendResponse{}, f.err
 }
 
@@ -163,6 +167,9 @@ func TestRunOnceSendsBirthdayOnlyOncePerYear(t *testing.T) {
 
 	if got := sender.count(); got != 1 {
 		t.Fatalf("sent messages = %d, want 1", got)
+	}
+	if len(sender.extras) != 1 || sender.extras[0].ID == "" {
+		t.Fatalf("birthday send extra = %#v, want stable message ID", sender.extras)
 	}
 }
 

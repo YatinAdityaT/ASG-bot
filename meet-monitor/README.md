@@ -11,9 +11,10 @@ selectors can stop working after a Meet update; update `src/selectors.js` when
 that happens.
 
 Meet can temporarily remove participant tiles during layout changes and
-virtualization. The extension retains a missing participant for 30 seconds
-before recording a leave, preventing brief DOM changes from producing an
-immediate false leave/join pair.
+virtualization, so tile disappearance alone is never reported as a leave.
+Leave events use Meet's English accessibility announcement (`Name left the
+call`) instead. If Meet changes or localizes that announcement, leave detection
+must be updated in `src/state.js`.
 
 ## Install in Chrome
 

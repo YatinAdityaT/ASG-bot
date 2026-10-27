@@ -13,6 +13,7 @@ window.MMSelectors = {
   chatMsgRowSel: '.RLrADb[data-message-id]', // The specific message row
   chatTextSel: 'div[jsname="dTKtvb"]',       // Exact text container (ignores buttons)
   chatSenderSel: '.poVWob',                  // Sender's name (absent if it's your message)
+  announcementSel: '[aria-live="polite"], [aria-live="assertive"]',
 
   meetingCode() {
     const segs = location.pathname.split('/').filter(Boolean);
