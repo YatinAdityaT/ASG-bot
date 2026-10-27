@@ -2,9 +2,10 @@ package scheduler
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
-	"database/sql"
+	"whatsappBot/outbound"
 )
 
 type TaskProvider interface {
@@ -31,13 +32,17 @@ func NewBirthdayProvider(dbConn *sql.DB) TaskProvider {
 	return &BirthdayProvider{db: dbConn}
 }
 
-func NewRegistry(dbConn *sql.DB) *Registry {
-	return &Registry{
-		Providers: []TaskProvider{
-			NewReminderProvider(dbConn),
-			NewBirthdayProvider(dbConn),
-		},
+func NewRegistry(dbConn *sql.DB, outboundStores ...*outbound.Store) *Registry {
+	providers := []TaskProvider{
+		NewReminderProvider(dbConn),
+		NewBirthdayProvider(dbConn),
 	}
+	for _, store := range outboundStores {
+		if store != nil {
+			providers = append(providers, NewOutboundProvider(store))
+		}
+	}
+	return &Registry{Providers: providers}
 }
 
 func (r *Registry) GetAllDueTasks(ctx context.Context, now time.Time) ([]ScheduledTask, error) {

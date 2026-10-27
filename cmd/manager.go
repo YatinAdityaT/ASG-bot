@@ -4,12 +4,19 @@ import (
 	"context"
 	"database/sql"
 	"regexp"
+	"whatsappBot/utils"
 
-	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 )
 
-type CommandHandlerFunc func(db *sql.DB, ctx context.Context, client *whatsmeow.Client, info types.MessageInfo, args []string)
+type CommandContext struct {
+	Info           types.MessageInfo
+	SenderIdentity types.JID
+	Mentions       []types.JID
+	MentionError   error
+}
+
+type CommandHandlerFunc func(db *sql.DB, ctx context.Context, client utils.MessageSender, commandCtx CommandContext, args []string) error
 type Command struct {
 	Name           string
 	Description    string
@@ -23,10 +30,11 @@ type CommandManager struct {
 	orderedList []Command          // for /help order
 	admins      map[string]struct{}
 	//logger *log.Logger
-	client *whatsmeow.Client
+	client   utils.MessageSender
+	shutdown context.CancelFunc
 }
 
-func NewCommandManager(client *whatsmeow.Client, admins []string) *CommandManager {
+func NewCommandManager(client utils.MessageSender, admins []string, shutdown context.CancelFunc) *CommandManager {
 	adminMap := make(map[string]struct{})
 	for _, adminNumber := range admins {
 		adminMap[adminNumber] = struct{}{}
@@ -37,6 +45,7 @@ func NewCommandManager(client *whatsmeow.Client, admins []string) *CommandManage
 		orderedList: []Command{},
 		admins:      adminMap,
 		client:      client,
+		shutdown:    shutdown,
 	}
 
 	// Regular user commands
@@ -66,10 +75,14 @@ func NewCommandManager(client *whatsmeow.Client, admins []string) *CommandManage
 
 	cm.RegisterCommand(Command{
 		Name: "/remind",
-		Description: `Reminds you about something at the given time. Examples: 
-		- /remind me to eat my food tomorrow at 3 pm
-		- /remind me to call Mom next week
-		- /remind me about the meeting in 30 minutes`,
+		Description: `Creates a reminder for you or one mentioned recipient. Examples:
+		- /remind @Alex "submit the form" tomorrow at 3pm
+		- /remind tomorrow at 3pm @Alex "submit the form"
+		- /remind @Alex in 20 minutes to join the call
+		- /remind me to stretch in 30 minutes
+		- /remind in 30 minutes "stretch"
+		Use at most one mentioned recipient. Without a mention, the reminder is for you.
+		Only the requester can list, update, or delete it. Ambiguous or malformed reminders are rejected.`,
 		Regex:          regexp.MustCompile(`^/remind (.+)`),
 		Callback:       cm.handleReminder,
 		IsAdminCommand: false,
@@ -136,6 +149,7 @@ func NewCommandManager(client *whatsmeow.Client, admins []string) *CommandManage
 }
 
 func (cm *CommandManager) RegisterCommand(cmd Command) {
+	cmd.Regex = regexp.MustCompile("(?i:" + cmd.Regex.String() + ")")
 	cm.commands[cmd.Name] = cmd
 	cm.orderedList = append(cm.orderedList, cmd)
 }

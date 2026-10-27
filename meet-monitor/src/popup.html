@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"><title>Meet Monitor</title>
+  <style>
+    body { font: 13px system-ui; margin: 10px; width: 420px; color: #111; }
+    #hdr { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+    #meeting { font-family: monospace; }
+    #self { font-size: 11px; color: #444; margin-bottom: 8px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+    th, td { text-align: left; padding: 3px 4px; border-bottom: 1px solid #eee; }
+    th { font-size: 11px; color: #666; font-weight: 600; }
+    .badge { font-size: 10px; color: #0b8043; background: #e6f4ea;
+             border-radius: 3px; padding: 0 4px; margin-left: 4px; }
+    #feed { font-family: monospace; font-size: 11px; background: #f7f7f7;
+            border: 1px solid #e5e5e5; border-radius: 4px; padding: 6px;
+            max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+    #btns { display: flex; gap: 6px; margin-top: 8px; }
+    button { flex: 1; padding: 6px 8px; font: inherit; cursor: pointer; }
+    #empty { color: #999; font-style: italic; }
+  </style>
+</head>
+<body>
+  <div id="hdr"><span>Meeting <strong id="meeting">—</strong></span><span id="count">0</span></div>
+  <div id="self"></div>
+  <table>
+    <thead><tr><th>Name</th><th>Cam</th><th>Mic</th></tr></thead>
+    <tbody id="roster"></tbody>
+  </table>
+  <div id="feed"></div>
+  <div id="btns">
+    <button id="csv">Export CSV</button>
+    <button id="opts">Options</button>
+  </div>
+  <script src="csv.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

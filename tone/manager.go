@@ -1,11 +1,12 @@
 package tone
 
 import (
-	"fmt"
 	"regexp"
 
-	"go.mau.fi/whatsmeow"
+	"whatsappBot/utils"
 )
+
+const defaultToneCommandsPath = "tone/tone_commands.json"
 
 type toneIndicator struct {
 	Name        string
@@ -16,8 +17,7 @@ type toneIndicator struct {
 
 type ToneIManager struct {
 	toneIndicators map[string]toneIndicator
-	//logger *log.Logger
-	client *whatsmeow.Client
+	client         utils.MessageSender
 }
 
 type ti struct {
@@ -27,23 +27,26 @@ type ti struct {
 	RegexStr    string `json:"regex"`
 }
 
-func NewToneIManager(client *whatsmeow.Client) *ToneIManager {
+func NewToneIManager(client utils.MessageSender) (*ToneIManager, error) {
+	return newToneIManager(client, defaultToneCommandsPath)
+}
+
+func newToneIManager(client utils.MessageSender, path string) (*ToneIManager, error) {
 	tim := &ToneIManager{
 		toneIndicators: make(map[string]toneIndicator),
 		client:         client,
 	}
 
-	indicators, err := loadToneCommandsFromJSON("tone/tone_commands.json")
+	indicators, err := loadToneCommandsFromJSON(path)
 	if err != nil {
-		fmt.Printf("Failed to load tone indicators: %v\n", err)
-		return tim
+		return nil, err
 	}
 
 	for _, ti := range indicators {
 		tim.RegisterToneI(ti)
 	}
 
-	return tim
+	return tim, nil
 }
 
 func (tim *ToneIManager) RegisterToneI(ti toneIndicator) {

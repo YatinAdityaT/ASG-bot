@@ -10,14 +10,23 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 )
 
+type MessageSender interface {
+	SendMessage(
+		context.Context,
+		types.JID,
+		*waProto.Message,
+		...whatsmeow.SendRequestExtra,
+	) (whatsmeow.SendResponse, error)
+}
+
 func ReplyToMessage(
 	ctx context.Context,
-	client *whatsmeow.Client,
+	client MessageSender,
 	to types.JID,
 	text string,
 	originalMessageID string,
 	participant types.JID,
-) {
+) error {
 	participantString := participant.String()
 	contextInfo := &waProto.ContextInfo{
 		StanzaID:    &originalMessageID,
@@ -33,12 +42,16 @@ func ReplyToMessage(
 		ExtendedTextMessage: extendedText,
 	}
 
-	client.SendMessage(ctx, to, msg)
+	_, err := client.SendMessage(ctx, to, msg)
+	return err
 }
 
-// ExtractCleanText returns the normalized (trimmed + lowercased) message text.
-// Returns an empty string if no usable text is found.
-func ExtractCleanText(evt *events.Message) string {
+// ExtractText returns trimmed message text without changing its capitalization.
+// It returns an empty string if no usable text is found.
+func ExtractText(evt *events.Message) string {
+	if evt == nil {
+		return ""
+	}
 	msg := evt.Message
 	if msg == nil {
 		return ""
@@ -51,6 +64,11 @@ func ExtractCleanText(evt *events.Message) string {
 		text = msg.GetExtendedTextMessage().GetText()
 	}
 
-	// Normalize: trim and lowercase
-	return strings.ToLower(strings.TrimSpace(text))
+	return strings.TrimSpace(text)
+}
+
+// ExtractCleanText returns the normalized (trimmed + lowercased) message text.
+// Returns an empty string if no usable text is found.
+func ExtractCleanText(evt *events.Message) string {
+	return strings.ToLower(ExtractText(evt))
 }

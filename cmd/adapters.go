@@ -3,27 +3,27 @@ package cmd
 import (
 	"context"
 	"database/sql"
+	"whatsappBot/utils"
 
-	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 )
 
 // NoDB wraps a handler that doesn't need a *sql.DB into a full CommandHandlerFunc.
 func NoDB(fn func(
 	ctx context.Context,
-	client *whatsmeow.Client,
+	client utils.MessageSender,
 	info types.MessageInfo,
 	args []string,
-)) CommandHandlerFunc {
+) error) CommandHandlerFunc {
 
 	return func(
 		db *sql.DB,
 		ctx context.Context,
-		client *whatsmeow.Client,
-		info types.MessageInfo,
+		client utils.MessageSender,
+		commandCtx CommandContext,
 		args []string,
-	) {
+	) error {
 		// just ignore the db parameter
-		fn(ctx, client, info, args)
+		return fn(ctx, client, commandCtx.Info, args)
 	}
 }

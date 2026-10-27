@@ -2,15 +2,19 @@ package scheduler
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
-	"go.mau.fi/whatsmeow"
 	"google.golang.org/protobuf/proto"
 
+	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
+	"whatsappBot/utils"
 )
 
 // ----------------- Reminder Provider -----------------
@@ -24,7 +28,7 @@ type ReminderTask struct {
 	to       string
 }
 
-func (r *ReminderTask) Run(ctx context.Context, client *whatsmeow.Client) error {
+func (r *ReminderTask) Run(ctx context.Context, sender utils.MessageSender) error {
 	emsg := &waProto.ExtendedTextMessage{
 		Text: proto.String(r.message),
 		ContextInfo: &waProto.ContextInfo{
@@ -36,13 +40,14 @@ func (r *ReminderTask) Run(ctx context.Context, client *whatsmeow.Client) error 
 		ExtendedTextMessage: emsg,
 	}
 
-	_, err := client.SendMessage(ctx, r.chatID, msg)
+	_, err := sender.SendMessage(ctx, r.chatID, msg)
 	if err != nil {
-		fmt.Println("Error running task %s: %v\n", r.id, err)
-	} else {
-		r.CleanUp(ctx)
+		return fmt.Errorf("send reminder %s: %w", r.id, err)
 	}
-	return err
+	if err := r.CleanUp(ctx); err != nil {
+		return fmt.Errorf("clean up reminder %s: %w", r.id, err)
+	}
+	return nil
 }
 
 func (r *ReminderTask) Time() time.Time {
@@ -53,8 +58,9 @@ func (r *ReminderTask) ID() string {
 	return r.id
 }
 
-func (r *ReminderTask) CleanUp(ctx context.Context) {
-	r.db.ExecContext(ctx, `DELETE FROM reminders WHERE id = ?`, r.id)
+func (r *ReminderTask) CleanUp(ctx context.Context) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM reminders WHERE id = ?`, r.id)
+	return err
 }
 
 func (r *ReminderProvider) GetDueTasks(ctx context.Context, now time.Time) ([]ScheduledTask, error) {
@@ -94,20 +100,39 @@ func (r *ReminderProvider) GetDueTasks(ctx context.Context, now time.Time) ([]Sc
 		}
 		tasks = append(tasks, task)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate reminders: %w", err)
+	}
 	return tasks, nil
 }
 
 // ----------------- Birthday Provider -----------------
 type BirthdayTask struct {
-	chatID   types.JID
-	message  string
-	schedule time.Time
-	id       string
+	db           *sql.DB
+	birthdayID   string
+	deliveryYear int
+	chatID       types.JID
+	message      string
+	messageID    types.MessageID
+	schedule     time.Time
+	id           string
 }
 
-func (r *BirthdayTask) Run(ctx context.Context, client *whatsmeow.Client) error {
+func (r *BirthdayTask) Run(ctx context.Context, sender utils.MessageSender) error {
 	msg := &waProto.Message{Conversation: &r.message}
-	_, err := client.SendMessage(ctx, r.chatID, msg)
+	if _, err := sender.SendMessage(
+		ctx,
+		r.chatID,
+		msg,
+		whatsmeow.SendRequestExtra{ID: r.messageID},
+	); err != nil {
+		return err
+	}
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO birthday_deliveries (birthday_id, delivery_year, delivered_at)
+		VALUES (?, ?, ?)
+		ON CONFLICT (birthday_id, delivery_year) DO NOTHING
+	`, r.birthdayID, r.deliveryYear, r.schedule)
 	return err
 }
 
@@ -122,11 +147,17 @@ func (b *BirthdayTask) ID() string {
 func (b *BirthdayProvider) GetDueTasks(ctx context.Context, now time.Time) ([]ScheduledTask, error) {
 	today := now.Format("01-02") // MM-DD
 	query := `
-		SELECT id, chat_id, name
-		FROM birthdays
-		WHERE strftime('%m-%d', birth_date) = ?
+		SELECT birthday.id, birthday.chat_id, birthday.name
+		FROM birthdays AS birthday
+		WHERE strftime('%m-%d', birthday.birth_date) = ?
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM birthday_deliveries AS delivery
+			WHERE delivery.birthday_id = birthday.id
+			  AND delivery.delivery_year = ?
+		  )
 	`
-	rows, err := b.db.QueryContext(ctx, query, today)
+	rows, err := b.db.QueryContext(ctx, query, today, now.Year())
 	if err != nil {
 		return nil, err
 	}
@@ -146,12 +177,24 @@ func (b *BirthdayProvider) GetDueTasks(ctx context.Context, now time.Time) ([]Sc
 		}
 
 		task := &BirthdayTask{
-			id:       "birthday-" + id,
-			chatID:   jid,
-			message:  msg,
-			schedule: now,
+			db:           b.db,
+			birthdayID:   id,
+			deliveryYear: now.Year(),
+			id:           "birthday-" + id,
+			chatID:       jid,
+			message:      msg,
+			messageID:    birthdayMessageID(id, now.Year()),
+			schedule:     now,
 		}
 		tasks = append(tasks, task)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate birthdays: %w", err)
+	}
 	return tasks, nil
+}
+
+func birthdayMessageID(id string, year int) types.MessageID {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("birthday:%s:%d", id, year)))
+	return types.MessageID(strings.ToUpper(hex.EncodeToString(sum[:10])))
 }
