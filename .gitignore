@@ -1,3 +1,4 @@
 *.db
 *.sql
 .superpowers/
+.worktrees/

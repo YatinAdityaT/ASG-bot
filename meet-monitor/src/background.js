@@ -1,6 +1,13 @@
 importScripts('delivery.js');
 
-const DEFAULTS = { webhook: '', botAPIURL: '', consentBanner: true };
+const DEFAULTS = {
+  webhook: '',
+  botAPIURL: '',
+  consentBanner: true,
+  sendingEnabled: true
+};
+const ALLOWED_MEETING = 'jpy-ymgz-tdo';
+const FORWARD_DEDUPE_MS = 5_000;
 const OUTBOX_KEY = 'botAPIOutbox';
 const RETRY_ALARM = 'bot-api-outbox';
 const SEND_SPACING_MS = 2_500;
@@ -14,6 +21,7 @@ const storageProtection = chrome.storage.local.setAccessLevel({
 });
 let outboxOperation = Promise.resolve();
 let nextSendAllowedAt = 0;
+const recentlyForwarded = new Map();
 
 chrome.runtime.onInstalled.addListener(async () => {
   await storageProtection;
@@ -41,26 +49,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 
   if (msg?.kind === 'event') {
-    const rec = msg.rec;
-
-    if (rec.type === 'chat_message' && rec.text) {
-      chrome.notifications.create({
-        type: 'basic',
-        iconUrl: 'https://www.gstatic.com/images/branding/product/1x/hangouts_48dp.png',
-        title: `Meet Chat - ${rec.name}`,
-        message: rec.text.slice(0, 150),
-        priority: 2
-      }).catch(() => {});
-    }
-
-    forwardWebhook(rec).catch(() => {});
-    enqueueBotAPI(rec)
-      .then(async queued => {
-        if (queued) await flushBotAPIOutbox();
-        sendResponse({ queued });
-      })
+    forwardEvent(msg.rec)
+      .then(queued => sendResponse({ queued }))
       .catch(() => {
-        console.warn('Meet event bot API queue failed');
+        console.warn('Meet event forwarding failed');
         sendResponse({ queued: false });
       });
     return true;
@@ -81,9 +73,35 @@ chrome.runtime.onStartup.addListener(() => {
   });
 });
 
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === 'sync' && changes.sendingEnabled?.newValue === true) {
+    flushBotAPIOutbox().catch(() => {
+      console.warn('Meet event bot API re-enable retry failed');
+    });
+  }
+});
+
+async function forwardEvent(rec) {
+  if (!await outboundAllowed(rec)) return false;
+
+  const now = Date.now();
+  for (const [key, seenAt] of recentlyForwarded) {
+    if (now - seenAt >= FORWARD_DEDUPE_MS) recentlyForwarded.delete(key);
+  }
+  const key = MMDelivery.forwardingKey(rec);
+  if (recentlyForwarded.has(key)) return false;
+  recentlyForwarded.set(key, now);
+
+  forwardWebhook(rec).catch(() => {});
+  const queued = await enqueueBotAPI(rec);
+  if (queued) await flushBotAPIOutbox();
+  return queued;
+}
+
 async function forwardWebhook(rec) {
   const { webhook } = await chrome.storage.sync.get({ webhook: '' });
   if (!webhook) return;
+  if (!await outboundAllowed(rec)) return;
   await fetch(webhook, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -110,15 +128,9 @@ function enqueueBotAPI(rec) {
     const outbox = stored[OUTBOX_KEY];
     const key = MMDelivery.eventKey(rec);
     if (!outbox.some(entry => entry.key === key)) {
+      if (!await outboundAllowed(rec)) return false;
       if (outbox.length >= MAX_OUTBOX_SIZE) {
         console.warn('Meet event bot API outbox is full');
-        chrome.notifications.create({
-          type: 'basic',
-          iconUrl: 'https://www.gstatic.com/images/branding/product/1x/hangouts_48dp.png',
-          title: 'Meet Monitor forwarding paused',
-          message: 'The local WhatsApp forwarding queue is full. Check the bot API settings.',
-          priority: 2
-        }).catch(() => {});
         return false;
       }
       outbox.push({ key, rec, generation, attempts: 0, nextAttemptAt: 0 });
@@ -128,13 +140,32 @@ function enqueueBotAPI(rec) {
   });
 }
 
+async function outboundAllowed(rec) {
+  const { sendingEnabled } = await chrome.storage.sync.get({
+    sendingEnabled: true
+  });
+  return sendingEnabled && rec?.meeting === ALLOWED_MEETING;
+}
+
 function flushBotAPIOutbox() {
   return withOutboxLock(async () => {
-    const { botAPIURL, botAPIToken, generation } = await botAPIConfig();
     const stored = await chrome.storage.local.get({ [OUTBOX_KEY]: [] });
     const outbox = stored[OUTBOX_KEY];
+    const allowedOutbox = outbox.filter(
+      entry => entry.rec?.meeting === ALLOWED_MEETING
+    );
+    if (allowedOutbox.length !== outbox.length) {
+      outbox.splice(0, outbox.length, ...allowedOutbox);
+      await chrome.storage.local.set({ [OUTBOX_KEY]: outbox });
+    }
     if (!outbox.length) return;
 
+    const { sendingEnabled } = await chrome.storage.sync.get({
+      sendingEnabled: true
+    });
+    if (!sendingEnabled) return;
+
+    const { botAPIURL, botAPIToken, generation } = await botAPIConfig();
     for (let processed = 0; outbox.length && processed < MAX_BATCH_SIZE; processed++) {
       const entry = outbox[0];
       if (entry.generation !== generation) {
@@ -150,6 +181,11 @@ function flushBotAPIOutbox() {
 
       const request = MMDelivery.requestFor(entry.rec, botAPIURL, botAPIToken);
       if (!request) return;
+
+      const currentPolicy = await chrome.storage.sync.get({
+        sendingEnabled: true
+      });
+      if (!currentPolicy.sendingEnabled) return;
 
       let response;
       try {

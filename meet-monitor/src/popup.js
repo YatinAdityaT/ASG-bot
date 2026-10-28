@@ -37,6 +37,24 @@ function render(state) {
     .join('\n') || '(no events yet)';
 }
 
+function renderSendingState() {
+  $('#sending-state').textContent = $('#sending').checked ? 'ON' : 'OFF';
+}
+
+async function initSendingControl() {
+  const { sendingEnabled } = await chrome.storage.sync.get({
+    sendingEnabled: true
+  });
+  $('#sending').checked = sendingEnabled;
+  renderSendingState();
+  $('#sending').onchange = () => {
+    renderSendingState();
+    return chrome.storage.sync.set({
+      sendingEnabled: $('#sending').checked
+    });
+  };
+}
+
 async function refresh() {
   const tab = await activeMeetTab();
   if (!tab) { render(null); return; }
@@ -68,5 +86,6 @@ $('#csv').onclick = async () => {
 
 $('#opts').onclick = () => chrome.runtime.openOptionsPage();
 
+initSendingControl();
 refresh();
 setInterval(refresh, 1000);

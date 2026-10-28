@@ -1,10 +1,12 @@
 # Meet Monitor Chrome Extension
 
 Meet Monitor is an unpacked Chrome extension for Google Meet. It tracks
-participant join/leave events, camera and microphone state changes, renames,
-and visible chat messages. It provides a live popup, desktop chat
-notifications, CSV export, an optional webhook, and an in-call monitoring
-banner.
+participant join/leave events, confirmed camera and microphone state changes,
+and visible chat messages. It provides a live popup, CSV export, optional
+webhook and bot API forwarding, and an in-call monitoring banner. Rename events
+are intentionally absent because Meet's rendered names can fluctuate without a
+participant actually renaming themselves. Desktop/browser chat notifications
+have also been removed.
 
 Google Meet does not provide stable public DOM APIs for these features. The
 selectors can stop working after a Meet update; update `src/selectors.js` when
@@ -15,6 +17,19 @@ virtualization, so tile disappearance alone is never reported as a leave.
 Leave events use Meet's English accessibility announcement (`Name left the
 call`) instead. If Meet changes or localizes that announcement, leave detection
 must be updated in `src/state.js`.
+
+Participant names are extracted by a dedicated clean-name selector helper that
+normalizes whitespace, removes duplicate rendered lines, and preserves the
+first established non-empty name for each participant. Camera and microphone
+changes must remain stable for two seconds before an event is emitted, reducing
+false state changes during Meet layout updates.
+
+For the authenticated bot API, chat events use Meet's stable message IDs as
+idempotency keys. The server persists that identity, preventing duplicate bot
+API delivery across extension retries, page refreshes, multiple tabs, and
+service-worker restarts. The optional generic webhook has only the extension
+background's five-second in-memory cross-context guard; it may receive a
+repeated historical event after an extension or service-worker restart.
 
 ## Install in Chrome
 
@@ -31,12 +46,14 @@ Select the folder itself, not `src/` and not the repository root.
 
 ## Update after code changes
 
-1. Open `chrome://extensions`.
-2. Find **Meet Monitor**.
-3. Click its **Reload** button.
-4. Refresh any open Google Meet tabs.
+1. Pull the updated branch in the repository.
+2. Open `chrome://extensions`.
+3. Find **Meet Monitor** and click its **Reload** button.
+4. Refresh every open Google Meet tab.
 
 Chrome does not automatically reload unpacked extensions when files change.
+An already-open Meet tab continues running its old content script until that
+tab is refreshed.
 
 ## Configure options
 
@@ -52,9 +69,9 @@ or chat activity.
 
 ### Webhook
 
-Enter an `http://` or `https://` URL to POST every event as JSON. On save,
-Chrome asks for permission to contact that URL's origin. The webhook remains
-disabled if permission is denied or the field is blank.
+Enter an `http://` or `https://` URL to POST every eligible event as JSON. On
+save, Chrome asks for permission to contact that URL's origin. The webhook
+remains disabled if permission is denied or the field is blank.
 
 Example event:
 
@@ -62,7 +79,7 @@ Example event:
 {
   "type": "chat_message",
   "id": "message-id",
-  "meeting": "abc-defg-hij",
+  "meeting": "jpy-ymgz-tdo",
   "ts": "2026-10-27T07:30:00.000Z",
   "name": "Participant",
   "cam": null,
@@ -101,27 +118,36 @@ Events awaiting API acceptance are retained in a local extension outbox and
 retried sequentially with backoff, including after Chrome restarts. Every
 accepted event then enters the bot's persistent outbound queue and is sent only
 to the server-configured group. The extension cannot provide a destination
-JID. The outbox holds at most 500 events; a desktop notification warns if it
-fills. Non-retryable request errors and events that exhaust 10 transient
+JID. The outbox holds at most 500 events; a service-worker warning is logged if
+it fills. Non-retryable request errors and events that exhaust 10 transient
 attempts are removed so one bad record cannot block later activity. Clearing
 the Bot API URL and token also clears the local outbox.
 
 The ASG bot forwarding and generic webhook are independent; configuring both
 sends each raw event to both endpoints.
 
+### Outbound sending control
+
+Outbound sending defaults to **ON** and is controlled by the **Sending ON/OFF**
+checkbox in the main extension popup. This single control governs both the
+generic webhook and the bot API. Outbound delivery is locked to meeting
+`jpy-ymgz-tdo`; all other meetings remain local-only even when sending is on.
+
 ## Export CSV
 
 While a Meet tab is active, open the popup and click **Export CSV**. The export
-contains the latest events retained by the content script, up to 2,000 events.
-Reloading or closing the Meet page clears its in-memory history.
+contains at most the latest 500 events because the popup's `getState` response
+exposes only that portion of the content script's history. The content script
+retains up to 2,000 events in memory, but older retained events are not currently
+available to popup export. Reloading or closing the Meet page clears its
+in-memory history.
 
 ## Permissions
 
 - `storage`: saves endpoint settings, the local API token, and banner
   preference.
-- `notifications`: shows desktop notifications for visible Meet chat messages.
+- `alarms`: schedules bot API outbox retries.
 - `https://meet.google.com/*`: runs the monitor in Meet tabs.
-- `https://www.gstatic.com/*`: loads the notification icon.
 - Optional HTTP(S) origins: granted only when you save a webhook or bot API
   URL.
 
@@ -139,6 +165,14 @@ Reloading or closing the Meet page clears its in-memory history.
 - Open the Meet chat panel so messages exist in the page DOM.
 - Reload the extension and Meet tab.
 - Check `src/selectors.js` chat selectors against the current Meet markup.
+
+### An old Meet tab behaves differently after an update
+
+Reloading the extension does not replace a content script that is already
+running in an open Meet tab. Refresh that tab after the extension reload. If
+the old content script encounters an invalidated extension context, it now
+shuts down its observers and timers instead of surfacing an uncaught
+invalidated-context error.
 
 ### Webhook receives nothing
 
@@ -158,12 +192,6 @@ Reloading or closing the Meet page clears its in-memory history.
 - Submit a synthetic event with `curl` to isolate extension configuration from
   server or WhatsApp delivery problems.
 
-### Desktop notifications do not appear
-
-- Allow Chrome notifications in the operating system.
-- Confirm the extension has the `notifications` permission.
-- Check the extension service worker console for errors.
-
 ## Local validation
 
 From the repository root:
@@ -171,15 +199,20 @@ From the repository root:
 ```powershell
 node -e "JSON.parse(require('fs').readFileSync('meet-monitor/manifest.json','utf8'))"
 node --check meet-monitor/src/selectors.js
+node --check meet-monitor/src/state.js
 node --check meet-monitor/src/content.js
 node --check meet-monitor/src/delivery.js
 node --check meet-monitor/src/background.js
-node --check meet-monitor/src/state.js
-node --check meet-monitor/src/csv.js
 node --check meet-monitor/src/popup.js
-node --check meet-monitor/src/options.js
 node --test meet-monitor/test/*.test.js
+gofmt -d .
+go vet ./...
+go test ./... -count=1
+go build ./...
+git diff --check
+git status --short
 ```
 
-These commands validate JSON and JavaScript syntax. They do not replace a live
+These commands validate release metadata, JavaScript syntax and tests, Go
+formatting, vetting, tests, builds, and diff hygiene. They do not replace a live
 Google Meet test because Meet's DOM is generated dynamically.
