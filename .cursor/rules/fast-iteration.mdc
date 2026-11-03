@@ -1,0 +1,34 @@
+---
+description: Prefer fast, incremental delivery over heavyweight planning
+alwaysApply: true
+---
+
+# Fast Iteration
+
+- Optimize for the smallest working user-visible improvement.
+- For straightforward requests, inspect only the relevant files, implement,
+  run focused tests, and report the result.
+- Avoid design documents, long plans, worktrees, multiple review agents, and
+  broad audits unless the user requests them or the change has substantial
+  architectural, security, migration, or data-loss risk.
+- If required process cannot be skipped, keep it minimal and immediately
+  transition to implementation.
+- Ask a clarifying question only when a missing decision materially changes
+  the result. Otherwise use a sensible default.
+- Prefer short vertical slices that can be tried immediately over completing a
+  large framework before delivering value.
+- Use test-driven development pragmatically: add one focused regression test,
+  confirm it fails, implement the smallest fix, and confirm it passes.
+- Run focused tests during iteration. Run broad suites once at the final
+  integration boundary, not after every small edit.
+- Do not block delivery on optional polish, speculative abstractions, or
+  unrelated cleanup.
+- Keep progress updates brief and outcome-focused.
+
+Example default loop:
+
+1. Identify the smallest useful change.
+2. Add or update one focused test.
+3. Implement it.
+4. Run the focused test.
+5. Deliver the increment, then continue only if more scope remains.
