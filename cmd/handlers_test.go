@@ -7,13 +7,29 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	appdb "whatsappBot/db"
+	"whatsappBot/meetmonitor"
 
 	waProto "go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 )
+
+type fakeStatusProvider struct {
+	status meetmonitor.Status
+	err    error
+	calls  int
+}
+
+func (f *fakeStatusProvider) Status(context.Context) (meetmonitor.Status, error) {
+	f.calls++
+	if f.err != nil {
+		return meetmonitor.Status{}, f.err
+	}
+	return f.status, nil
+}
 
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
@@ -393,6 +409,358 @@ func TestReminderHelpDocumentsMentionedReminderRules(t *testing.T) {
 		if !strings.Contains(help, required) {
 			t.Errorf("help reply missing %q", required)
 		}
+	}
+}
+
+func TestStatusOnlineResponseExact(t *testing.T) {
+	now := time.Date(2026, time.November, 3, 12, 0, 0, 0, time.UTC)
+	heartbeat := now.Add(-12 * time.Second)
+	provider := &fakeStatusProvider{
+		status: meetmonitor.Status{
+			BotOnline:         true,
+			WhatsAppConnected: true,
+			MonitorState:      "online",
+			LastHeartbeatAt:   &heartbeat,
+			Meeting:           "jpy-ymgz-tdo",
+			Participants:      7,
+			ForwardingEnabled: true,
+			ExtensionVersion:  "1.4.0",
+		},
+	}
+	sender := &fakeSender{}
+	manager := NewCommandManager(
+		sender,
+		nil,
+		nil,
+		WithStatusProvider(provider),
+		WithClock(func() time.Time { return now }),
+	)
+
+	if err := manager.RouteMessage(nil, context.Background(), messageEvent("/status")); err != nil {
+		t.Fatalf("RouteMessage() error = %v", err)
+	}
+	if provider.calls != 1 {
+		t.Fatalf("provider calls = %d, want 1", provider.calls)
+	}
+
+	want := strings.Join([]string{
+		"Bot: online",
+		"WhatsApp: connected",
+		"Monitor: online",
+		"Last heartbeat: 12s ago",
+		"Meeting: jpy-ymgz-tdo",
+		"Participants: 7",
+		"Forwarding: ON",
+		"Extension: 1.4.0",
+	}, "\n")
+	if got := sentText(t, sender); got != want {
+		t.Fatalf("status reply = %q, want %q", got, want)
+	}
+}
+
+func TestStatusNeverSeenResponseExact(t *testing.T) {
+	provider := &fakeStatusProvider{
+		status: meetmonitor.Status{
+			BotOnline:         true,
+			WhatsAppConnected: false,
+			MonitorState:      "never_seen",
+			Meeting:           "jpy-ymgz-tdo",
+		},
+	}
+	sender := &fakeSender{}
+	manager := NewCommandManager(sender, nil, nil, WithStatusProvider(provider))
+
+	if err := manager.RouteMessage(nil, context.Background(), messageEvent("/status")); err != nil {
+		t.Fatalf("RouteMessage() error = %v", err)
+	}
+
+	want := strings.Join([]string{
+		"Bot: online",
+		"WhatsApp: disconnected",
+		"Monitor: never seen",
+		"Last heartbeat: never",
+		"Meeting: jpy-ymgz-tdo",
+		"Participants: 0",
+		"Forwarding: OFF",
+		"Extension: unknown",
+	}, "\n")
+	if got := sentText(t, sender); got != want {
+		t.Fatalf("status reply = %q, want %q", got, want)
+	}
+}
+
+func TestStatusOfflineResponseFormatsMinutesAndForwardingOff(t *testing.T) {
+	now := time.Date(2026, time.November, 3, 12, 0, 0, 0, time.UTC)
+	heartbeat := now.Add(-5*time.Minute - 45*time.Second)
+	provider := &fakeStatusProvider{
+		status: meetmonitor.Status{
+			BotOnline:         false,
+			WhatsAppConnected: true,
+			MonitorState:      "offline",
+			LastHeartbeatAt:   &heartbeat,
+			Meeting:           "jpy-ymgz-tdo",
+			Participants:      3,
+			ForwardingEnabled: false,
+			ExtensionVersion:  "2.0.0",
+		},
+	}
+	sender := &fakeSender{}
+	manager := NewCommandManager(
+		sender,
+		nil,
+		nil,
+		WithStatusProvider(provider),
+		WithClock(func() time.Time { return now }),
+	)
+
+	if err := manager.RouteMessage(nil, context.Background(), messageEvent("/status")); err != nil {
+		t.Fatalf("RouteMessage() error = %v", err)
+	}
+
+	want := strings.Join([]string{
+		"Bot: offline",
+		"WhatsApp: connected",
+		"Monitor: offline",
+		"Last heartbeat: 5m ago",
+		"Meeting: jpy-ymgz-tdo",
+		"Participants: 3",
+		"Forwarding: OFF",
+		"Extension: 2.0.0",
+	}, "\n")
+	if got := sentText(t, sender); got != want {
+		t.Fatalf("status reply = %q, want %q", got, want)
+	}
+}
+
+func TestStatusFormatsSecondsHoursAndFutureHeartbeat(t *testing.T) {
+	now := time.Date(2026, time.November, 3, 12, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name      string
+		heartbeat time.Time
+		want      string
+	}{
+		{name: "seconds", heartbeat: now.Add(-45 * time.Second), want: "Last heartbeat: 45s ago"},
+		{name: "hours", heartbeat: now.Add(-2*time.Hour - 59*time.Minute), want: "Last heartbeat: 2h ago"},
+		{name: "future clamped", heartbeat: now.Add(30 * time.Second), want: "Last heartbeat: 0s ago"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			sender := &fakeSender{}
+			manager := NewCommandManager(
+				sender,
+				nil,
+				nil,
+				WithStatusProvider(&fakeStatusProvider{
+					status: meetmonitor.Status{
+						BotOnline:         true,
+						WhatsAppConnected: true,
+						MonitorState:      "online",
+						LastHeartbeatAt:   &test.heartbeat,
+						Meeting:           "jpy-ymgz-tdo",
+						Participants:      1,
+						ForwardingEnabled: true,
+						ExtensionVersion:  "1.0.0",
+					},
+				}),
+				WithClock(func() time.Time { return now }),
+			)
+
+			if err := manager.RouteMessage(nil, context.Background(), messageEvent("/status")); err != nil {
+				t.Fatalf("RouteMessage() error = %v", err)
+			}
+			if got := sentText(t, sender); !strings.Contains(got, test.want) {
+				t.Fatalf("status reply = %q, want substring %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestStatusDisconnectedWhatsApp(t *testing.T) {
+	now := time.Date(2026, time.November, 3, 12, 0, 0, 0, time.UTC)
+	heartbeat := now.Add(-12 * time.Second)
+	sender := &fakeSender{}
+	manager := NewCommandManager(
+		sender,
+		nil,
+		nil,
+		WithStatusProvider(&fakeStatusProvider{
+			status: meetmonitor.Status{
+				BotOnline:         true,
+				WhatsAppConnected: false,
+				MonitorState:      "online",
+				LastHeartbeatAt:   &heartbeat,
+				Meeting:           "jpy-ymgz-tdo",
+				Participants:      7,
+				ForwardingEnabled: true,
+				ExtensionVersion:  "1.4.0",
+			},
+		}),
+		WithClock(func() time.Time { return now }),
+	)
+
+	if err := manager.RouteMessage(nil, context.Background(), messageEvent("/status")); err != nil {
+		t.Fatalf("RouteMessage() error = %v", err)
+	}
+	if got := sentText(t, sender); !strings.Contains(got, "WhatsApp: disconnected") {
+		t.Fatalf("status reply = %q, want disconnected WhatsApp", got)
+	}
+}
+
+func TestStatusNilHeartbeatFallback(t *testing.T) {
+	sender := &fakeSender{}
+	manager := NewCommandManager(
+		sender,
+		nil,
+		nil,
+		WithStatusProvider(&fakeStatusProvider{
+			status: meetmonitor.Status{
+				BotOnline:         true,
+				WhatsAppConnected: true,
+				MonitorState:      "online",
+				LastHeartbeatAt:   nil,
+				Meeting:           "jpy-ymgz-tdo",
+				Participants:      1,
+				ForwardingEnabled: true,
+				ExtensionVersion:  "1.0.0",
+			},
+		}),
+	)
+
+	if err := manager.RouteMessage(nil, context.Background(), messageEvent("/status")); err != nil {
+		t.Fatalf("RouteMessage() error = %v", err)
+	}
+	if got := sentText(t, sender); !strings.Contains(got, "Last heartbeat: unknown") {
+		t.Fatalf("status reply = %q, want unknown heartbeat", got)
+	}
+}
+
+func TestStatusReturnsProviderErrorWithoutReply(t *testing.T) {
+	providerErr := errors.New("status failed")
+	sender := &fakeSender{}
+	manager := NewCommandManager(
+		sender,
+		nil,
+		nil,
+		WithStatusProvider(&fakeStatusProvider{err: providerErr}),
+	)
+
+	err := manager.RouteMessage(nil, context.Background(), messageEvent("/status"))
+
+	if !errors.Is(err, providerErr) {
+		t.Fatalf("RouteMessage() error = %v, want %v", err, providerErr)
+	}
+	if len(sender.messages) != 0 {
+		t.Fatalf("sent %d messages, want none", len(sender.messages))
+	}
+}
+
+func TestStatusReturnsReplySendError(t *testing.T) {
+	sendErr := errors.New("status send failed")
+	sender := &fakeSender{err: sendErr}
+	manager := NewCommandManager(
+		sender,
+		nil,
+		nil,
+		WithStatusProvider(&fakeStatusProvider{
+			status: meetmonitor.Status{
+				BotOnline:         true,
+				WhatsAppConnected: true,
+				MonitorState:      "never_seen",
+				Meeting:           "jpy-ymgz-tdo",
+			},
+		}),
+	)
+
+	err := manager.RouteMessage(nil, context.Background(), messageEvent("/status"))
+
+	if !errors.Is(err, sendErr) {
+		t.Fatalf("RouteMessage() error = %v, want %v", err, sendErr)
+	}
+}
+
+func TestStatusMatchesCaseInsensitively(t *testing.T) {
+	sender := &fakeSender{}
+	manager := NewCommandManager(
+		sender,
+		nil,
+		nil,
+		WithStatusProvider(&fakeStatusProvider{
+			status: meetmonitor.Status{
+				BotOnline:         true,
+				WhatsAppConnected: false,
+				MonitorState:      "never_seen",
+				Meeting:           "jpy-ymgz-tdo",
+			},
+		}),
+	)
+
+	if err := manager.RouteMessage(nil, context.Background(), messageEvent("/STATUS")); err != nil {
+		t.Fatalf("RouteMessage() error = %v", err)
+	}
+	if got := sentText(t, sender); !strings.Contains(got, "Monitor: never seen") {
+		t.Fatalf("status reply = %q, want never seen monitor state", got)
+	}
+}
+
+func TestStatusAllowsRegularUsers(t *testing.T) {
+	sender := &fakeSender{}
+	manager := NewCommandManager(
+		sender,
+		[]string{"999"},
+		nil,
+		WithStatusProvider(&fakeStatusProvider{
+			status: meetmonitor.Status{
+				BotOnline:         true,
+				WhatsAppConnected: false,
+				MonitorState:      "never_seen",
+				Meeting:           "jpy-ymgz-tdo",
+			},
+		}),
+	)
+
+	if err := manager.RouteMessage(nil, context.Background(), messageEvent("/status")); err != nil {
+		t.Fatalf("RouteMessage() error = %v", err)
+	}
+	if got := sentText(t, sender); !strings.Contains(got, "Bot: online") {
+		t.Fatalf("status reply = %q, want regular user response", got)
+	}
+}
+
+func TestHelpIncludesStatusWhenProviderExists(t *testing.T) {
+	sender := &fakeSender{}
+	manager := NewCommandManager(
+		sender,
+		nil,
+		nil,
+		WithStatusProvider(&fakeStatusProvider{
+			status: meetmonitor.Status{
+				BotOnline:         true,
+				WhatsAppConnected: false,
+				MonitorState:      "never_seen",
+				Meeting:           "jpy-ymgz-tdo",
+			},
+		}),
+	)
+
+	if err := manager.RouteMessage(nil, context.Background(), messageEvent("/help")); err != nil {
+		t.Fatalf("help: %v", err)
+	}
+	if got := sentText(t, sender); !strings.Contains(got, "`/status`") {
+		t.Fatalf("help reply = %q, want /status", got)
+	}
+}
+
+func TestManagerWithoutStatusProviderDoesNotRegisterOrAdvertiseStatus(t *testing.T) {
+	manager := NewCommandManager(&fakeSender{}, nil, nil)
+	if _, ok := manager.commands["/status"]; ok {
+		t.Fatal("registered /status without provider")
+	}
+
+	sender := &fakeSender{}
+	if err := NewCommandManager(sender, nil, nil).RouteMessage(nil, context.Background(), messageEvent("/help")); err != nil {
+		t.Fatalf("help: %v", err)
+	}
+	if got := sentText(t, sender); strings.Contains(got, "`/status`") {
+		t.Fatalf("help reply = %q, unexpectedly advertised /status", got)
 	}
 }
 

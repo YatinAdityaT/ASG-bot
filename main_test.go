@@ -5,10 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+	"unsafe"
 
 	"whatsappBot/config"
 	appdb "whatsappBot/db"
@@ -376,6 +378,54 @@ func TestRunEnabledAPIStartsAfterAuthenticationAndRecovery(t *testing.T) {
 	}
 }
 
+func TestRunEnabledAPIUsesSameMonitorServiceForCommands(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	_, database, err := appdb.SetupDB(context.Background(), filepath.Join(t.TempDir(), "runtime.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	deviceID := types.NewJID("123", types.DefaultUserServer)
+	client := &fakeLifecycleClient{}
+	client.loggedIn = true
+	apiStarted := make(chan *meetmonitor.Service, 1)
+	apiDone := make(chan error, 1)
+	schedulerDone := make(chan struct{})
+
+	deps := enabledRuntimeDependencies(database, &deviceID, client)
+	deps.startAPI = func(_ context.Context, _ config.Config, _ *outbound.Store, service *meetmonitor.Service) <-chan error {
+		apiStarted <- service
+		return apiDone
+	}
+	deps.startScheduler = func(_ context.Context, _ *sql.DB, _ utils.MessageSender, _ *outbound.Store) <-chan struct{} {
+		return schedulerDone
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- runWithDependencies(ctx, baseTestConfig(true), deps) }()
+
+	var service *meetmonitor.Service
+	select {
+	case service = <-apiStarted:
+	case <-time.After(time.Second):
+		t.Fatal("API did not receive monitor service")
+	}
+
+	setMonitorServiceMeeting(t, service, "shared-pointer-meeting")
+	client.emit(commandMessage("/status"))
+
+	if got := waitForSentText(t, client); !strings.Contains(got, "Meeting: shared-pointer-meeting") {
+		t.Fatalf("status reply = %q, want shared monitor service meeting", got)
+	}
+
+	cancel()
+	apiDone <- nil
+	close(apiDone)
+	close(schedulerDone)
+	if err := <-done; err != nil {
+		t.Fatalf("runWithDependencies error = %v", err)
+	}
+}
+
 func TestRunRejectsConnectedClientThatIsNotLoggedIn(t *testing.T) {
 	database, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
@@ -683,12 +733,14 @@ type fakeLifecycleClient struct {
 	mu              sync.Mutex
 	qr              chan whatsmeow.QRChannelItem
 	connectErr      error
+	sendErr         error
 	deferLogin      bool
 	connectCalls    int
 	connected       bool
 	loggedIn        bool
 	disconnected    bool
 	handler         whatsmeow.EventHandler
+	messages        []*waProto.Message
 	connectEvents   []interface{}
 	connectComplete chan struct{}
 	sendStarted     chan struct{}
@@ -776,16 +828,20 @@ func (f *fakeLifecycleClient) emit(event interface{}) {
 }
 
 func (f *fakeLifecycleClient) SendMessage(
-	context.Context,
-	types.JID,
-	*waProto.Message,
-	...whatsmeow.SendRequestExtra,
+	_ context.Context,
+	_ types.JID,
+	msg *waProto.Message,
+	_ ...whatsmeow.SendRequestExtra,
 ) (whatsmeow.SendResponse, error) {
 	if f.sendStarted != nil {
 		f.sendOnce.Do(func() { close(f.sendStarted) })
 		<-f.releaseSend
 	}
-	return whatsmeow.SendResponse{}, nil
+	f.mu.Lock()
+	f.messages = append(f.messages, msg)
+	sendErr := f.sendErr
+	f.mu.Unlock()
+	return whatsmeow.SendResponse{}, sendErr
 }
 
 func groupMessage(jid string) *events.Message {
@@ -795,4 +851,45 @@ func groupMessage(jid string) *events.Message {
 			MessageSource: types.MessageSource{Chat: chat},
 		},
 	}
+}
+
+func commandMessage(text string) *events.Message {
+	chat := types.NewJID("123", types.GroupServer)
+	sender := types.NewJID("456", types.DefaultUserServer)
+	return &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:   chat,
+				Sender: sender,
+			},
+			ID: "message-id",
+		},
+		Message: &waProto.Message{Conversation: &text},
+	}
+}
+
+func waitForSentText(t *testing.T, client *fakeLifecycleClient) string {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		client.mu.Lock()
+		if len(client.messages) == 1 {
+			text := client.messages[0].GetExtendedTextMessage().GetText()
+			client.mu.Unlock()
+			return text
+		}
+		client.mu.Unlock()
+		time.Sleep(time.Millisecond)
+	}
+	client.mu.Lock()
+	count := len(client.messages)
+	client.mu.Unlock()
+	t.Fatalf("sent %d messages, want 1", count)
+	return ""
+}
+
+func setMonitorServiceMeeting(t *testing.T, service *meetmonitor.Service, meeting string) {
+	t.Helper()
+	value := reflect.ValueOf(service).Elem().FieldByName("meeting")
+	reflect.NewAt(value.Type(), unsafe.Pointer(value.UnsafeAddr())).Elem().SetString(meeting)
 }

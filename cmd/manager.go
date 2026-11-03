@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"regexp"
+	"time"
+	"whatsappBot/meetmonitor"
 	"whatsappBot/utils"
 
 	"go.mau.fi/whatsmeow/types"
@@ -25,16 +27,38 @@ type Command struct {
 	IsAdminCommand bool
 }
 
+type StatusProvider interface {
+	Status(context.Context) (meetmonitor.Status, error)
+}
+
+type ManagerOption func(*CommandManager)
+
 type CommandManager struct {
-	commands    map[string]Command // for lookup
-	orderedList []Command          // for /help order
-	admins      map[string]struct{}
+	commands       map[string]Command // for lookup
+	orderedList    []Command          // for /help order
+	admins         map[string]struct{}
+	statusProvider StatusProvider
 	//logger *log.Logger
 	client   utils.MessageSender
 	shutdown context.CancelFunc
+	now      func() time.Time
 }
 
-func NewCommandManager(client utils.MessageSender, admins []string, shutdown context.CancelFunc) *CommandManager {
+func WithStatusProvider(provider StatusProvider) ManagerOption {
+	return func(manager *CommandManager) {
+		manager.statusProvider = provider
+	}
+}
+
+func WithClock(now func() time.Time) ManagerOption {
+	return func(manager *CommandManager) {
+		if now != nil {
+			manager.now = now
+		}
+	}
+}
+
+func NewCommandManager(client utils.MessageSender, admins []string, shutdown context.CancelFunc, options ...ManagerOption) *CommandManager {
 	adminMap := make(map[string]struct{})
 	for _, adminNumber := range admins {
 		adminMap[adminNumber] = struct{}{}
@@ -46,6 +70,10 @@ func NewCommandManager(client utils.MessageSender, admins []string, shutdown con
 		admins:      adminMap,
 		client:      client,
 		shutdown:    shutdown,
+		now:         time.Now,
+	}
+	for _, option := range options {
+		option(cm)
 	}
 
 	// Regular user commands
@@ -72,6 +100,16 @@ func NewCommandManager(client utils.MessageSender, admins []string, shutdown con
 		Callback:       NoDB(cm.handleHelp),
 		IsAdminCommand: false,
 	})
+
+	if cm.statusProvider != nil {
+		cm.RegisterCommand(Command{
+			Name:           "/status",
+			Description:    "Shows bot, WhatsApp, and Meet monitor health.",
+			Regex:          regexp.MustCompile(`^/status$`),
+			Callback:       NoDB(cm.handleStatus),
+			IsAdminCommand: false,
+		})
+	}
 
 	cm.RegisterCommand(Command{
 		Name: "/remind",

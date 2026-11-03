@@ -37,6 +37,67 @@ func (cm *CommandManager) handleHelp(ctx context.Context, client utils.MessageSe
 	return utils.ReplyToMessage(ctx, client, info.Chat, b.String(), info.ID, info.Sender)
 }
 
+func (cm *CommandManager) handleStatus(ctx context.Context, client utils.MessageSender, info types.MessageInfo, args []string) error {
+	status, err := cm.statusProvider.Status(ctx)
+	if err != nil {
+		return fmt.Errorf("get monitor status: %w", err)
+	}
+
+	lines := []string{
+		"Bot: " + boolString(status.BotOnline, "online", "offline"),
+		"WhatsApp: " + boolString(status.WhatsAppConnected, "connected", "disconnected"),
+		"Monitor: " + monitorStateString(status.MonitorState),
+		"Last heartbeat: " + heartbeatAgeString(cm.now(), status.MonitorState, status.LastHeartbeatAt),
+		"Meeting: " + status.Meeting,
+		fmt.Sprintf("Participants: %d", status.Participants),
+		"Forwarding: " + boolString(status.ForwardingEnabled, "ON", "OFF"),
+		"Extension: " + extensionVersionString(status.ExtensionVersion),
+	}
+	return utils.ReplyToMessage(ctx, client, info.Chat, strings.Join(lines, "\n"), info.ID, info.Sender)
+}
+
+func boolString(value bool, whenTrue, whenFalse string) string {
+	if value {
+		return whenTrue
+	}
+	return whenFalse
+}
+
+func monitorStateString(state string) string {
+	if state == "never_seen" {
+		return "never seen"
+	}
+	return state
+}
+
+func heartbeatAgeString(now time.Time, state string, lastHeartbeatAt *time.Time) string {
+	if state == "never_seen" {
+		return "never"
+	}
+	if lastHeartbeatAt == nil {
+		return "unknown"
+	}
+
+	age := now.Sub(lastHeartbeatAt.UTC())
+	if age < 0 {
+		age = 0
+	}
+	if age < time.Minute {
+		return fmt.Sprintf("%ds ago", int(age/time.Second))
+	}
+	if age < time.Hour {
+		return fmt.Sprintf("%dm ago", int(age/time.Minute))
+	}
+	return fmt.Sprintf("%dh ago", int(age/time.Hour))
+}
+
+func extensionVersionString(version string) string {
+	if strings.TrimSpace(version) == "" {
+		return "unknown"
+	}
+	return version
+}
+
 func (cm *CommandManager) handleDie(ctx context.Context, client utils.MessageSender, info types.MessageInfo, args []string) error {
 	response := "Goodbye cruel world!"
 	if err := utils.ReplyToMessage(ctx, client, info.Chat, response, info.ID, info.Sender); err != nil {

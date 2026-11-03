@@ -223,7 +223,11 @@ func runWithDependencies(ctx context.Context, cfg config.Config, deps runtimeDep
 	if err != nil {
 		return fmt.Errorf("load tone indicators: %w", err)
 	}
-	commandManager := cmd.NewCommandManager(client, cfg.AdminNumbers, cancel)
+	var commandOptions []cmd.ManagerOption
+	if monitorService != nil {
+		commandOptions = append(commandOptions, cmd.WithStatusProvider(monitorService))
+	}
+	commandManager := cmd.NewCommandManager(client, cfg.AdminNumbers, cancel, commandOptions...)
 	handleEvent := eventHandler(
 		database,
 		ctx,
