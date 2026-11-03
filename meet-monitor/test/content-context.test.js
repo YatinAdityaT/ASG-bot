@@ -41,14 +41,14 @@ test('rejected context invalidation stops stale content-script work', async () =
   harness.runInterval();
   await settle();
 
-  assert.equal(harness.sendCalls(), 2);
+  assert.equal(harness.sendCalls(), 4);
   assert.equal(harness.disconnectCalls(), 1);
   assert.deepEqual(harness.activeTimerKinds(), []);
   assert.equal(harness.timersClearedExactlyOnce(), true);
 
   harness.runAllCallbacks();
   await settle();
-  assert.equal(harness.sendCalls(), 2);
+  assert.equal(harness.sendCalls(), 4);
   assert.equal(harness.disconnectCalls(), 1);
 });
 
@@ -65,7 +65,7 @@ test('consent lookup invalidation is handled and cleans up stale work', () => {
 test('unrelated synchronous send errors remain visible', () => {
   const harness = createHarness({
     sendMessage(call) {
-      if (call === 2) throw new TypeError('programming error');
+      if (call === 4) throw new TypeError('programming error');
       return Promise.resolve();
     }
   });
@@ -133,6 +133,46 @@ test('an incrementally rendered chat row emits once after text appears', () => {
   const chats = harness.events().filter(event => event.type === 'chat_message');
   assert.equal(chats.length, 1);
   assert.equal(chats[0].text, 'Hello');
+});
+
+test('each completed scan sends confirmed and raw roster observations', () => {
+  const harness = createBehaviorHarness();
+
+  const initial = harness.observations();
+  harness.runIntervalAt(10_100);
+
+  assert.equal(harness.observations().length, initial.length + 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(initial[0].roster['self-id'])), {
+    name: 'Self', cam: false, mic: 'muted', self: true, host: false
+  });
+  assert.equal(
+    JSON.stringify(initial[0].rawRoster['self-id']),
+    JSON.stringify(initial[0].roster['self-id'])
+  );
+});
+
+test('participant records emitted by a scan are included in observation changes', () => {
+  const harness = createBehaviorHarness();
+
+  assert.deepEqual(
+    Array.from(harness.observations()[0].changes, change => change.type),
+    ['join']
+  );
+});
+
+test('unconfirmed media appears only in the raw observation roster', () => {
+  const harness = createBehaviorHarness({
+    selfState: { mic: 'off', cam: 'off' },
+    tileState: { mic: 'muted', cam: false }
+  });
+
+  harness.setSelfState({ mic: 'off', cam: 'on' });
+  harness.runIntervalAt(10_100);
+  const observation = harness.observations().at(-1);
+
+  assert.equal(observation.rawRoster['self-id'].cam, true);
+  assert.equal(observation.roster['self-id'].cam, false);
+  assert.deepEqual(Array.from(observation.changes), []);
 });
 
 function createHarness(options = {}) {
@@ -373,6 +413,8 @@ function createBehaviorHarness(options = {}) {
     events: () => sent
       .filter(message => message.kind === 'event')
       .map(message => message.rec),
+    observations: () => sent
+      .filter(message => message.kind === 'monitorObservation'),
     runActiveConfirmationAt(timestamp) {
       this.runCallbackAt(this.activeConfirmationCallback(), timestamp);
     },

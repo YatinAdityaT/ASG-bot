@@ -105,7 +105,7 @@ test('alarm flush preserves queued entries without fetching while sending is dis
   harness.listeners.alarm({ name: 'bot-api-outbox' });
   await settle();
 
-  assert.equal(harness.fetchRequests.length, 0);
+  assert.equal(harness.eventRequests().length, 0);
   assert.equal(harness.localData.botAPIOutbox.length, 1);
 });
 
@@ -133,7 +133,7 @@ test('configuration flush preserves queued entries without fetching while sendin
   });
   await settle();
 
-  assert.equal(harness.fetchRequests.length, 0);
+  assert.equal(harness.eventRequests().length, 0);
   assert.equal(harness.localData.botAPIOutbox.length, 1);
 });
 
@@ -172,7 +172,7 @@ test('re-enabling sending flushes the preserved outbox', async () => {
   harness.setSendingEnabled(true);
   await waitFor(() => harness.localData.botAPIOutbox.length === 0);
 
-  assert.equal(harness.fetchRequests.length, 1);
+  assert.equal(harness.eventRequests().length, 1);
 });
 
 test('equivalent events from separate contexts forward once within five seconds', async () => {
@@ -322,6 +322,236 @@ test('chat events create no browser notifications', async () => {
   assert.equal(harness.notificationCalls.length, 0);
 });
 
+test('first observation elects one source and sends sequence one baseline', async () => {
+  const harness = await createHarness([202], null, {
+    sessionData: { monitorSession: null }
+  });
+
+  const response = await harness.sendObservation(7, roster('Alex'));
+  await waitFor(() => harness.stateRequests().length === 1);
+
+  assert.equal(response.elected, true);
+  assert.equal(harness.sessionData.monitorSession.sessionId, 'session-1');
+  assert.equal(harness.sessionData.monitorSession.sourceTabId, 7);
+  assert.equal(harness.stateBodies()[0].sequence, 1);
+  assert.equal(harness.stateBodies()[0].participants[0].name, 'Alex');
+});
+
+test('unchanged observations do not send until the heartbeat', async () => {
+  const harness = await createHarness([202, 202], null, {
+    sessionData: { monitorSession: null }
+  });
+
+  await harness.sendObservation(7, roster('Alex'));
+  await harness.sendObservation(7, roster('Alex'));
+  assert.equal(harness.stateRequests().length, 1);
+
+  harness.listeners.alarm({ name: 'meet-state-heartbeat' });
+  await waitFor(() => harness.stateRequests().length === 2);
+  assert.equal(harness.stateBodies()[1].sequence, 2);
+});
+
+test('confirmed roster changes send immediately while a fresh second tab is ignored', async () => {
+  const harness = await createHarness([202, 202], null, {
+    sessionData: { monitorSession: null }
+  });
+
+  await harness.sendObservation(7, roster('Alex'));
+  const rejected = await harness.sendObservation(8, roster('Ignored'));
+  await harness.sendObservation(7, roster('Taylor'));
+
+  assert.equal(rejected.elected, false);
+  assert.equal(harness.stateRequests().length, 2);
+  assert.equal(harness.stateBodies()[1].participants[0].name, 'Taylor');
+});
+
+test('source takeover requires more than 45 seconds and starts a new session', async () => {
+  const harness = await createHarness([202, 202], null, {
+    sessionData: { monitorSession: null }
+  });
+
+  await harness.sendObservation(7, roster('Alex'));
+  harness.advance(45_000);
+  assert.equal((await harness.sendObservation(8, roster('No'))).elected, false);
+  harness.advance(1);
+  assert.equal((await harness.sendObservation(8, roster('Taylor'))).elected, true);
+
+  assert.equal(harness.sessionData.monitorSession.sessionId, 'session-2');
+  assert.equal(harness.stateBodies().at(-1).sequence, 1);
+});
+
+test('transient state retry preserves body and sequence', async () => {
+  const harness = await createHarness([500, 202], null, {
+    sessionData: { monitorSession: null }
+  });
+
+  await harness.sendObservation(7, roster('Alex'));
+  const firstBody = harness.stateRequests()[0].options.body;
+  harness.sessionData.pendingMeetSnapshot.nextAttemptAt = 0;
+  harness.listeners.alarm({ name: 'meet-state-retry' });
+  await waitFor(() => harness.stateRequests().length === 2);
+
+  assert.equal(harness.stateRequests()[1].options.body, firstBody);
+  assert.equal(harness.stateBodies()[1].sequence, 1);
+  assert.equal(harness.sessionData.pendingMeetSnapshot, undefined);
+});
+
+test('new semantic state supersedes an unsent retry with a higher sequence', async () => {
+  const harness = await createHarness([500, 202], null, {
+    sessionData: { monitorSession: null }
+  });
+
+  await harness.sendObservation(7, roster('Alex'));
+  await harness.sendObservation(7, roster('Taylor'));
+
+  assert.deepEqual(harness.stateBodies().map(body => body.sequence), [1, 2]);
+  assert.equal(harness.stateBodies()[1].participants[0].name, 'Taylor');
+});
+
+test('sending off still sends disabled snapshots and blocks chat and webhook', async () => {
+  const harness = await createHarness([202], null, {
+    sessionData: { monitorSession: null },
+    syncData: { sendingEnabled: false, webhook: 'https://webhook.example.com/events' }
+  });
+
+  await harness.sendObservation(7, roster('Alex'));
+  const event = await harness.sendEvent({
+    ...meetEvent('chat-1'),
+    text: 'private text'
+  }, 7);
+
+  assert.equal(harness.stateBodies()[0].forwardingEnabled, false);
+  assert.equal(event.queued, false);
+  assert.equal(harness.eventRequests().length, 0);
+  assert.equal(harness.webhookRequests().length, 0);
+});
+
+test('only elected chat records enter the event API', async () => {
+  const harness = await createHarness([202, 202], null, {
+    sessionData: { monitorSession: null }
+  });
+  harness.syncData.webhook = '';
+  await harness.sendObservation(7, roster('Alex'));
+
+  await harness.sendEvent({ ...meetEvent('join-1'), type: 'join' }, 7);
+  await harness.sendEvent(meetEvent('wrong-tab'), 8);
+  await harness.sendEvent(meetEvent('chat-1'), 7);
+
+  assert.equal(harness.eventRequests().length, 1);
+  assert.equal(JSON.parse(harness.eventRequests()[0].options.body).id, 'chat-1');
+});
+
+test('stale sources produce no heartbeat traffic', async () => {
+  const harness = await createHarness([202], null, {
+    sessionData: { monitorSession: null }
+  });
+  await harness.sendObservation(7, roster('Alex'));
+
+  harness.advance(45_001);
+  harness.listeners.alarm({ name: 'meet-state-heartbeat' });
+  await settle();
+
+  assert.equal(harness.stateRequests().length, 1);
+});
+
+test('state client errors are permanent and use safe categories', async () => {
+  const cases = new Map([
+    [400, 'invalid_snapshot'],
+    [401, 'unauthorized'],
+    [403, 'origin_forbidden'],
+    [409, 'sequence_conflict']
+  ]);
+
+  for (const [status, category] of cases) {
+    const harness = await createHarness([status], null, {
+      sessionData: { monitorSession: null }
+    });
+    await harness.sendObservation(7, roster('Alex'));
+
+    assert.equal(harness.sessionData.pendingMeetSnapshot, undefined);
+    assert.equal(
+      harness.sessionData.monitorSession.lastServerError.category,
+      category
+    );
+  }
+});
+
+test('off to on queues an immediate enabled snapshot', async () => {
+  const harness = await createHarness([202, 202], null, {
+    sessionData: { monitorSession: null },
+    syncData: { sendingEnabled: false }
+  });
+  await harness.sendObservation(7, roster('Alex'));
+
+  harness.setSendingEnabled(true);
+  await waitFor(() => harness.stateRequests().length === 2);
+
+  assert.equal(harness.stateBodies()[1].forwardingEnabled, true);
+  assert.equal(harness.stateBodies()[1].sequence, 2);
+});
+
+test('service worker initialization restores and retries matching pending state', async () => {
+  const body = snapshotBody('restored-session', 4, roster('Alex'));
+  const harness = await createHarness([202], null, {
+    sessionData: {
+      monitorSession: {
+        sessionId: 'restored-session',
+        sourceTabId: 1,
+        sequence: 4,
+        meeting: 'jpy-ymgz-tdo',
+        lastObservedAt: 1_000_000,
+        roster: roster('Alex'),
+        self: {},
+        lastStateKey: '',
+        acceptedSequence: 0,
+        lastServerResult: null,
+        lastServerSuccessAt: null,
+        lastServerError: null
+      },
+      pendingMeetSnapshot: {
+        sessionId: 'restored-session',
+        sequence: 4,
+        stateKey: require('../src/snapshot.js').stateKey(body),
+        body,
+        generation: 'generation-1',
+        attempts: 1,
+        nextAttemptAt: 0
+      }
+    }
+  });
+
+  await waitFor(() => harness.stateRequests().length === 1);
+  assert.equal(harness.stateBodies()[0].sequence, 4);
+  assert.equal(harness.sessionData.monitorSession.acceptedSequence, 4);
+});
+
+test('clearing configuration removes pending state', async () => {
+  const harness = await createHarness([500], null, {
+    sessionData: { monitorSession: null }
+  });
+  await harness.sendObservation(7, roster('Alex'));
+  assert.ok(harness.sessionData.pendingMeetSnapshot);
+
+  await harness.updateConfig({ url: '', token: '', generation: '' });
+
+  assert.equal(harness.sessionData.pendingMeetSnapshot, undefined);
+  assert.equal(harness.localData.botAPIOutbox.length, 0);
+});
+
+test('initialization permanently removes persisted non-chat outbox entries', async () => {
+  const harness = await createHarness([], null, {
+    localData: {
+      botAPIOutbox: [{
+        ...outboxEntry('old-participant'),
+        rec: { ...meetEvent('old-participant'), type: 'join' }
+      }]
+    }
+  });
+
+  await waitFor(() => harness.localData.botAPIOutbox.length === 0);
+  assert.equal(harness.eventRequests().length, 0);
+});
+
 test('popup contains a labeled sending control with ON/OFF status', () => {
   const html = fs.readFileSync(
     path.join(__dirname, '..', 'src', 'popup.html'),
@@ -349,6 +579,7 @@ test('popup loads and persists the sending toggle', async () => {
 
 async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
   const listeners = {};
+  let now = 1_000_000;
   const syncData = {
     webhook: '',
     botAPIURL: 'https://bot.example.com/v1/meet-events',
@@ -364,12 +595,30 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
     },
     botAPIOutbox: []
   };
+  const sessionData = {
+    monitorSession: {
+      sessionId: 'restored-session',
+      sourceTabId: 1,
+      sequence: 0,
+      meeting: 'jpy-ymgz-tdo',
+      lastObservedAt: now,
+      roster: {},
+      self: {},
+      lastStateKey: '',
+      acceptedSequence: 0,
+      lastServerResult: null,
+      lastServerSuccessAt: null,
+      lastServerError: null
+    }
+  };
   Object.assign(syncData, initial.syncData);
   Object.assign(localData, initial.localData);
+  Object.assign(sessionData, initial.sessionData);
   const accessLevels = [];
   const fetchRequests = [];
   const notificationCalls = [];
-  let now = 1_000_000;
+  const alarmCreates = [];
+  let uuid = 0;
 
   const clone = value => JSON.parse(JSON.stringify(value));
   const storageArea = (data, beforeGet) => ({
@@ -377,12 +626,19 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
       if (beforeGet) await beforeGet(defaults);
       return clone({ ...defaults, ...data });
     },
-    async set(values) { Object.assign(data, clone(values)); }
+    async set(values) { Object.assign(data, clone(values)); },
+    async remove(keys) {
+      for (const key of Array.isArray(keys) ? keys : [keys]) delete data[key];
+    }
   });
   const sandbox = {
     URL,
     AbortController,
-    Date: { now: () => now },
+    Date: class extends Date {
+      static now() {
+        return now;
+      }
+    },
     Promise,
     setTimeout(fn, delay) {
       if (delay === 15_000) return 1;
@@ -392,18 +648,42 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
     },
     clearTimeout() {},
     console: { warn() {} },
-    importScripts() {
-      sandbox.MMDelivery = require('../src/delivery.js');
+    crypto: {
+      randomUUID() {
+        uuid += 1;
+        return `session-${uuid}`;
+      }
+    },
+    importScripts(...scripts) {
+      if (scripts.includes('delivery.js')) {
+        sandbox.MMDelivery = require('../src/delivery.js');
+      }
+      if (scripts.includes('snapshot.js')) {
+        sandbox.MMSnapshot = require('../src/snapshot.js');
+      }
     },
     async fetch(url, options) {
       fetchRequests.push({ url, options });
       if (fetchOverride) return fetchOverride(url, options);
       const status = fetchStatuses.shift();
-      return { ok: status >= 200 && status < 300, status };
+      return {
+        ok: status >= 200 && status < 300,
+        status,
+        async json() {
+          return {
+            acceptedSequence: JSON.parse(options.body).sequence,
+            serverTime: '2026-11-03T12:00:00Z',
+            monitorOnline: true,
+            whatsAppConnected: true,
+            queuedChanges: 0
+          };
+        }
+      };
     },
     chrome: {
       storage: {
         sync: storageArea(syncData, initial.beforeSyncGet),
+        session: storageArea(sessionData, initial.beforeSessionGet),
         local: {
           ...storageArea(localData, initial.beforeLocalGet),
           async setAccessLevel(options) { accessLevels.push(options); }
@@ -413,12 +693,13 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
       runtime: {
         id: 'extension-id',
         getURL: value => `chrome-extension://extension-id/${value}`,
+        getManifest: () => ({ version: '2.0.0' }),
         onInstalled: { addListener(fn) { listeners.installed = fn; } },
         onMessage: { addListener(fn) { listeners.message = fn; } },
         onStartup: { addListener(fn) { listeners.startup = fn; } }
       },
       alarms: {
-        create() {},
+        create(name, options) { alarmCreates.push({ name, options }); },
         onAlarm: { addListener(fn) { listeners.alarm = fn; } }
       },
       notifications: {
@@ -442,9 +723,23 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
     fetchStatuses,
     listeners,
     localData,
+    sessionData,
     notificationCalls,
     syncData,
+    alarmCreates,
     advance(milliseconds) { now += milliseconds; },
+    stateRequests: () => fetchRequests.filter(request =>
+      request.url === 'https://bot.example.com/v1/meet-state'
+    ),
+    stateBodies() {
+      return this.stateRequests().map(request => JSON.parse(request.options.body));
+    },
+    eventRequests: () => fetchRequests.filter(request =>
+      request.url === 'https://bot.example.com/v1/meet-events'
+    ),
+    webhookRequests: () => fetchRequests.filter(request =>
+      request.url === 'https://webhook.example.com/events'
+    ),
     setSendingEnabled(enabled) {
       const oldValue = syncData.sendingEnabled;
       syncData.sendingEnabled = enabled;
@@ -452,9 +747,26 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
         sendingEnabled: { oldValue, newValue: enabled }
       }, 'sync');
     },
-    sendEvent(rec) {
+    sendEvent(rec, tabId = 1) {
       return new Promise(resolve => {
-        assert.equal(listeners.message({ kind: 'event', rec }, { tab: {} }, resolve), true);
+        assert.equal(listeners.message(
+          { kind: 'event', rec },
+          { tab: { id: tabId } },
+          resolve
+        ), true);
+      });
+    },
+    sendObservation(tabId, observedRoster) {
+      return new Promise(resolve => {
+        assert.equal(listeners.message({
+          kind: 'monitorObservation',
+          meeting: 'jpy-ymgz-tdo',
+          observedAt: now,
+          roster: observedRoster,
+          rawRoster: observedRoster,
+          self: {},
+          changes: []
+        }, { tab: { id: tabId } }, resolve), true);
       });
     },
     updateConfig(config) {
@@ -557,12 +869,37 @@ function createPopupHarness(sendingEnabled) {
 
 function meetEvent(id) {
   return {
-    type: 'join',
+    type: 'chat_message',
     id,
     meeting: 'jpy-ymgz-tdo',
     ts: `2026-10-27T08:00:0${id === 'good' ? '2' : '1'}Z`,
-    name: 'Alex'
+    name: 'Alex',
+    text: 'Hello'
   };
+}
+
+function roster(name) {
+  return {
+    participant: {
+      name,
+      cam: false,
+      mic: 'muted',
+      self: false,
+      host: false
+    }
+  };
+}
+
+function snapshotBody(sessionId, sequence, participants) {
+  return require('../src/snapshot.js').build({
+    meeting: 'jpy-ymgz-tdo',
+    sessionId,
+    sequence,
+    capturedAt: '2026-11-03T12:00:00.000Z',
+    extensionVersion: '2.0.0',
+    forwardingEnabled: true,
+    roster: participants
+  });
 }
 
 async function waitFor(predicate) {

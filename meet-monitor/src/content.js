@@ -68,6 +68,7 @@
     events.push(rec);
     if (events.length > MAX) events.splice(0, events.length - MAX);
     deliver({ kind: 'event', rec });
+    return rec;
   };
 
   const scheduleConfirmation = () => {
@@ -118,8 +119,10 @@
     }
 
     const observedAt = Date.now();
+    const changes = [];
     for (const change of participantTracker.update(now, observedAt)) {
-      emit(change.type, change.id, change.cur);
+      const rec = emit(change.type, change.id, change.cur);
+      if (rec) changes.push(rec);
     }
 
     for (const element of document.querySelectorAll(S.announcementSel)) {
@@ -132,7 +135,8 @@
         const change = participantTracker.leave(id);
         if (change) {
           recentLeaveAnnouncements.set(text, observedAt);
-          emit(change.type, change.id, change.cur);
+          const rec = emit(change.type, change.id, change.cur);
+          if (rec) changes.push(rec);
         }
         break;
       }
@@ -140,6 +144,16 @@
     for (const [text, timestamp] of recentLeaveAnnouncements) {
       if (observedAt - timestamp >= 60_000) recentLeaveAnnouncements.delete(text);
     }
+
+    deliver({
+      kind: 'monitorObservation',
+      meeting,
+      observedAt,
+      roster: Object.fromEntries(roster),
+      rawRoster: Object.fromEntries(now),
+      self: S.selfState(),
+      changes
+    });
 
     for (const group of document.querySelectorAll(S.chatGroupSel)) {
       const senderEl = group.querySelector(S.chatSenderSel);
