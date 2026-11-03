@@ -552,6 +552,95 @@ test('initialization permanently removes persisted non-chat outbox entries', asy
   assert.equal(harness.eventRequests().length, 0);
 });
 
+test('monitor model persists confirmed history and bounds it to 1000 entries', async () => {
+  const existing = Array.from({ length: 1000 }, (_, index) => ({
+    ts: `2026-11-03T12:00:${String(index % 60).padStart(2, '0')}Z`,
+    type: 'join',
+    id: `old-${index}`,
+    name: `Person ${index}`,
+    meeting: 'jpy-ymgz-tdo',
+    sequence: index,
+    deliveryState: 'accepted'
+  }));
+  const harness = await createHarness([202], null, {
+    sessionData: { monitorSession: null },
+    localData: { monitorHistory: existing }
+  });
+
+  await harness.sendObservation(7, roster('Alex'), {
+    changes: [{ ...meetEvent('new-participant'), type: 'join' }],
+    rawRoster: roster('Raw Alex')
+  });
+  const model = await harness.sendViewMessage({ kind: 'getMonitorModel' });
+
+  assert.equal(harness.localData.monitorHistory.length, 1000);
+  assert.equal(harness.localData.monitorHistory[0].id, 'old-1');
+  assert.equal(harness.localData.monitorHistory.at(-1).id, 'new-participant');
+  assert.equal(harness.localData.monitorHistory.at(-1).deliveryState, 'accepted');
+  assert.equal(model.history.length, 1000);
+  assert.equal(model.extensionVersion, '2.0.0');
+  assert.equal(model.roster.participant.name, 'Alex');
+});
+
+test('debug observations are opt-in, session-only, bounded, and absent from requests', async () => {
+  const harness = await createHarness([202], null, {
+    sessionData: {
+      monitorSession: null,
+      monitorDebugHistory: Array.from({ length: 250 }, (_, index) => ({
+        observedAt: index,
+        rawRoster: { [`old-${index}`]: { name: `Raw ${index}` } }
+      }))
+    }
+  });
+
+  await harness.sendViewMessage({ kind: 'setDebugMode', enabled: true });
+  await harness.sendObservation(7, roster('Alex'), {
+    rawRoster: { secret: { name: 'raw-only-secret' } }
+  });
+  const model = await harness.sendViewMessage({ kind: 'getMonitorModel' });
+
+  assert.equal(harness.sessionData.monitorDebugHistory.length, 250);
+  assert.equal(
+    harness.sessionData.monitorDebugHistory.at(-1).rawRoster.secret.name,
+    'raw-only-secret'
+  );
+  assert.equal(model.debugEnabled, true);
+  assert.equal(model.debugHistory.length, 250);
+  assert.equal(
+    harness.fetchRequests.some(request =>
+      String(request.options.body).includes('raw-only-secret')
+    ),
+    false
+  );
+});
+
+test('monitor controls require a trusted extension view and clear history', async () => {
+  const harness = await createHarness([], null, {
+    localData: { monitorHistory: [meetEvent('stored')] }
+  });
+
+  const rejected = await harness.sendMessage(
+    { kind: 'clearMonitorHistory' },
+    { tab: { id: 7 }, url: 'https://meet.google.com/jpy-ymgz-tdo' }
+  );
+  assert.equal(rejected.cleared, false);
+  assert.equal(harness.localData.monitorHistory.length, 1);
+
+  const forwarding = await harness.sendViewMessage({
+    kind: 'setForwarding',
+    enabled: false
+  });
+  const cleared = await harness.sendViewMessage({ kind: 'clearMonitorHistory' });
+
+  assert.equal(forwarding.saved, true);
+  assert.equal(harness.syncData.sendingEnabled, false);
+  assert.equal(cleared.cleared, true);
+  assert.deepEqual(harness.localData.monitorHistory, []);
+  assert.ok(harness.broadcasts.some(message =>
+    message.kind === 'monitorModelChanged'
+  ));
+});
+
 test('popup contains a labeled sending control with ON/OFF status', () => {
   const html = fs.readFileSync(
     path.join(__dirname, '..', 'src', 'popup.html'),
@@ -561,6 +650,7 @@ test('popup contains a labeled sending control with ON/OFF status', () => {
   assert.match(html, /<label id="sending-control">/);
   assert.match(html, /<input type="checkbox" id="sending"> Sending/);
   assert.match(html, /<strong id="sending-state">ON<\/strong>/);
+  assert.match(html, /id="open-monitor"/);
 });
 
 test('popup loads and persists the sending toggle', async () => {
@@ -572,9 +662,30 @@ test('popup loads and persists the sending toggle', async () => {
   harness.elements['#sending'].checked = true;
   await harness.elements['#sending'].onchange();
 
-  assert.equal(harness.syncWrites.length, 1);
-  assert.equal(harness.syncWrites[0].sendingEnabled, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(harness.runtimeMessages.at(-1))), {
+    kind: 'setForwarding',
+    enabled: true
+  });
   assert.equal(harness.elements['#sending-state'].textContent, 'ON');
+});
+
+test('popup reads the monitor model and opens the side panel for the active window', async () => {
+  const harness = createPopupHarness(true, {
+    id: 7,
+    windowId: 42,
+    url: 'https://meet.google.com/jpy-ymgz-tdo'
+  });
+  await waitFor(() => harness.elements['#meeting'].textContent === 'jpy-ymgz-tdo');
+
+  await harness.elements['#open-monitor'].onclick();
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(harness.sidePanelOpens)),
+    [{ windowId: 42 }]
+  );
+  assert.ok(harness.runtimeMessages.some(message =>
+    message.kind === 'getMonitorModel'
+  ));
 });
 
 async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
@@ -618,6 +729,7 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
   const fetchRequests = [];
   const notificationCalls = [];
   const alarmCreates = [];
+  const broadcasts = [];
   let uuid = 0;
 
   const clone = value => JSON.parse(JSON.stringify(value));
@@ -694,6 +806,7 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
         id: 'extension-id',
         getURL: value => `chrome-extension://extension-id/${value}`,
         getManifest: () => ({ version: '2.0.0' }),
+        async sendMessage(message) { broadcasts.push(clone(message)); },
         onInstalled: { addListener(fn) { listeners.installed = fn; } },
         onMessage: { addListener(fn) { listeners.message = fn; } },
         onStartup: { addListener(fn) { listeners.startup = fn; } }
@@ -725,6 +838,7 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
     localData,
     sessionData,
     notificationCalls,
+    broadcasts,
     syncData,
     alarmCreates,
     advance(milliseconds) { now += milliseconds; },
@@ -756,17 +870,29 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
         ), true);
       });
     },
-    sendObservation(tabId, observedRoster) {
+    sendObservation(tabId, observedRoster, details = {}) {
       return new Promise(resolve => {
         assert.equal(listeners.message({
           kind: 'monitorObservation',
           meeting: 'jpy-ymgz-tdo',
           observedAt: now,
           roster: observedRoster,
-          rawRoster: observedRoster,
+          rawRoster: details.rawRoster || observedRoster,
           self: {},
-          changes: []
+          changes: details.changes || []
         }, { tab: { id: tabId } }, resolve), true);
+      });
+    },
+    sendMessage(message, sender) {
+      return new Promise(resolve => {
+        const keepAlive = listeners.message(message, sender, resolve);
+        if (keepAlive !== true) resolve(undefined);
+      });
+    },
+    sendViewMessage(message) {
+      return this.sendMessage(message, {
+        id: 'extension-id',
+        url: 'chrome-extension://extension-id/src/side-panel.html'
       });
     },
     updateConfig(config) {
@@ -795,7 +921,7 @@ function outboxEntry(id) {
   };
 }
 
-function createPopupHarness(sendingEnabled) {
+function createPopupHarness(sendingEnabled, activeTab = null) {
   const elements = Object.fromEntries(
     [
       '#meeting',
@@ -805,6 +931,7 @@ function createPopupHarness(sendingEnabled) {
       '#feed',
       '#csv',
       '#opts',
+      '#open-monitor',
       '#sending',
       '#sending-state'
     ].map(selector => [selector, {
@@ -816,6 +943,15 @@ function createPopupHarness(sendingEnabled) {
     }])
   );
   const syncWrites = [];
+  const runtimeMessages = [];
+  const sidePanelOpens = [];
+  const model = {
+    meeting: 'jpy-ymgz-tdo',
+    forwardingEnabled: sendingEnabled,
+    roster: {},
+    history: [],
+    content: { online: true }
+  };
   const sandbox = {
     Blob,
     Date,
@@ -826,7 +962,20 @@ function createPopupHarness(sendingEnabled) {
       revokeObjectURL() {}
     },
     chrome: {
-      runtime: { openOptionsPage() {} },
+      runtime: {
+        openOptionsPage() {},
+        async sendMessage(message) {
+          runtimeMessages.push(message);
+          if (message.kind === 'getMonitorModel') return model;
+          return { saved: true };
+        },
+        onMessage: { addListener() {} }
+      },
+      sidePanel: {
+        async open(options) {
+          sidePanelOpens.push(options);
+        }
+      },
       storage: {
         sync: {
           async get(defaults) {
@@ -839,7 +988,7 @@ function createPopupHarness(sendingEnabled) {
       },
       tabs: {
         async query() {
-          return [];
+          return activeTab ? [activeTab] : [];
         },
         async sendMessage() {
           return null;
@@ -864,7 +1013,7 @@ function createPopupHarness(sendingEnabled) {
     'utf8'
   );
   vm.runInNewContext(source, sandbox, { filename: 'popup.js' });
-  return { elements, syncWrites };
+  return { elements, runtimeMessages, sidePanelOpens, syncWrites };
 }
 
 function meetEvent(id) {

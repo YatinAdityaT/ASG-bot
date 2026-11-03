@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Meet Monitor</title>
+  <style>
+    :root { color-scheme: light dark; font: 13px system-ui, sans-serif; }
+    body { margin: 0; padding: 14px; color: CanvasText; background: Canvas; }
+    header, .row, .actions { display: flex; align-items: center; gap: 8px; }
+    header { justify-content: space-between; }
+    h1 { font-size: 18px; margin: 0; }
+    h2 { font-size: 13px; margin: 18px 0 8px; }
+    .muted { color: GrayText; font-size: 11px; }
+    .card { border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+      border-radius: 8px; padding: 10px; }
+    #health { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .health { text-align: center; padding: 8px 3px; border-radius: 6px;
+      background: color-mix(in srgb, CanvasText 7%, transparent); }
+    .health strong { display: block; }
+    ul { list-style: none; margin: 0; padding: 0; }
+    li { padding: 7px 2px; border-bottom: 1px solid color-mix(in srgb, CanvasText 12%, transparent); }
+    li:last-child { border: 0; }
+    .badges { color: #087f5b; font-size: 11px; }
+    #timeline { max-height: 42vh; overflow: auto; }
+    .event-meta { color: GrayText; font: 11px ui-monospace, monospace; }
+    .event-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+    label { display: flex; align-items: center; gap: 7px; }
+    select, button { font: inherit; padding: 6px 8px; }
+    button { cursor: pointer; }
+    .actions { flex-wrap: wrap; margin-top: 10px; }
+    #permanent-error { color: #b42318; margin-top: 8px; min-height: 1.2em; }
+    #empty-roster, #empty-history { color: GrayText; font-style: italic; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Meet Monitor</h1>
+      <div class="muted">Meeting <strong id="meeting">—</strong> · v<span id="version">—</span></div>
+    </div>
+    <button id="open-options" type="button">Options</button>
+  </header>
+
+  <h2>Health</h2>
+  <section id="health" aria-label="Monitor health">
+    <div class="health">Content<strong id="content-health">Offline</strong></div>
+    <div class="health">API<strong id="api-health">Offline</strong></div>
+    <div class="health">WhatsApp<strong id="whatsapp-health">Disconnected</strong></div>
+  </section>
+  <div id="permanent-error" role="alert"></div>
+
+  <h2>Controls</h2>
+  <section class="card">
+    <label><input id="forwarding" type="checkbox"> Forwarding</label>
+    <label><input id="debug" type="checkbox"> Debug raw observations
+      (<span id="debug-count">0</span>)</label>
+  </section>
+
+  <h2>Roster</h2>
+  <ul id="roster" class="card" aria-live="polite"></ul>
+
+  <div class="row">
+    <h2 style="flex:1">Timeline</h2>
+    <select id="event-filter" aria-label="Event type filter">
+      <option value="all">All events</option>
+      <option value="join">Joined</option>
+      <option value="leave">Left</option>
+      <option value="cam_on">Camera on</option>
+      <option value="cam_off">Camera off</option>
+      <option value="mic_on">Mic on</option>
+      <option value="mic_off">Mic off</option>
+      <option value="chat_message">Chat</option>
+    </select>
+  </div>
+  <ul id="timeline" class="card" aria-live="polite"></ul>
+
+  <div class="actions">
+    <button id="clear-history" type="button">Clear history</button>
+    <button id="export-csv" type="button">Export CSV</button>
+  </div>
+
+  <script src="side-panel.js"></script>
+</body>
+</html>

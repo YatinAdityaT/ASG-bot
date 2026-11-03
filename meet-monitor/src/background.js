@@ -22,6 +22,11 @@ const HEARTBEAT_MS = 30_000;
 const SOURCE_STALE_MS = 45_000;
 const SESSION_KEY = 'monitorSession';
 const PENDING_SNAPSHOT_KEY = 'pendingMeetSnapshot';
+const HISTORY_KEY = 'monitorHistory';
+const DEBUG_HISTORY_KEY = 'monitorDebugHistory';
+const DEBUG_ENABLED_KEY = 'monitorDebugEnabled';
+const MAX_HISTORY_SIZE = 1_000;
+const MAX_DEBUG_HISTORY_SIZE = 250;
 const MAX_SNAPSHOT_ATTEMPTS = 10;
 const storageProtection = chrome.storage.local.setAccessLevel({
   accessLevel: 'TRUSTED_CONTEXTS'
@@ -41,6 +46,51 @@ chrome.runtime.onInstalled.addListener(async () => {
 createHeartbeatAlarm();
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.kind === 'getMonitorModel') {
+    if (!isTrustedExtensionView(_sender)) {
+      sendResponse(null);
+      return false;
+    }
+    getMonitorModel().then(sendResponse).catch(() => sendResponse(null));
+    return true;
+  }
+
+  if (msg?.kind === 'setForwarding') {
+    if (!isTrustedExtensionView(_sender)) {
+      sendResponse({ saved: false });
+      return false;
+    }
+    chrome.storage.sync.set({ sendingEnabled: msg.enabled === true })
+      .then(() => broadcastMonitorModel())
+      .then(() => sendResponse({ saved: true }))
+      .catch(() => sendResponse({ saved: false }));
+    return true;
+  }
+
+  if (msg?.kind === 'setDebugMode') {
+    if (!isTrustedExtensionView(_sender)) {
+      sendResponse({ saved: false });
+      return false;
+    }
+    setDebugMode(msg.enabled === true)
+      .then(() => broadcastMonitorModel())
+      .then(() => sendResponse({ saved: true }))
+      .catch(() => sendResponse({ saved: false }));
+    return true;
+  }
+
+  if (msg?.kind === 'clearMonitorHistory') {
+    if (!isTrustedExtensionView(_sender)) {
+      sendResponse({ cleared: false });
+      return false;
+    }
+    clearMonitorHistory()
+      .then(() => broadcastMonitorModel())
+      .then(() => sendResponse({ cleared: true }))
+      .catch(() => sendResponse({ cleared: false }));
+    return true;
+  }
+
   if (msg?.kind === 'setBotAPIConfig') {
     if (!isTrustedOptionsPage(_sender)) {
       sendResponse({ saved: false });
@@ -67,7 +117,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 
   if (msg?.kind === 'event') {
-    forwardEvent(msg.rec, _sender)
+    recordAndForwardEvent(msg.rec, _sender)
       .then(queued => sendResponse({ queued }))
       .catch(() => {
         console.warn('Meet event forwarding failed');
@@ -114,12 +164,116 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
         console.warn('Meet event bot API re-enable retry failed');
       });
     }
+    broadcastMonitorModel();
   }
 });
 
-async function forwardEvent(rec, sender) {
-  if (!await electedEventAllowed(rec, sender)) return false;
+async function getMonitorModel() {
+  const [sessionStored, localStored, policy] = await Promise.all([
+    chrome.storage.session.get({
+      [SESSION_KEY]: null,
+      [DEBUG_ENABLED_KEY]: false,
+      [DEBUG_HISTORY_KEY]: []
+    }),
+    chrome.storage.local.get({ [HISTORY_KEY]: [] }),
+    chrome.storage.sync.get({ sendingEnabled: true })
+  ]);
+  const session = sessionStored[SESSION_KEY];
+  const result = safeServerResult(session?.lastServerResult);
+  const error = safeServerError(session?.lastServerError);
+  return {
+    meeting: session?.meeting || ALLOWED_MEETING,
+    extensionVersion: chrome.runtime.getManifest().version,
+    forwardingEnabled: policy.sendingEnabled,
+    debugEnabled: sessionStored[DEBUG_ENABLED_KEY] === true,
+    content: {
+      online: isFreshSession(session),
+      lastObservedAt: session?.lastObservedAt || null,
+      sourceTabId: Number.isInteger(session?.sourceTabId)
+        ? session.sourceTabId
+        : null
+    },
+    api: {
+      online: Boolean(session?.lastServerSuccessAt) &&
+        !session?.lastServerError,
+      lastSuccessAt: session?.lastServerSuccessAt || null,
+      serverTime: result?.serverTime || null,
+      result,
+      error
+    },
+    whatsAppConnected: Boolean(result?.whatsAppConnected),
+    roster: session?.roster || {},
+    history: boundedArray(localStored[HISTORY_KEY], MAX_HISTORY_SIZE),
+    debugHistory: sessionStored[DEBUG_ENABLED_KEY] === true
+      ? boundedArray(sessionStored[DEBUG_HISTORY_KEY], MAX_DEBUG_HISTORY_SIZE)
+      : []
+  };
+}
 
+function safeServerResult(result) {
+  if (!result) return null;
+  return {
+    status: Number(result.status) || 0,
+    acceptedSequence: Number(result.acceptedSequence) || 0,
+    serverTime: result.serverTime || null,
+    monitorOnline: Boolean(result.monitorOnline),
+    whatsAppConnected: Boolean(result.whatsAppConnected),
+    queuedChanges: Number(result.queuedChanges) || 0
+  };
+}
+
+function safeServerError(error) {
+  if (!error) return null;
+  return {
+    category: String(error.category || 'unknown'),
+    status: Number(error.status) || 0,
+    timestamp: Number(error.timestamp) || null
+  };
+}
+
+async function broadcastMonitorModel() {
+  const model = await getMonitorModel();
+  try {
+    await chrome.runtime.sendMessage({ kind: 'monitorModelChanged', model });
+  } catch {
+    // Extension views are not always open.
+  }
+}
+
+async function setDebugMode(enabled) {
+  await chrome.storage.session.set({ [DEBUG_ENABLED_KEY]: enabled });
+  if (!enabled) await chrome.storage.session.remove(DEBUG_HISTORY_KEY);
+}
+
+async function clearMonitorHistory() {
+  await Promise.all([
+    chrome.storage.local.set({ [HISTORY_KEY]: [] }),
+    chrome.storage.session.remove(DEBUG_HISTORY_KEY)
+  ]);
+}
+
+function boundedArray(value, maximum) {
+  return Array.isArray(value) ? value.slice(-maximum) : [];
+}
+
+async function recordAndForwardEvent(rec, sender) {
+  if (!await electedEventAllowed(rec, sender)) return false;
+  const isChat = rec?.type === 'chat_message';
+  const historyId = isChat
+    ? await appendHistory(rec, null, 'pending')
+    : null;
+  const queued = await forwardEvent(rec);
+  if (historyId) {
+    await updateHistoryDelivery(
+      [historyId],
+      queued ? 'accepted' : 'silent'
+    );
+    await broadcastMonitorModel();
+  }
+  return queued;
+}
+
+async function forwardEvent(rec) {
   const now = Date.now();
   for (const [key, seenAt] of recentlyForwarded) {
     if (now - seenAt >= FORWARD_DEDUPE_MS) recentlyForwarded.delete(key);
@@ -344,9 +498,84 @@ async function receiveObservation(message, sender) {
     session.self = message.self || {};
   }
 
+  await recordRawObservation(message, tabId, now);
   await chrome.storage.session.set({ [SESSION_KEY]: session });
-  await queueSnapshotForSession(session, false);
+  const sequence = session.sequence + 1;
+  const historyIds = [];
+  for (const change of Array.isArray(message.changes) ? message.changes : []) {
+    if (change?.type === 'chat_message') continue;
+    historyIds.push(await appendHistory(change, sequence, 'pending'));
+  }
+  const accepted = await queueSnapshotForSession(session, false);
+  if (historyIds.length) {
+    const deliveryState = accepted
+      ? 'accepted'
+      : session.lastServerError
+        ? 'failed'
+        : 'silent';
+    await updateHistoryDelivery(historyIds, deliveryState);
+  }
+  await broadcastMonitorModel();
   return { elected: true };
+}
+
+async function recordRawObservation(message, sourceTabId, observedAt) {
+  const stored = await chrome.storage.session.get({
+    [DEBUG_ENABLED_KEY]: false,
+    [DEBUG_HISTORY_KEY]: []
+  });
+  if (stored[DEBUG_ENABLED_KEY] !== true) return;
+  const history = boundedArray(stored[DEBUG_HISTORY_KEY], MAX_DEBUG_HISTORY_SIZE);
+  history.push({
+    observedAt,
+    sourceTabId,
+    meeting: message.meeting,
+    rawRoster: message.rawRoster || {}
+  });
+  await chrome.storage.session.set({
+    [DEBUG_HISTORY_KEY]: boundedArray(history, MAX_DEBUG_HISTORY_SIZE)
+  });
+}
+
+async function appendHistory(rec, sequence, deliveryState) {
+  const stored = await chrome.storage.local.get({ [HISTORY_KEY]: [] });
+  const history = boundedArray(stored[HISTORY_KEY], MAX_HISTORY_SIZE);
+  const historyId = crypto.randomUUID();
+  history.push({
+    historyId,
+    ts: rec?.ts || new Date(Date.now()).toISOString(),
+    type: String(rec?.type || 'unknown'),
+    id: String(rec?.id || ''),
+    name: rec?.name == null ? null : String(rec.name),
+    state: eventState(rec),
+    text: rec?.text == null ? null : String(rec.text),
+    meeting: String(rec?.meeting || ALLOWED_MEETING),
+    sequence: Number.isInteger(sequence) ? sequence : null,
+    deliveryState
+  });
+  await chrome.storage.local.set({
+    [HISTORY_KEY]: boundedArray(history, MAX_HISTORY_SIZE)
+  });
+  return historyId;
+}
+
+function eventState(rec) {
+  if (rec?.state != null) return String(rec.state);
+  const state = {};
+  for (const key of ['cam', 'mic', 'self', 'host']) {
+    if (rec?.[key] != null) state[key] = rec[key];
+  }
+  return Object.keys(state).length ? state : null;
+}
+
+async function updateHistoryDelivery(historyIds, deliveryState) {
+  const selected = new Set(historyIds);
+  const stored = await chrome.storage.local.get({ [HISTORY_KEY]: [] });
+  const history = boundedArray(stored[HISTORY_KEY], MAX_HISTORY_SIZE)
+    .map(entry => selected.has(entry.historyId)
+      ? { ...entry, deliveryState }
+      : entry);
+  await chrome.storage.local.set({ [HISTORY_KEY]: history });
 }
 
 function newMonitorSession(sourceTabId, message, now) {
@@ -505,6 +734,7 @@ async function flushPendingSnapshot(session, pending) {
     session.lastServerSuccessAt = Date.now();
     session.lastServerError = null;
     await chrome.storage.session.set({ [SESSION_KEY]: session });
+    await broadcastMonitorModel();
     return true;
   }
 
@@ -526,6 +756,7 @@ async function flushPendingSnapshot(session, pending) {
     setServerError(session, stateClientError(status), status);
   }
   await chrome.storage.session.set({ [SESSION_KEY]: session });
+  await broadcastMonitorModel();
   return false;
 }
 
@@ -636,6 +867,17 @@ function isPermanentClientError(status) {
 function isTrustedOptionsPage(sender) {
   return sender?.id === chrome.runtime.id &&
     sender?.url === chrome.runtime.getURL('src/options.html');
+}
+
+function isTrustedExtensionView(sender) {
+  if (sender?.id !== chrome.runtime.id || typeof sender?.url !== 'string') {
+    return false;
+  }
+  return [
+    'src/side-panel.html',
+    'src/popup.html',
+    'src/options.html'
+  ].some(path => sender.url === chrome.runtime.getURL(path));
 }
 
 storageProtection
