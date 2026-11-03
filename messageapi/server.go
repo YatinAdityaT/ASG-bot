@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"whatsappBot/config"
+	"whatsappBot/meetmonitor"
 	"whatsappBot/outbound"
 )
 
@@ -27,12 +28,21 @@ const (
 type Server struct {
 	config  config.Config
 	store   *outbound.Store
+	meet    *meetmonitor.Service
 	now     func() time.Time
 	limiter *fixedWindowLimiter
 	origins map[string]struct{}
 }
 
-func New(cfg config.Config, store *outbound.Store, now func() time.Time) *Server {
+type Option func(*Server)
+
+func WithMeetService(service *meetmonitor.Service) Option {
+	return func(server *Server) {
+		server.meet = service
+	}
+}
+
+func New(cfg config.Config, store *outbound.Store, now func() time.Time, options ...Option) *Server {
 	if now == nil {
 		now = time.Now
 	}
@@ -40,13 +50,17 @@ func New(cfg config.Config, store *outbound.Store, now func() time.Time) *Server
 	for _, origin := range cfg.APIAllowedOrigins {
 		origins[origin] = struct{}{}
 	}
-	return &Server{
+	server := &Server{
 		config:  cfg,
 		store:   store,
 		now:     now,
 		limiter: newFixedWindowLimiter(now),
 		origins: origins,
 	}
+	for _, option := range options {
+		option(server)
+	}
+	return server
 }
 
 func (server *Server) Handler() http.Handler {
@@ -146,6 +160,12 @@ func (server *Server) serveHTTP(writer http.ResponseWriter, request *http.Reques
 			return
 		}
 		server.submitMeetEvent(writer, request)
+	case request.URL.Path == "/v1/meet-state":
+		if request.Method != http.MethodPost {
+			methodNotAllowed(writer, http.MethodPost)
+			return
+		}
+		server.submitMeetState(writer, request)
 	case strings.HasPrefix(request.URL.Path, "/v1/messages/"):
 		if request.Method != http.MethodGet {
 			methodNotAllowed(writer, http.MethodGet)

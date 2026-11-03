@@ -4,12 +4,15 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"whatsappBot/config"
+	appdb "whatsappBot/db"
+	"whatsappBot/meetmonitor"
 	"whatsappBot/outbound"
 	"whatsappBot/scheduler"
 	"whatsappBot/utils"
@@ -259,7 +262,7 @@ func TestRunWithAPIDisabledPreservesReminderOnlyStartup(t *testing.T) {
 			t.Error("outbound store created while API disabled")
 			return nil
 		},
-		startAPI: func(context.Context, config.Config, *outbound.Store) <-chan error {
+		startAPI: func(context.Context, config.Config, *outbound.Store, *meetmonitor.Service) <-chan error {
 			t.Error("API started while disabled")
 			return nil
 		},
@@ -289,7 +292,7 @@ func TestRunWithAPIDisabledPreservesReminderOnlyStartup(t *testing.T) {
 
 func TestRunEnabledAPIStartsAfterAuthenticationAndRecovery(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	database, err := sql.Open("sqlite", ":memory:")
+	_, database, err := appdb.SetupDB(context.Background(), filepath.Join(t.TempDir(), "runtime.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -316,10 +319,29 @@ func TestRunEnabledAPIStartsAfterAuthenticationAndRecovery(t *testing.T) {
 			events <- "recover"
 			return 1, nil
 		},
-		startAPI: func(context.Context, config.Config, *outbound.Store) <-chan error {
+		startAPI: func(ctx context.Context, _ config.Config, _ *outbound.Store, service *meetmonitor.Service) <-chan error {
 			if !client.IsConnected() {
 				t.Error("API started before WhatsApp authentication")
 			}
+			if service == nil {
+				t.Fatal("API received nil Meet monitor service")
+			}
+			status, err := service.Status(ctx)
+			if err != nil {
+				t.Fatalf("service status: %v", err)
+			}
+			if !status.WhatsAppConnected {
+				t.Error("service did not report connected fake client")
+			}
+			client.setConnected(false)
+			status, err = service.Status(ctx)
+			if err != nil {
+				t.Fatalf("service status after disconnect: %v", err)
+			}
+			if status.WhatsAppConnected {
+				t.Error("service did not report current disconnected fake client")
+			}
+			client.setConnected(true)
 			events <- "api"
 			return apiDone
 		},
@@ -370,7 +392,7 @@ func TestRunRejectsConnectedClientThatIsNotLoggedIn(t *testing.T) {
 	apiStarted := false
 	schedulerStarted := false
 	deps := enabledRuntimeDependencies(database, &deviceID, client)
-	deps.startAPI = func(context.Context, config.Config, *outbound.Store) <-chan error {
+	deps.startAPI = func(context.Context, config.Config, *outbound.Store, *meetmonitor.Service) <-chan error {
 		apiStarted = true
 		done := make(chan error, 1)
 		done <- errors.New("API must not start")
@@ -408,7 +430,7 @@ func TestRunStartsComponentsAfterLoggedInEvent(t *testing.T) {
 	schedulerDone := make(chan struct{})
 	schedulerStarted := make(chan struct{})
 	deps := enabledRuntimeDependencies(database, &deviceID, client)
-	deps.startAPI = func(context.Context, config.Config, *outbound.Store) <-chan error {
+	deps.startAPI = func(context.Context, config.Config, *outbound.Store, *meetmonitor.Service) <-chan error {
 		if !client.IsLoggedIn() {
 			t.Error("API started before login")
 		}
@@ -453,7 +475,7 @@ func TestRunFreshPairStartsComponentsAfterLoggedInEvent(t *testing.T) {
 	schedulerDone := make(chan struct{})
 	schedulerStarted := make(chan struct{})
 	deps := enabledRuntimeDependencies(database, nil, client)
-	deps.startAPI = func(context.Context, config.Config, *outbound.Store) <-chan error {
+	deps.startAPI = func(context.Context, config.Config, *outbound.Store, *meetmonitor.Service) <-chan error {
 		return apiDone
 	}
 	deps.startScheduler = func(context.Context, *sql.DB, utils.MessageSender, *outbound.Store) <-chan struct{} {
@@ -491,7 +513,7 @@ func TestRunContextCancellationWhileWaitingForLoginStartsNoComponents(t *testing
 	apiStarted := false
 	schedulerStarted := false
 	deps := enabledRuntimeDependencies(database, &deviceID, client)
-	deps.startAPI = func(context.Context, config.Config, *outbound.Store) <-chan error {
+	deps.startAPI = func(context.Context, config.Config, *outbound.Store, *meetmonitor.Service) <-chan error {
 		apiStarted = true
 		return nil
 	}
@@ -530,7 +552,7 @@ func TestRunCancelsAPIBeforeSchedulerAndCleanup(t *testing.T) {
 	var schedulerCtx context.Context
 
 	deps := enabledRuntimeDependencies(database, &deviceID, client)
-	deps.startAPI = func(apiCtx context.Context, _ config.Config, _ *outbound.Store) <-chan error {
+	deps.startAPI = func(apiCtx context.Context, _ config.Config, _ *outbound.Store, _ *meetmonitor.Service) <-chan error {
 		done := make(chan error, 1)
 		go func() {
 			<-apiCtx.Done()
@@ -588,7 +610,7 @@ func TestRunAPIStartupFailureCleansUpWithoutStartingScheduler(t *testing.T) {
 	client := &fakeLifecycleClient{}
 	want := errors.New("bind failed")
 	deps := enabledRuntimeDependencies(database, &deviceID, client)
-	deps.startAPI = func(context.Context, config.Config, *outbound.Store) <-chan error {
+	deps.startAPI = func(context.Context, config.Config, *outbound.Store, *meetmonitor.Service) <-chan error {
 		done := make(chan error, 1)
 		done <- want
 		close(done)
@@ -638,6 +660,7 @@ func baseTestConfig(apiEnabled bool) config.Config {
 		APIAddr:        "127.0.0.1:0",
 		APIToken:       "01234567890123456789012345678901",
 		APITargetGroup: "123@g.us",
+		MeetCode:       "jpy-ymgz-tdo",
 	}
 }
 
@@ -735,6 +758,12 @@ func (f *fakeLifecycleClient) setLoggedIn(loggedIn bool) {
 	defer f.mu.Unlock()
 	f.connected = loggedIn
 	f.loggedIn = loggedIn
+}
+
+func (f *fakeLifecycleClient) setConnected(connected bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.connected = connected
 }
 
 func (f *fakeLifecycleClient) emit(event interface{}) {

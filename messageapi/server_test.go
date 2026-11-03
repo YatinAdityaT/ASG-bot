@@ -243,6 +243,7 @@ func TestAPIRoutesRequireAuthentication(t *testing.T) {
 		{http.MethodGet, "/healthz"},
 		{http.MethodGet, "/v1/messages/1"},
 		{http.MethodPost, "/v1/meet-events"},
+		{http.MethodPost, "/v1/meet-state"},
 	} {
 		response := request(t, server.Handler(), route.method, route.path, nil, nil)
 		assertError(t, response, http.StatusUnauthorized, "unauthorized")
@@ -260,6 +261,7 @@ func TestUnsupportedMethodsAndPaths(t *testing.T) {
 		{http.MethodPost, "/healthz", http.StatusMethodNotAllowed, "method_not_allowed"},
 		{http.MethodGet, "/v1/messages", http.StatusMethodNotAllowed, "method_not_allowed"},
 		{http.MethodGet, "/v1/meet-events", http.StatusMethodNotAllowed, "method_not_allowed"},
+		{http.MethodGet, "/v1/meet-state", http.StatusMethodNotAllowed, "method_not_allowed"},
 		{http.MethodPost, "/v1/messages/1", http.StatusMethodNotAllowed, "method_not_allowed"},
 		{http.MethodGet, "/missing", http.StatusNotFound, "not_found"},
 		{http.MethodGet, "/v1/messages/not-a-number", http.StatusNotFound, "not_found"},
