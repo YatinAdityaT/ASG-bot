@@ -1,218 +1,89 @@
 # Meet Monitor Chrome Extension
 
-Meet Monitor is an unpacked Chrome extension for Google Meet. It tracks
-participant join/leave events, confirmed camera and microphone state changes,
-and visible chat messages. It provides a live popup, CSV export, optional
-webhook and bot API forwarding, and an in-call monitoring banner. Rename events
-are intentionally absent because Meet's rendered names can fluctuate without a
-participant actually renaming themselves. Desktop/browser chat notifications
-have also been removed.
+Meet Monitor `v1.4.0` is an unpacked Chrome extension for Google Meet. It
+tracks participant joins and leaves, camera and microphone changes, and chat
+messages for the locked meeting code `jpy-ymgz-tdo`.
 
-Google Meet does not provide stable public DOM APIs for these features. The
-selectors can stop working after a Meet update; update `src/selectors.js` when
-that happens.
+## Operator setup
 
-Meet can temporarily remove participant tiles during layout changes and
-virtualization, so tile disappearance alone is never reported as a leave.
-Leave events use Meet's English accessibility announcement (`Name left the
-call`) instead. If Meet changes or localizes that announcement, leave detection
-must be updated in `src/state.js`.
+1. Run the bot with `ASG_BOT_MEET_CODE=jpy-ymgz-tdo`.
+2. In Chrome, open `chrome://extensions`, enable **Developer mode**, and load
+   the `meet-monitor` folder as an unpacked extension.
+3. Open extension options from the popup or the extension details page.
+4. Set the Bot API URL to the server endpoint ending in `/v1/meet-events`.
+   Meet Monitor stays configured against `/v1/meet-events` and derives
+   `/v1/meet-state` automatically on the same origin.
+5. Paste the bot bearer token, save, approve the exact origin permission
+   request, then reload the unpacked extension and refresh every open Meet tab.
 
-Participant names are extracted by a dedicated clean-name selector helper that
-normalizes whitespace, removes duplicate rendered lines, and preserves the
-first established non-empty name for each participant. Camera and microphone
-changes must remain stable for two seconds before an event is emitted, reducing
-false state changes during Meet layout updates.
+Chrome does not hot-reload unpacked extensions. After every code or settings
+change that affects forwarding or content scripts, reload the extension and
+refresh all open Meet tabs.
 
-For the authenticated bot API, chat events use Meet's stable message IDs as
-idempotency keys. The server persists that identity, preventing duplicate bot
-API delivery across extension retries, page refreshes, multiple tabs, and
-service-worker restarts. The optional generic webhook has only the extension
-background's five-second in-memory cross-context guard; it may receive a
-repeated historical event after an extension or service-worker restart.
+## Daily use
 
-## Install in Chrome
+- Use the popup for the quick roster view, recent event feed, CSV export, and
+  the **Sending ON/OFF** toggle.
+- Use **Open Monitor** in the popup to open the side panel for continuous
+  health, roster, and timeline monitoring.
+- The sending toggle controls webhook and WhatsApp event delivery only. Even
+  with **Sending OFF**, the extension continues to send Meet state heartbeats
+  so bot `/status` remains current.
+- The extension only forwards outbound traffic for meeting `jpy-ymgz-tdo`.
 
-1. Clone or download this repository.
-2. Open `chrome://extensions` in Chrome.
-3. Enable **Developer mode** in the upper-right corner.
-4. Click **Load unpacked**.
-5. Select the `meet-monitor` folder containing `manifest.json`.
-6. Pin **Meet Monitor** from Chrome's Extensions menu if desired.
-7. Open or refresh a `https://meet.google.com/` meeting tab.
-8. Click the extension icon to view the roster and event feed.
+## Health timing and reconnect behavior
 
-Select the folder itself, not `src/` and not the repository root.
+- The extension sends a Meet state heartbeat every `30s`.
+- Content is considered fresh only if the elected Meet tab has observed the
+  meeting within `45s`.
+- The server reports the monitor as offline after `90s` without an accepted
+  heartbeat.
+- After a stale tab takeover, extension restart, server restart, or other
+  reconnect, the next accepted snapshot becomes a silent baseline. Operators
+  should expect no join or leave replay flood from that reconnect alone.
 
-## Update after code changes
+## `/status` and WhatsApp output
 
-1. Pull the updated branch in the repository.
-2. Open `chrome://extensions`.
-3. Find **Meet Monitor** and click its **Reload** button.
-4. Refresh every open Google Meet tab.
+Use `/status` in the configured WhatsApp group to check bot, WhatsApp, and Meet
+monitor health. The reply includes bot online state, WhatsApp connected state,
+monitor online or offline state, last heartbeat age, meeting code, participant
+count, forwarding ON or OFF, and extension version.
 
-Chrome does not automatically reload unpacked extensions when files change.
-An already-open Meet tab continues running its old content script until that
-tab is refreshed.
+WhatsApp event messages are prefix-free and look like:
 
-## Configure options
-
-Open the extension's **Details** page and choose **Extension options**, or click
-**Options** in the popup.
-
-### Monitoring banner
-
-The banner is enabled by default and appears only in your local Meet page. It
-does not prove that every meeting participant has consented. Follow applicable
-privacy rules and meeting policies before recording or forwarding participant
-or chat activity.
-
-### Webhook
-
-Enter an `http://` or `https://` URL to POST every eligible event as JSON. On
-save, Chrome asks for permission to contact that URL's origin. The webhook
-remains disabled if permission is denied or the field is blank.
-
-Example event:
-
-```json
-{
-  "type": "chat_message",
-  "id": "message-id",
-  "meeting": "jpy-ymgz-tdo",
-  "ts": "2026-10-27T07:30:00.000Z",
-  "name": "Participant",
-  "cam": null,
-  "mic": null,
-  "self": false,
-  "host": false,
-  "text": "Hello"
-}
-```
-
-The extension forwards webhook requests from its background service worker.
-Use an authenticated HTTPS endpoint for sensitive meeting data. Do not embed
-long-lived secrets in this source tree.
-
-### ASG Bot WhatsApp forwarding
-
-To forward Meet activity to the configured WhatsApp test group:
-
-1. Run the ASG bot with its authenticated message API enabled.
-2. If Chrome and the bot are on different devices, expose the loopback API
-   through an authenticated HTTPS tunnel; never expose port 8080 directly.
-3. Copy the extension ID from `chrome://extensions`.
-4. Add `chrome-extension://<extension-id>` to
-   `ASG_BOT_API_ALLOWED_ORIGINS` and restart the bot.
-5. In extension options, enter the public URL ending in
-   `/v1/meet-events` and the bot's API token.
-6. Save, approve Chrome's exact-origin permission request, reload the
-   extension, and refresh the Meet tab.
-
-The token is stored in `chrome.storage.local`, not Chrome synced storage. The
-background service worker restricts local storage to trusted extension
-contexts so Meet content scripts cannot read it. The bot URL and banner
-preference are synced. Use HTTPS except for loopback-only local development.
-
-Events awaiting API acceptance are retained in a local extension outbox and
-retried sequentially with backoff, including after Chrome restarts. Every
-accepted event then enters the bot's persistent outbound queue and is sent only
-to the server-configured group. The extension cannot provide a destination
-JID. The outbox holds at most 500 events; a service-worker warning is logged if
-it fills. Non-retryable request errors and events that exhaust 10 transient
-attempts are removed so one bad record cannot block later activity. Clearing
-the Bot API URL and token also clears the local outbox.
-
-The ASG bot forwarding and generic webhook are independent; configuring both
-sends each raw event to both endpoints.
-
-### Outbound sending control
-
-Outbound sending defaults to **ON** and is controlled by the **Sending ON/OFF**
-checkbox in the main extension popup. This single control governs both the
-generic webhook and the bot API. Outbound delivery is locked to meeting
-`jpy-ymgz-tdo`; all other meetings remain local-only even when sending is on.
-
-## Export CSV
-
-While a Meet tab is active, open the popup and click **Export CSV**. The export
-contains at most the latest 500 events because the popup's `getState` response
-exposes only that portion of the content script's history. The content script
-retains up to 2,000 events in memory, but older retained events are not currently
-available to popup export. Reloading or closing the Meet page clears its
-in-memory history.
-
-## Permissions
-
-- `storage`: saves endpoint settings, the local API token, and banner
-  preference.
-- `alarms`: schedules bot API outbox retries.
-- `https://meet.google.com/*`: runs the monitor in Meet tabs.
-- Optional HTTP(S) origins: granted only when you save a webhook or bot API
-  URL.
+- `🎥 Alex joined the call.`
+- `🎥 Alex left the call.`
+- `🎙️ Alex muted their mic.`
+- `🎙️ Alex unmuted their mic.`
+- `📷 Alex turned their camera on.`
+- `📷 Alex turned their camera off.`
+- `💬 Alex said: Hello`
 
 ## Troubleshooting
 
-### “No participants detected”
+- No live data after an update: reload the unpacked extension, then refresh all
+  open Meet tabs.
+- Side panel shows content offline: keep one `jpy-ymgz-tdo` Meet tab open and
+  active enough to produce observations. A tab becomes stale after `45s`.
+- Side panel shows API error or `/status` shows monitor offline: confirm the
+  bot is running, the URL still ends exactly in `/v1/meet-events`, the token is
+  correct, and the server can accept `/v1/meet-state`.
+- WhatsApp forwarding missing while `/status` stays healthy: check whether
+  **Sending** is OFF. Heartbeats continue while event forwarding is disabled.
+- Browser permission issues: confirm `ASG_BOT_API_ALLOWED_ORIGINS` contains the
+  exact `chrome-extension://<extension-id>` origin, restart the bot, save the
+  settings again, then reload the extension and refresh Meet tabs.
+- If needed, inspect the extension service-worker console from
+  `chrome://extensions` for retry and client-error warnings.
 
-- Confirm the extension is enabled at `chrome://extensions`.
-- Reload the extension, then refresh the Meet tab.
-- Open Meet's participant panel to expose additional participant DOM nodes.
-- If Meet changed its markup, inspect and update `src/selectors.js`.
+## Continuous-running requirements
 
-### Chat messages do not appear
+For continuous monitoring and `/status` freshness, keep all of these running:
 
-- Open the Meet chat panel so messages exist in the page DOM.
-- Reload the extension and Meet tab.
-- Check `src/selectors.js` chat selectors against the current Meet markup.
+- the bot process
+- Chrome with the unpacked extension loaded
+- at least one refreshed `jpy-ymgz-tdo` Meet tab
 
-### An old Meet tab behaves differently after an update
-
-Reloading the extension does not replace a content script that is already
-running in an open Meet tab. Refresh that tab after the extension reload. If
-the old content script encounters an invalidated extension context, it now
-shuts down its observers and timers instead of surfacing an uncaught
-invalidated-context error.
-
-### Webhook receives nothing
-
-- Re-save the webhook URL and approve Chrome's origin permission prompt.
-- Open the extension service worker inspector from `chrome://extensions` and
-  check its console.
-- Verify the endpoint supports `POST`, accepts JSON, and permits the request.
-
-### WhatsApp forwarding receives nothing
-
-- Confirm the Bot API URL ends exactly in `/v1/meet-events`.
-- Confirm the API token matches `ASG_BOT_API_TOKEN`.
-- Confirm `ASG_BOT_API_ALLOWED_ORIGINS` contains the exact
-  `chrome-extension://<extension-id>` origin, then restart the bot.
-- Check the extension service-worker console for the generic delivery failure
-  warning; tokens and event bodies are intentionally not logged.
-- Submit a synthetic event with `curl` to isolate extension configuration from
-  server or WhatsApp delivery problems.
-
-## Local validation
-
-From the repository root:
-
-```powershell
-node -e "JSON.parse(require('fs').readFileSync('meet-monitor/manifest.json','utf8'))"
-node --check meet-monitor/src/selectors.js
-node --check meet-monitor/src/state.js
-node --check meet-monitor/src/content.js
-node --check meet-monitor/src/delivery.js
-node --check meet-monitor/src/background.js
-node --check meet-monitor/src/popup.js
-node --test meet-monitor/test/*.test.js
-gofmt -d .
-go vet ./...
-go test ./... -count=1
-go build ./...
-git diff --check
-git status --short
-```
-
-These commands validate release metadata, JavaScript syntax and tests, Go
-formatting, vetting, tests, builds, and diff hygiene. They do not replace a live
-Google Meet test because Meet's DOM is generated dynamically.
+Closing Chrome, disabling the extension, or leaving only stale Meet tabs stops
+fresh observations. Restarted components recover from a silent baseline rather
+than replaying old participant changes.
