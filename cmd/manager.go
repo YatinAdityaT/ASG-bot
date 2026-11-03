@@ -146,10 +146,10 @@ func NewCommandManager(client utils.MessageSender, admins []string, shutdown con
 	if cm.meetMessenger != nil {
 		cm.RegisterCommand(Command{
 			Name:           "/meet <message>",
-			Description:    "[Admin only] Posts a message to the monitored Google Meet chat.",
+			Description:    "Posts a message to the monitored Google Meet chat.",
 			Regex:          regexp.MustCompile(`^/meet\s+(.+)$`),
 			Callback:       NoDB(cm.handleMeetMessage),
-			IsAdminCommand: true,
+			IsAdminCommand: false,
 		})
 	}
 

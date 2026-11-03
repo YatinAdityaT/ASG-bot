@@ -16,8 +16,8 @@ For operators, keep the bot configured with
 `/v1/meet-command` on the same origin. After any code or settings change, reload the unpacked extension and
 refresh every open Meet tab. Use the popup for the sending toggle and quick
 feed, use the side panel for continuous health, use `/status` to verify monitor
-state, `/call` to list participants, and `/meet <message>` as an admin to post
-into Meet chat. See
+state, `/call` to list participants, and `/meet <message>` to post into Meet
+chat. See
 [`meet-monitor/README.md`](meet-monitor/README.md) for the compact extension
 runbook, including the `30s` heartbeat, `45s` content stale window, `90s`
 server-offline threshold, silent reconnect baseline, and troubleshooting.

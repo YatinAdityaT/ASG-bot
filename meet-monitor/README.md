@@ -49,7 +49,8 @@ monitor health. The reply includes bot online state, WhatsApp connected state,
 monitor online or offline state, last heartbeat age, meeting code, participant
 count, forwarding ON or OFF, and extension version.
 
-Use `/call` to list everyone currently detected in the call. Admins can use
+Use `/call` to list everyone currently detected in the call with their camera
+and microphone state. Use
 `/meet <message>` to post a message into the Google Meet chat through the
 monitor extension.
 

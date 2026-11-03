@@ -23,7 +23,7 @@ func (cm *CommandManager) RouteMessage(db *sql.DB, ctx context.Context, evt *eve
 		matches := cmd.Regex.FindStringSubmatch(messageText)
 		if len(matches) > 0 {
 			senderIdentity := canonicalSenderIdentity(info.MessageSource)
-			if cmd.IsAdminCommand && !cm.isAdmin(senderIdentity) {
+			if cmd.IsAdminCommand && !cm.isAdminSource(info.MessageSource) {
 				return utils.ReplyToMessage(ctx, cm.client, info.Chat, "You do not have permission to use this command.", info.ID, info.Sender)
 			}
 
@@ -74,4 +74,18 @@ func extractMentions(evt *events.Message) ([]types.JID, error) {
 func (cm *CommandManager) isAdmin(jid types.JID) bool {
 	_, ok := cm.admins[jid.User]
 	return ok
+}
+
+func (cm *CommandManager) isAdminSource(source types.MessageSource) bool {
+	candidates := []types.JID{
+		canonicalSenderIdentity(source),
+		source.Sender.ToNonAD(),
+		source.SenderAlt.ToNonAD(),
+	}
+	for _, candidate := range candidates {
+		if candidate.User != "" && cm.isAdmin(candidate) {
+			return true
+		}
+	}
+	return false
 }

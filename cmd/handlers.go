@@ -80,11 +80,18 @@ func (cm *CommandManager) handleCall(ctx context.Context, client utils.MessageSe
 		)
 	}
 
-	unique := make(map[string]struct{}, len(roster.Participants))
+	type mediaState struct {
+		cam     bool
+		unmuted bool
+	}
+	unique := make(map[string]mediaState, len(roster.Participants))
 	for _, participant := range roster.Participants {
 		name := strings.TrimSpace(participant.Name)
 		if name != "" {
-			unique[name] = struct{}{}
+			current := unique[name]
+			current.cam = current.cam || participant.Cam
+			current.unmuted = current.unmuted || participant.Mic == "unmuted"
+			unique[name] = current
 		}
 	}
 	names := make([]string, 0, len(unique))
@@ -99,7 +106,14 @@ func (cm *CommandManager) handleCall(ctx context.Context, client utils.MessageSe
 	var reply strings.Builder
 	fmt.Fprintf(&reply, "In the call (%d):", len(names))
 	for _, name := range names {
-		fmt.Fprintf(&reply, "\n• %s", name)
+		media := unique[name]
+		fmt.Fprintf(
+			&reply,
+			"\n• %s — Camera %s · Mic %s",
+			name,
+			boolString(media.cam, "on", "off"),
+			boolString(media.unmuted, "unmuted", "muted"),
+		)
 	}
 	return utils.ReplyToMessage(ctx, client, info.Chat, reply.String(), info.ID, info.Sender)
 }

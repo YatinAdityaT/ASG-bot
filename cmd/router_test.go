@@ -234,6 +234,30 @@ func TestRouteMessageUsesPhoneNumberAlternativeForIdentity(t *testing.T) {
 	}
 }
 
+func TestRouteMessageAcceptsAdminNumberFromEitherWhatsAppIdentity(t *testing.T) {
+	manager := NewCommandManager(&fakeSender{}, []string{"916355442207"}, func() {})
+	called := false
+	manager.RegisterCommand(Command{
+		Name:           "/admin-test",
+		Regex:          regexp.MustCompile(`^/admin-test$`),
+		IsAdminCommand: true,
+		Callback: func(_ *sql.DB, _ context.Context, _ utils.MessageSender, _ CommandContext, _ []string) error {
+			called = true
+			return nil
+		},
+	})
+	evt := messageEvent("/admin-test")
+	evt.Info.Sender = types.NewJID("123456789", types.DefaultUserServer)
+	evt.Info.SenderAlt = types.NewJID("916355442207", types.DefaultUserServer)
+
+	if err := manager.RouteMessage(nil, context.Background(), evt); err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("admin callback was not called for matching alternative phone identity")
+	}
+}
+
 func TestRouteMessagePreservesInvalidMentionMetadataError(t *testing.T) {
 	manager := NewCommandManager(&fakeSender{}, nil, func() {})
 	var got CommandContext

@@ -825,7 +825,7 @@ func TestMeetCommandQueuesMessageAndRepliesToAdmin(t *testing.T) {
 	}
 }
 
-func TestMeetCommandIsAdminOnlyAndHasNoCmessageAlias(t *testing.T) {
+func TestMeetCommandAllowsRegularUsersAndHasNoCmessageAlias(t *testing.T) {
 	sender := &fakeSender{}
 	messenger := &fakeMeetMessenger{}
 	manager := NewCommandManager(
@@ -835,14 +835,18 @@ func TestMeetCommandIsAdminOnlyAndHasNoCmessageAlias(t *testing.T) {
 		WithMeetMessenger(messenger),
 	)
 
-	if err := manager.RouteMessage(nil, context.Background(), messageEvent("/meet blocked")); err != nil {
+	if err := manager.RouteMessage(nil, context.Background(), messageEvent("/meet hello")); err != nil {
 		t.Fatal(err)
 	}
-	if got := sentText(t, sender); got != "You do not have permission to use this command." {
+	if got := sentText(t, sender); got != "Queued for Google Meet." {
 		t.Fatalf("reply = %q", got)
+	}
+	if len(messenger.messages) != 1 || messenger.messages[0] != "hello" {
+		t.Fatalf("queued messages = %#v", messenger.messages)
 	}
 
 	sender.messages = nil
+	messenger.messages = nil
 	if err := manager.RouteMessage(nil, context.Background(), messageEvent("/cmessage ignored")); err != nil {
 		t.Fatal(err)
 	}
@@ -860,9 +864,9 @@ func TestCallCommandListsCurrentParticipantsAlphabetically(t *testing.T) {
 		WithCallProvider(&fakeCallProvider{roster: meetmonitor.CallRoster{
 			MonitorState: "online",
 			Participants: []meetmonitor.Participant{
-				{ID: "2", Name: "Yatin T"},
-				{ID: "1", Name: "ADHD SUPPORT GROUP"},
-				{ID: "3", Name: "Yatin T"},
+				{ID: "2", Name: "Yatin T", Cam: true, Mic: "unmuted"},
+				{ID: "1", Name: "ADHD SUPPORT GROUP", Cam: false, Mic: "muted"},
+				{ID: "3", Name: "Yatin T", Cam: false, Mic: "muted"},
 			},
 		}}),
 	)
@@ -870,7 +874,11 @@ func TestCallCommandListsCurrentParticipantsAlphabetically(t *testing.T) {
 	if err := manager.RouteMessage(nil, context.Background(), messageEvent("/call")); err != nil {
 		t.Fatal(err)
 	}
-	want := "In the call (2):\n• ADHD SUPPORT GROUP\n• Yatin T"
+	want := strings.Join([]string{
+		"In the call (2):",
+		"• ADHD SUPPORT GROUP — Camera off · Mic muted",
+		"• Yatin T — Camera on · Mic unmuted",
+	}, "\n")
 	if got := sentText(t, sender); got != want {
 		t.Fatalf("reply = %q, want %q", got, want)
 	}
