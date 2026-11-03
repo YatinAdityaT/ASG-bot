@@ -259,6 +259,10 @@ function boundedArray(value, maximum) {
 }
 
 async function recordAndForwardEvent(rec, sender) {
+  if (rec?.type === 'chat_message' &&
+      String(rec?.name || '').trim().toLowerCase() === 'you') {
+    return false;
+  }
   if (!await electedEventAllowed(rec, sender)) return false;
   const isChat = rec?.type === 'chat_message';
   const historyId = isChat

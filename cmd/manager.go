@@ -148,7 +148,7 @@ func NewCommandManager(client utils.MessageSender, admins []string, shutdown con
 			Name:           "/meet <message>",
 			Description:    "Posts a message to the monitored Google Meet chat.",
 			Regex:          regexp.MustCompile(`^/meet\s+(.+)$`),
-			Callback:       NoDB(cm.handleMeetMessage),
+			Callback:       cm.handleMeetMessage,
 			IsAdminCommand: false,
 		})
 	}

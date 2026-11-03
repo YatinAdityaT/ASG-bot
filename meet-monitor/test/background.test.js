@@ -322,6 +322,19 @@ test('chat events create no browser notifications', async () => {
   assert.equal(harness.notificationCalls.length, 0);
 });
 
+test('chat messages sent by the monitor account are not echoed to WhatsApp', async () => {
+  const harness = await createHarness([]);
+  const queued = await harness.sendEvent({
+    ...meetEvent('self-message'),
+    name: 'You',
+    text: '"Yatin" said "Hello everyone"'
+  });
+
+  assert.equal(queued.queued, false);
+  assert.equal(harness.eventRequests().length, 0);
+  assert.deepEqual(harness.localData.monitorHistory || [], []);
+});
+
 test('first observation elects one source and sends sequence one baseline', async () => {
   const harness = await createHarness([202], null, {
     sessionData: { monitorSession: null }

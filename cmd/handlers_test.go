@@ -812,12 +812,14 @@ func TestMeetCommandQueuesMessageAndRepliesToAdmin(t *testing.T) {
 		nil,
 		WithMeetMessenger(messenger),
 	)
+	event := messageEvent("/meet Hello everyone")
+	event.Info.PushName = "Yatin"
 
-	if err := manager.RouteMessage(nil, context.Background(), messageEvent("/meet Hello everyone")); err != nil {
+	if err := manager.RouteMessage(nil, context.Background(), event); err != nil {
 		t.Fatalf("RouteMessage() error = %v", err)
 	}
 
-	if len(messenger.messages) != 1 || messenger.messages[0] != "Hello everyone" {
+	if len(messenger.messages) != 1 || messenger.messages[0] != `"Yatin" said "Hello everyone"` {
 		t.Fatalf("queued messages = %#v", messenger.messages)
 	}
 	if got := sentText(t, sender); got != "Queued for Google Meet." {
@@ -834,14 +836,16 @@ func TestMeetCommandAllowsRegularUsersAndHasNoCmessageAlias(t *testing.T) {
 		nil,
 		WithMeetMessenger(messenger),
 	)
+	event := messageEvent("/meet hello")
+	event.Info.PushName = "Member"
 
-	if err := manager.RouteMessage(nil, context.Background(), messageEvent("/meet hello")); err != nil {
+	if err := manager.RouteMessage(nil, context.Background(), event); err != nil {
 		t.Fatal(err)
 	}
 	if got := sentText(t, sender); got != "Queued for Google Meet." {
 		t.Fatalf("reply = %q", got)
 	}
-	if len(messenger.messages) != 1 || messenger.messages[0] != "hello" {
+	if len(messenger.messages) != 1 || messenger.messages[0] != `"Member" said "hello"` {
 		t.Fatalf("queued messages = %#v", messenger.messages)
 	}
 

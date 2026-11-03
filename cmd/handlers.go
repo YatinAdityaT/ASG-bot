@@ -57,8 +57,20 @@ func (cm *CommandManager) handleStatus(ctx context.Context, client utils.Message
 	return utils.ReplyToMessage(ctx, client, info.Chat, strings.Join(lines, "\n"), info.ID, info.Sender)
 }
 
-func (cm *CommandManager) handleMeetMessage(ctx context.Context, client utils.MessageSender, info types.MessageInfo, args []string) error {
-	if _, err := cm.meetMessenger.QueueMessage(ctx, args[0]); err != nil {
+func (cm *CommandManager) handleMeetMessage(
+	_ *sql.DB,
+	ctx context.Context,
+	client utils.MessageSender,
+	commandCtx CommandContext,
+	args []string,
+) error {
+	info := commandCtx.Info
+	name := strings.TrimSpace(info.PushName)
+	if name == "" {
+		name = commandCtx.SenderIdentity.User
+	}
+	message := fmt.Sprintf("%q said %q", name, args[0])
+	if _, err := cm.meetMessenger.QueueMessage(ctx, message); err != nil {
 		return fmt.Errorf("queue Meet message: %w", err)
 	}
 	return utils.ReplyToMessage(ctx, client, info.Chat, "Queued for Google Meet.", info.ID, info.Sender)
