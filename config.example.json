@@ -1,0 +1,19 @@
+{
+  "adminNumbers": [
+    "15551234567"
+  ],
+  "allowedGroups": [
+    "120363000000000001@g.us"
+  ],
+  "accountabilityGroup": "120363000000000002@g.us",
+  "dbPath": "whatsmeow.db",
+  "logLevel": "INFO",
+  "apiEnabled": true,
+  "apiAddr": "127.0.0.1:8080",
+  "meetCode": "jpy-ymgz-tdo",
+  "apiToken": "REPLACE_WITH_A_RANDOM_TOKEN_AT_LEAST_32_CHARACTERS",
+  "apiTargetGroup": "120363000000000001@g.us",
+  "apiAllowedOrigins": [
+    "chrome-extension://replace-with-extension-id"
+  ]
+}

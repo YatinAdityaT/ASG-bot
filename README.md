@@ -40,12 +40,18 @@ go mod download
 
 ## Configuration
 
-The process reads configuration from environment variables at startup.
+The process reads `config.local.json` from the repository root when present.
+Set `ASG_BOT_CONFIG_FILE` to use another JSON file. Environment variables
+override matching file values, so secrets can remain in the environment while
+stable group IDs live in the ignored local file. Copy `config.example.json` to
+`config.local.json` as a starting point; never commit the local file.
 
 | Variable | Required | Format and default |
 | --- | --- | --- |
+| `ASG_BOT_CONFIG_FILE` | No | Path to a JSON configuration file. Defaults to optional `config.local.json`. |
 | `ASG_BOT_ADMIN_NUMBERS` | Yes | Comma-separated WhatsApp phone numbers containing digits only, including country code but no `+`, spaces, or punctuation. These users may run `/die`. |
 | `ASG_BOT_ALLOWED_GROUPS` | Yes | Comma-separated numeric WhatsApp group JIDs in `<digits>@g.us` form. Messages from every other chat are ignored. Display names are not accepted. |
+| `ASG_BOT_ACCOUNTABILITY_GROUP` | No | Numeric JID for the main Accountability Subscribers group. It is automatically added to the allowed groups. |
 | `ASG_BOT_DB_PATH` | No | SQLite file path. Defaults to `whatsmeow.db` in the current directory. |
 | `ASG_BOT_LOG_LEVEL` | No | One of `TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`, or `DISABLED`. Defaults to `INFO`; values are case-sensitive. |
 | `ASG_BOT_API_ENABLED` | No | Case-insensitive literal `true` or `false`; no other aliases are accepted. Defaults to `false`. |
@@ -58,11 +64,17 @@ Whitespace around comma-separated entries is removed, but empty entries are
 invalid. Obtain the numeric group JID from trusted WhatsApp/whatsmeow diagnostic
 output before starting the bot; do not substitute the group's display name.
 
+The JSON file accepts the equivalent keys `adminNumbers`, `allowedGroups`,
+`accountabilityGroup`, `dbPath`, `logLevel`, `apiEnabled`, `apiAddr`,
+`meetCode`, `apiToken`, `apiTargetGroup`, and `apiAllowedOrigins`. Unknown keys
+are rejected to catch configuration typos.
+
 Example for the current PowerShell session:
 
 ```powershell
 $env:ASG_BOT_ADMIN_NUMBERS = "15551234567,15557654321"
 $env:ASG_BOT_ALLOWED_GROUPS = "120363012345678901@g.us"
+$env:ASG_BOT_ACCOUNTABILITY_GROUP = "120363012345678902@g.us"
 $env:ASG_BOT_DB_PATH = (Join-Path $PWD "whatsmeow.db")
 $env:ASG_BOT_LOG_LEVEL = "INFO"
 ```

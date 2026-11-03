@@ -1,4 +1,5 @@
 *.db
 *.sql
+config.local.json
 .superpowers/
 .worktrees/

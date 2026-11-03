@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -267,5 +269,91 @@ func TestLoadAPIEnabledAcceptsCaseInsensitiveLiterals(t *testing.T) {
 				t.Fatal("APIEnabled = true, want false")
 			}
 		})
+	}
+}
+
+func TestLoadReadsJSONConfigAndEnvironmentOverridesIt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bot.json")
+	contents := `{
+		"adminNumbers": ["111", "222"],
+		"allowedGroups": ["123@g.us"],
+		"accountabilityGroup": "456@g.us",
+		"dbPath": "from-file.db",
+		"logLevel": "WARN",
+		"apiEnabled": true,
+		"apiAddr": "127.0.0.1:9090",
+		"meetCode": "jpy-ymgz-tdo",
+		"apiToken": "01234567890123456789012345678901",
+		"apiTargetGroup": "123@g.us",
+		"apiAllowedOrigins": ["chrome-extension://abcdefghijklmnop"]
+	}`
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]string{
+		"ASG_BOT_CONFIG_FILE": path,
+		"ASG_BOT_LOG_LEVEL":   "ERROR",
+	}
+
+	cfg, err := Load(func(key string) string { return env[key] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AccountabilityGroup != "456@g.us" {
+		t.Fatalf("AccountabilityGroup = %q", cfg.AccountabilityGroup)
+	}
+	if want := []string{"123@g.us", "456@g.us"}; !reflect.DeepEqual(cfg.AllowedGroups, want) {
+		t.Fatalf("AllowedGroups = %#v, want %#v", cfg.AllowedGroups, want)
+	}
+	if cfg.LogLevel != "ERROR" || cfg.DBPath != "from-file.db" {
+		t.Fatalf("environment/file precedence failed: %#v", cfg)
+	}
+	if !cfg.APIEnabled || cfg.APIAddr != "127.0.0.1:9090" ||
+		cfg.APITargetGroup != "123@g.us" ||
+		!reflect.DeepEqual(cfg.APIAllowedOrigins, []string{"chrome-extension://abcdefghijklmnop"}) {
+		t.Fatalf("API config not loaded from file: %#v", cfg)
+	}
+}
+
+func TestLoadEnvironmentOverridesAccountabilityGroupFromFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bot.json")
+	contents := `{
+		"adminNumbers": ["111"],
+		"allowedGroups": ["123@g.us"],
+		"accountabilityGroup": "456@g.us"
+	}`
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]string{
+		"ASG_BOT_CONFIG_FILE":          path,
+		"ASG_BOT_ACCOUNTABILITY_GROUP": "789@g.us",
+	}
+
+	cfg, err := Load(func(key string) string { return env[key] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AccountabilityGroup != "789@g.us" {
+		t.Fatalf("AccountabilityGroup = %q", cfg.AccountabilityGroup)
+	}
+	if want := []string{"123@g.us", "789@g.us"}; !reflect.DeepEqual(cfg.AllowedGroups, want) {
+		t.Fatalf("AllowedGroups = %#v, want %#v", cfg.AllowedGroups, want)
+	}
+}
+
+func TestLoadRejectsUnknownJSONConfigFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bot.json")
+	if err := os.WriteFile(path, []byte(`{"adminNumbers":["111"],"allowedGroups":["123@g.us"],"typo":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Load(func(key string) string {
+		if key == "ASG_BOT_CONFIG_FILE" {
+			return path
+		}
+		return ""
+	}); err == nil {
+		t.Fatal("Load() error = nil, want unknown-field error")
 	}
 }

@@ -1,9 +1,12 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -14,6 +17,7 @@ const (
 	defaultDBPath   = "whatsmeow.db"
 	defaultLogLevel = "INFO"
 	defaultAPIAddr  = "127.0.0.1:8080"
+	defaultFilePath = "config.local.json"
 )
 
 var (
@@ -31,22 +35,48 @@ var (
 )
 
 type Config struct {
-	AdminNumbers      []string
-	AllowedGroups     []string
-	DBPath            string
-	LogLevel          string
-	APIEnabled        bool
-	APIAddr           string
-	MeetCode          string
-	APIToken          string
-	APITargetGroup    string
-	APIAllowedOrigins []string
+	AdminNumbers        []string
+	AllowedGroups       []string
+	AccountabilityGroup string
+	DBPath              string
+	LogLevel            string
+	APIEnabled          bool
+	APIAddr             string
+	MeetCode            string
+	APIToken            string
+	APITargetGroup      string
+	APIAllowedOrigins   []string
+}
+
+type fileConfig struct {
+	AdminNumbers        []string `json:"adminNumbers"`
+	AllowedGroups       []string `json:"allowedGroups"`
+	AccountabilityGroup string   `json:"accountabilityGroup"`
+	DBPath              string   `json:"dbPath"`
+	LogLevel            string   `json:"logLevel"`
+	APIEnabled          *bool    `json:"apiEnabled"`
+	APIAddr             string   `json:"apiAddr"`
+	MeetCode            string   `json:"meetCode"`
+	APIToken            string   `json:"apiToken"`
+	APITargetGroup      string   `json:"apiTargetGroup"`
+	APIAllowedOrigins   []string `json:"apiAllowedOrigins"`
 }
 
 func Load(getenv func(string) string) (Config, error) {
+	fileValues, err := loadFileConfig(getenv("ASG_BOT_CONFIG_FILE"))
+	if err != nil {
+		return Config{}, err
+	}
+	value := func(name, fileValue string) string {
+		if environmentValue := strings.TrimSpace(getenv(name)); environmentValue != "" {
+			return environmentValue
+		}
+		return fileValue
+	}
+
 	adminNumbers, err := parseRequiredList(
 		"ASG_BOT_ADMIN_NUMBERS",
-		getenv("ASG_BOT_ADMIN_NUMBERS"),
+		value("ASG_BOT_ADMIN_NUMBERS", strings.Join(fileValues.AdminNumbers, ",")),
 		adminNumberPattern,
 	)
 	if err != nil {
@@ -55,19 +85,32 @@ func Load(getenv func(string) string) (Config, error) {
 
 	allowedGroups, err := parseRequiredList(
 		"ASG_BOT_ALLOWED_GROUPS",
-		getenv("ASG_BOT_ALLOWED_GROUPS"),
+		value("ASG_BOT_ALLOWED_GROUPS", strings.Join(fileValues.AllowedGroups, ",")),
 		groupJIDPattern,
 	)
 	if err != nil {
 		return Config{}, err
 	}
 
-	dbPath := strings.TrimSpace(getenv("ASG_BOT_DB_PATH"))
+	accountabilityGroup := strings.TrimSpace(value(
+		"ASG_BOT_ACCOUNTABILITY_GROUP",
+		fileValues.AccountabilityGroup,
+	))
+	if accountabilityGroup != "" {
+		if !groupJIDPattern.MatchString(accountabilityGroup) {
+			return Config{}, fmt.Errorf("ASG_BOT_ACCOUNTABILITY_GROUP must be a group JID")
+		}
+		if !contains(allowedGroups, accountabilityGroup) {
+			allowedGroups = append(allowedGroups, accountabilityGroup)
+		}
+	}
+
+	dbPath := strings.TrimSpace(value("ASG_BOT_DB_PATH", fileValues.DBPath))
 	if dbPath == "" {
 		dbPath = defaultDBPath
 	}
 
-	logLevel := strings.TrimSpace(getenv("ASG_BOT_LOG_LEVEL"))
+	logLevel := strings.TrimSpace(value("ASG_BOT_LOG_LEVEL", fileValues.LogLevel))
 	if logLevel == "" {
 		logLevel = defaultLogLevel
 	}
@@ -76,13 +119,14 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 
 	cfg := Config{
-		AdminNumbers:  adminNumbers,
-		AllowedGroups: allowedGroups,
-		DBPath:        dbPath,
-		LogLevel:      logLevel,
+		AdminNumbers:        adminNumbers,
+		AllowedGroups:       allowedGroups,
+		AccountabilityGroup: accountabilityGroup,
+		DBPath:              dbPath,
+		LogLevel:            logLevel,
 	}
 
-	apiEnabledRaw := strings.TrimSpace(getenv("ASG_BOT_API_ENABLED"))
+	apiEnabledRaw := strings.TrimSpace(value("ASG_BOT_API_ENABLED", boolText(fileValues.APIEnabled)))
 	switch {
 	case apiEnabledRaw == "", strings.EqualFold(apiEnabledRaw, "false"):
 		cfg.APIEnabled = false
@@ -95,7 +139,7 @@ func Load(getenv func(string) string) (Config, error) {
 		return cfg, nil
 	}
 
-	cfg.APIAddr = strings.TrimSpace(getenv("ASG_BOT_API_ADDR"))
+	cfg.APIAddr = strings.TrimSpace(value("ASG_BOT_API_ADDR", fileValues.APIAddr))
 	if cfg.APIAddr == "" {
 		cfg.APIAddr = defaultAPIAddr
 	}
@@ -103,17 +147,17 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, err
 	}
 
-	cfg.MeetCode = strings.TrimSpace(getenv("ASG_BOT_MEET_CODE"))
+	cfg.MeetCode = strings.TrimSpace(value("ASG_BOT_MEET_CODE", fileValues.MeetCode))
 	if !meetCodePattern.MatchString(cfg.MeetCode) {
 		return Config{}, fmt.Errorf("ASG_BOT_MEET_CODE must be a Google Meet code")
 	}
 
-	cfg.APIToken = strings.TrimSpace(getenv("ASG_BOT_API_TOKEN"))
+	cfg.APIToken = strings.TrimSpace(value("ASG_BOT_API_TOKEN", fileValues.APIToken))
 	if utf8.RuneCountInString(cfg.APIToken) < 32 {
 		return Config{}, fmt.Errorf("ASG_BOT_API_TOKEN must contain at least 32 characters")
 	}
 
-	cfg.APITargetGroup = strings.TrimSpace(getenv("ASG_BOT_API_TARGET_GROUP"))
+	cfg.APITargetGroup = strings.TrimSpace(value("ASG_BOT_API_TARGET_GROUP", fileValues.APITargetGroup))
 	if !groupJIDPattern.MatchString(cfg.APITargetGroup) {
 		return Config{}, fmt.Errorf("ASG_BOT_API_TARGET_GROUP must be a group JID")
 	}
@@ -121,11 +165,48 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, fmt.Errorf("ASG_BOT_API_TARGET_GROUP must appear in ASG_BOT_ALLOWED_GROUPS")
 	}
 
-	cfg.APIAllowedOrigins, err = parseAPIOrigins(getenv("ASG_BOT_API_ALLOWED_ORIGINS"))
+	cfg.APIAllowedOrigins, err = parseAPIOrigins(value(
+		"ASG_BOT_API_ALLOWED_ORIGINS",
+		strings.Join(fileValues.APIAllowedOrigins, ","),
+	))
 	if err != nil {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+func loadFileConfig(configuredPath string) (fileConfig, error) {
+	path := strings.TrimSpace(configuredPath)
+	explicit := path != ""
+	if !explicit {
+		path = defaultFilePath
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		if !explicit && os.IsNotExist(err) {
+			return fileConfig{}, nil
+		}
+		return fileConfig{}, fmt.Errorf("open config file: %w", err)
+	}
+	defer file.Close()
+
+	decoder := json.NewDecoder(file)
+	decoder.DisallowUnknownFields()
+	var result fileConfig
+	if err := decoder.Decode(&result); err != nil {
+		return fileConfig{}, fmt.Errorf("decode config file: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return fileConfig{}, fmt.Errorf("decode config file: trailing content")
+	}
+	return result, nil
+}
+
+func boolText(value *bool) string {
+	if value == nil {
+		return ""
+	}
+	return strconv.FormatBool(*value)
 }
 
 func validateAPIAddr(address string) error {
