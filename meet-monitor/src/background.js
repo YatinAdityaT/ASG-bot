@@ -265,6 +265,16 @@ async function recordAndForwardEvent(rec, sender) {
   }
   if (!await electedEventAllowed(rec, sender)) return false;
   const isChat = rec?.type === 'chat_message';
+  if (isChat) {
+    const whatsAppText = meetWhatsAppText(rec.text);
+    if (whatsAppText !== null) {
+      rec = { ...rec, text: whatsAppText };
+    } else if (!await debugReflectionEnabled()) {
+      await appendHistory(rec, null, 'silent');
+      await broadcastMonitorModel();
+      return false;
+    }
+  }
   const historyId = isChat
     ? await appendHistory(rec, null, 'pending')
     : null;
@@ -277,6 +287,18 @@ async function recordAndForwardEvent(rec, sender) {
     await broadcastMonitorModel();
   }
   return queued;
+}
+
+function meetWhatsAppText(text) {
+  const match = String(text || '').match(/^\/w\s+([\s\S]*\S)\s*$/i);
+  return match ? match[1] : null;
+}
+
+async function debugReflectionEnabled() {
+  const stored = await chrome.storage.session.get({
+    [DEBUG_ENABLED_KEY]: false
+  });
+  return stored[DEBUG_ENABLED_KEY] === true;
 }
 
 async function forwardEvent(rec) {

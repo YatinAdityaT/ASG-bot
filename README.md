@@ -205,6 +205,10 @@ server for heartbeat and monitor status snapshots. It polls
 `/v1/meet-command` to deliver messages queued by `/meet <message>`. The server validates,
 deduplicates, formats, and queues events for the configured target group:
 
+Ordinary Meet chat is local-only. Participants use `/w <message>` in Meet to
+send that message to WhatsApp. The extension's temporary Debug mode reflects
+all Meet chat for troubleshooting.
+
 - `🎥 Alex joined the call.`
 - `🎥 Alex left the call.`
 - `🎙️ Alex muted their mic.`

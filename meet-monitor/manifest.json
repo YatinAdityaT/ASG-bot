@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Meet Monitor",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "description": "Logs Google Meet activity and can forward it to an ASG WhatsApp bot.",
   "permissions": ["storage", "alarms", "sidePanel"],
   "host_permissions": [

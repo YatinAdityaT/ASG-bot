@@ -181,7 +181,7 @@ test('equivalent events from separate contexts forward once within five seconds'
   const first = {
     ...meetEvent('participant-1'),
     type: 'chat_message',
-    text: 'Hello'
+    text: '/w Hello'
   };
 
   await harness.sendEvent(first);
@@ -320,6 +320,50 @@ test('chat events create no browser notifications', async () => {
   });
 
   assert.equal(harness.notificationCalls.length, 0);
+});
+
+test('ordinary Meet chat stays local unless debug reflection is enabled', async () => {
+  const harness = await createHarness([202]);
+
+  const response = await harness.sendEvent({
+    ...meetEvent('ordinary-chat'),
+    text: 'ordinary conversation'
+  });
+
+  assert.equal(response.queued, false);
+  assert.equal(harness.eventRequests().length, 0);
+  assert.equal(harness.localData.monitorHistory.at(-1).text, 'ordinary conversation');
+});
+
+test('/w forwards only its message body to WhatsApp', async () => {
+  const harness = await createHarness([202]);
+
+  const response = await harness.sendEvent({
+    ...meetEvent('whatsapp-chat'),
+    text: '/w hello from Meet'
+  });
+
+  assert.equal(response.queued, true);
+  assert.equal(
+    JSON.parse(harness.eventRequests()[0].options.body).text,
+    'hello from Meet'
+  );
+});
+
+test('debug mode reflects ordinary Meet chat to WhatsApp', async () => {
+  const harness = await createHarness([202]);
+  await harness.sendViewMessage({ kind: 'setDebugMode', enabled: true });
+
+  const response = await harness.sendEvent({
+    ...meetEvent('debug-chat'),
+    text: 'debug reflection'
+  });
+
+  assert.equal(response.queued, true);
+  assert.equal(
+    JSON.parse(harness.eventRequests()[0].options.body).text,
+    'debug reflection'
+  );
 });
 
 test('chat messages sent by the monitor account are not echoed to WhatsApp', async () => {
@@ -1083,7 +1127,7 @@ function meetEvent(id) {
     meeting: 'jpy-ymgz-tdo',
     ts: `2026-10-27T08:00:0${id === 'good' ? '2' : '1'}Z`,
     name: 'Alex',
-    text: 'Hello'
+    text: '/w Hello'
   };
 }
 

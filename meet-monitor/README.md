@@ -1,6 +1,6 @@
 # Meet Monitor Chrome Extension
 
-Meet Monitor `v1.5.1` is an unpacked Chrome extension for Google Meet. It
+Meet Monitor `v1.6.0` is an unpacked Chrome extension for Google Meet. It
 tracks participant joins and leaves, camera and microphone changes, and chat
 messages for the locked meeting code `jpy-ymgz-tdo`.
 
@@ -54,6 +54,9 @@ and microphone state. Use
 `/meet <message>` to post a message into the Google Meet chat through the
 monitor extension. Meet receives it as `"WhatsApp name" said "message"`, and
 the monitor suppresses its own `You` chat events to prevent WhatsApp echoes.
+Ordinary Meet chat remains local. A Meet participant can send `/w <message>`
+to forward only that message to WhatsApp. Enabling Debug mode in the side
+panel temporarily restores reflection of all Meet chat for troubleshooting.
 
 WhatsApp event messages are prefix-free and look like:
 
