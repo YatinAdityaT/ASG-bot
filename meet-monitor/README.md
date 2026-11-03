@@ -1,6 +1,6 @@
 # Meet Monitor Chrome Extension
 
-Meet Monitor `v1.4.0` is an unpacked Chrome extension for Google Meet. It
+Meet Monitor `v1.4.1` is an unpacked Chrome extension for Google Meet. It
 tracks participant joins and leaves, camera and microphone changes, and chat
 messages for the locked meeting code `jpy-ymgz-tdo`.
 

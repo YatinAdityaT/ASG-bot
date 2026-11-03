@@ -27,6 +27,12 @@
         if (!prev) {
           const name = String(cur.name || '').trim();
           if (!name) continue;
+          for (const [staleId, stale] of this.roster) {
+            if (now.has(staleId) || stale.name !== name) continue;
+            this.roster.delete(staleId);
+            this.candidates.delete(`${staleId}:cam`);
+            this.candidates.delete(`${staleId}:mic`);
+          }
           const confirmed = { ...cur, name };
           this.roster.set(id, confirmed);
           changes.push({ type: 'join', id, cur: confirmed });
@@ -87,7 +93,8 @@
   }
 
   const leftParticipantName = text => {
-    const match = String(text || '').trim().match(/^(.+?) left the (?:call|meeting)$/i);
+    const match = String(text || '').trim()
+      .match(/^(.+?) (?:has left|left) the (?:call|meeting)$/i);
     return match?.[1]?.trim() || null;
   };
 

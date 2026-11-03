@@ -275,5 +275,17 @@ test('content scans use timestamps and replace stale confirmation timers', () =>
 
 test('Meet leave announcements expose the participant name', () => {
   assert.equal(leftParticipantName('Alex left the call'), 'Alex');
+  assert.equal(leftParticipantName('Yatin T has left the meeting'), 'Yatin T');
   assert.equal(leftParticipantName('Alex joined the call'), null);
+});
+
+test('a rejoin under a new device ID replaces the stale same-name identity', () => {
+  const tracker = new ParticipantTracker();
+  const yatin = { name: 'Yatin T', cam: false, mic: 'muted' };
+
+  tracker.update(new Map([['old-device', yatin]]), 0);
+  const changes = tracker.update(new Map([['new-device', yatin]]), 1);
+
+  assert.deepEqual(changes.map(event => event.type), ['join']);
+  assert.deepEqual([...tracker.roster.keys()], ['new-device']);
 });

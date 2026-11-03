@@ -44,11 +44,22 @@
   },
 
   camOf(tile) {
-    const v = tile.querySelector(this.videoSel);
-    return !!v && v.readyState >= 2 && v.videoWidth > 0;
+    return [...tile.querySelectorAll(this.videoSel)]
+      .some(video => video.readyState >= 2 && video.videoWidth > 0);
   },
 
   micOf(tiles) {
+    let muted = false;
+    let unmuted = false;
+    for (const tile of tiles) {
+      for (const element of tile.querySelectorAll('[aria-label]')) {
+        const label = element.getAttribute('aria-label') || '';
+        if (/can['’]t unmute/i.test(label)) muted = true;
+        else if (/can['’]t mute/i.test(label)) unmuted = true;
+      }
+    }
+    if (unmuted) return 'unmuted';
+    if (muted) return 'muted';
     return tiles.some(t => t.querySelector(this.muteIconPathSel)) ? 'muted' : 'unmuted';
   },
 
