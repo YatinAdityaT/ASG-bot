@@ -27,13 +27,12 @@ const (
 var canonicalSessionID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 type Service struct {
-	mu              sync.Mutex
-	store           StateStore
-	jobs            JobCreator
-	meeting         string
-	connected       func() bool
-	now             func() time.Time
-	baselinePending bool
+	mu        sync.Mutex
+	store     StateStore
+	jobs      JobCreator
+	meeting   string
+	connected func() bool
+	now       func() time.Time
 }
 
 func NewService(store StateStore, jobs JobCreator, meeting string, connected func() bool, now func() time.Time) *Service {
@@ -44,12 +43,11 @@ func NewService(store StateStore, jobs JobCreator, meeting string, connected fun
 		now = time.Now
 	}
 	return &Service{
-		store:           store,
-		jobs:            jobs,
-		meeting:         meeting,
-		connected:       connected,
-		now:             now,
-		baselinePending: true,
+		store:     store,
+		jobs:      jobs,
+		meeting:   meeting,
+		connected: connected,
+		now:       now,
 	}
 }
 
@@ -81,17 +79,13 @@ func (s *Service) Process(ctx context.Context, snapshot Snapshot) (Result, error
 		if snapshotHash != previous.SnapshotHash {
 			return Result{}, ErrSequenceConflict
 		}
-		if s.baselinePending {
-			return s.accept(ctx, normalized, snapshotHash, now, "baseline", nil)
-		}
 		if !isOnline(now, previous.LastHeartbeatAt) {
 			return s.accept(ctx, normalized, snapshotHash, now, "baseline", nil)
 		}
 		return s.accept(ctx, normalized, snapshotHash, now, "replay", nil)
 	}
 
-	if s.baselinePending ||
-		!isOnline(now, previous.LastHeartbeatAt) ||
+	if !isOnline(now, previous.LastHeartbeatAt) ||
 		(!previous.ForwardingEnabled && normalized.ForwardingEnabled) {
 		return s.accept(ctx, normalized, snapshotHash, now, "baseline", nil)
 	}
@@ -184,7 +178,6 @@ func (s *Service) accept(
 	if err := s.store.Save(ctx, state); err != nil {
 		return Result{}, err
 	}
-	s.baselinePending = false
 	return s.result(status, snapshot.Sequence, now, true, len(changes)), nil
 }
 

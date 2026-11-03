@@ -325,7 +325,7 @@ func TestServiceBaselineTransitions(t *testing.T) {
 	}
 }
 
-func TestServiceFirstSnapshotAfterServerResetIsBaseline(t *testing.T) {
+func TestServiceRestartReconcilesPersistedOnlineState(t *testing.T) {
 	now := time.Date(2026, 11, 3, 10, 0, 0, 0, time.UTC)
 	env := newServiceEnvironment(t, now)
 	processBaseline(env, validSnapshot(now))
@@ -340,15 +340,20 @@ func TestServiceFirstSnapshotAfterServerResetIsBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != "baseline" || result.QueuedChanges != 0 || countJobs(t, env.database) != 0 {
-		t.Fatalf("post-reset result = %#v, jobs = %d; want silent baseline", result, countJobs(t, env.database))
+	if result.Status != "changed" || result.QueuedChanges != 1 {
+		t.Fatalf("post-restart result = %#v, want one changed event", result)
+	}
+	jobs := loadJobIdentityAndText(t, env.database)
+	wantKey := expectedJobKey(t, monitoredMeeting, testSession, 2, "b", "join")
+	if len(jobs) != 1 || jobs[0].key != wantKey || jobs[0].text != "🎥 Bob joined the call." {
+		t.Fatalf("post-restart jobs = %#v, want deterministic Bob join job %q", jobs, wantKey)
 	}
 	state, err := env.state.Load(context.Background(), monitoredMeeting)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if state.Sequence != 2 || len(state.Participants) != 2 {
-		t.Fatalf("post-reset state = %#v, want accepted snapshot", state)
+		t.Fatalf("post-restart state = %#v, want accepted snapshot", state)
 	}
 }
 
