@@ -12,11 +12,12 @@ and outbound API jobs.
 The companion Google Meet extension is in [`meet-monitor/`](meet-monitor/).
 For operators, keep the bot configured with
 `ASG_BOT_MEET_CODE=jpy-ymgz-tdo`, set the extension Bot API URL to
-`/v1/meet-events`, and let the extension derive `/v1/meet-state` on the same
-origin. After any code or settings change, reload the unpacked extension and
+`/v1/meet-events`, and let the extension derive `/v1/meet-state` and
+`/v1/meet-command` on the same origin. After any code or settings change, reload the unpacked extension and
 refresh every open Meet tab. Use the popup for the sending toggle and quick
-feed, use the side panel for continuous health, and use `/status` in WhatsApp
-to verify the bot, WhatsApp, and monitor state. See
+feed, use the side panel for continuous health, use `/status` to verify monitor
+state, `/call` to list participants, and `/meet <message>` as an admin to post
+into Meet chat. See
 [`meet-monitor/README.md`](meet-monitor/README.md) for the compact extension
 runbook, including the `30s` heartbeat, `45s` content stale window, `90s`
 server-offline threshold, silent reconnect baseline, and troubleshooting.
@@ -200,7 +201,8 @@ Status is one of `pending`, `sending`, `sent`, or `failed`.
 The Meet Monitor extension submits its raw event records to
 `POST /v1/meet-events` using the same bearer token. The extension remains
 configured against `/v1/meet-events` and derives `/v1/meet-state` on the same
-server for heartbeat and monitor status snapshots. The server validates,
+server for heartbeat and monitor status snapshots. It polls
+`/v1/meet-command` to deliver messages queued by `/meet <message>`. The server validates,
 deduplicates, formats, and queues events for the configured target group:
 
 - `🎥 Alex joined the call.`

@@ -30,6 +30,7 @@ type Service struct {
 	mu        sync.Mutex
 	store     StateStore
 	jobs      JobCreator
+	messages  []Message
 	meeting   string
 	connected func() bool
 	now       func() time.Time
@@ -133,6 +134,30 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 		Participants:      len(state.Participants),
 		ForwardingEnabled: state.ForwardingEnabled,
 		ExtensionVersion:  state.ExtensionVersion,
+	}, nil
+}
+
+func (s *Service) CallRoster(ctx context.Context) (CallRoster, error) {
+	now := s.now().UTC()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	state, err := s.store.Load(ctx, s.meeting)
+	if errors.Is(err, ErrNotSeen) {
+		return CallRoster{MonitorState: "never_seen"}, nil
+	}
+	if err != nil {
+		return CallRoster{}, err
+	}
+
+	monitorState := "offline"
+	if isOnline(now, state.LastHeartbeatAt) {
+		monitorState = "online"
+	}
+	return CallRoster{
+		MonitorState: monitorState,
+		Participants: append([]Participant(nil), state.Participants...),
 	}, nil
 }
 

@@ -641,6 +641,26 @@ test('monitor controls require a trusted extension view and clear history', asyn
   ));
 });
 
+test('elected Meet tab receives a pending command and then acknowledges it', async () => {
+  const harness = await createHarness([200], null, {
+    meetCommands: [{ id: 'message-1', text: 'Hello from WhatsApp' }]
+  });
+
+  await harness.sendObservation(1, roster('Alex'));
+  await waitFor(() => harness.commandTabMessages.length === 1);
+  await waitFor(() => harness.commandAckRequests().length === 1);
+
+  assert.deepEqual(harness.commandTabMessages, [{
+    tabId: 1,
+    message: {
+      kind: 'postMeetMessage',
+      id: 'message-1',
+      text: 'Hello from WhatsApp'
+    }
+  }]);
+  assert.equal(harness.meetCommands.length, 0);
+});
+
 test('popup contains a labeled sending control with ON/OFF status', () => {
   const html = fs.readFileSync(
     path.join(__dirname, '..', 'src', 'popup.html'),
@@ -730,6 +750,8 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
   const notificationCalls = [];
   const alarmCreates = [];
   const broadcasts = [];
+  const commandTabMessages = [];
+  const meetCommands = [...(initial.meetCommands || [])];
   let uuid = 0;
 
   const clone = value => JSON.parse(JSON.stringify(value));
@@ -776,6 +798,20 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
     },
     async fetch(url, options) {
       fetchRequests.push({ url, options });
+      if (url === 'https://bot.example.com/v1/meet-command') {
+        const command = meetCommands[0];
+        return {
+          ok: Boolean(command),
+          status: command ? 200 : 204,
+          async json() { return clone(command); }
+        };
+      }
+      if (url === 'https://bot.example.com/v1/meet-command/ack') {
+        const { id } = JSON.parse(options.body);
+        const index = meetCommands.findIndex(command => command.id === id);
+        if (index >= 0) meetCommands.splice(index, 1);
+        return { ok: index >= 0, status: index >= 0 ? 200 : 404 };
+      }
       if (fetchOverride) return fetchOverride(url, options);
       const status = fetchStatuses.shift();
       return {
@@ -819,6 +855,12 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
         async create(options) {
           notificationCalls.push(options);
         }
+      },
+      tabs: {
+        async sendMessage(tabId, message) {
+          commandTabMessages.push({ tabId, message: clone(message) });
+          return { sent: true };
+        }
       }
     }
   };
@@ -839,6 +881,8 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
     sessionData,
     notificationCalls,
     broadcasts,
+    commandTabMessages,
+    meetCommands,
     syncData,
     alarmCreates,
     advance(milliseconds) { now += milliseconds; },
@@ -853,6 +897,9 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
     ),
     webhookRequests: () => fetchRequests.filter(request =>
       request.url === 'https://webhook.example.com/events'
+    ),
+    commandAckRequests: () => fetchRequests.filter(request =>
+      request.url === 'https://bot.example.com/v1/meet-command/ack'
     ),
     setSendingEnabled(enabled) {
       const oldValue = syncData.sendingEnabled;

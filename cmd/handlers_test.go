@@ -23,6 +23,28 @@ type fakeStatusProvider struct {
 	calls  int
 }
 
+type fakeMeetMessenger struct {
+	messages []string
+	err      error
+}
+
+func (f *fakeMeetMessenger) QueueMessage(_ context.Context, text string) (meetmonitor.Message, error) {
+	if f.err != nil {
+		return meetmonitor.Message{}, f.err
+	}
+	f.messages = append(f.messages, text)
+	return meetmonitor.Message{ID: "message-1", Text: text}, nil
+}
+
+type fakeCallProvider struct {
+	roster meetmonitor.CallRoster
+	err    error
+}
+
+func (f *fakeCallProvider) CallRoster(context.Context) (meetmonitor.CallRoster, error) {
+	return f.roster, f.err
+}
+
 func (f *fakeStatusProvider) Status(context.Context) (meetmonitor.Status, error) {
 	f.calls++
 	if f.err != nil {
@@ -778,6 +800,99 @@ func TestDieShutsDownAfterGoodbyeIsSent(t *testing.T) {
 	}
 	if !shutdownCalled {
 		t.Fatal("shutdown was not called after successful goodbye")
+	}
+}
+
+func TestMeetCommandQueuesMessageAndRepliesToAdmin(t *testing.T) {
+	sender := &fakeSender{}
+	messenger := &fakeMeetMessenger{}
+	manager := NewCommandManager(
+		sender,
+		[]string{"456"},
+		nil,
+		WithMeetMessenger(messenger),
+	)
+
+	if err := manager.RouteMessage(nil, context.Background(), messageEvent("/meet Hello everyone")); err != nil {
+		t.Fatalf("RouteMessage() error = %v", err)
+	}
+
+	if len(messenger.messages) != 1 || messenger.messages[0] != "Hello everyone" {
+		t.Fatalf("queued messages = %#v", messenger.messages)
+	}
+	if got := sentText(t, sender); got != "Queued for Google Meet." {
+		t.Fatalf("reply = %q", got)
+	}
+}
+
+func TestMeetCommandIsAdminOnlyAndHasNoCmessageAlias(t *testing.T) {
+	sender := &fakeSender{}
+	messenger := &fakeMeetMessenger{}
+	manager := NewCommandManager(
+		sender,
+		[]string{"999"},
+		nil,
+		WithMeetMessenger(messenger),
+	)
+
+	if err := manager.RouteMessage(nil, context.Background(), messageEvent("/meet blocked")); err != nil {
+		t.Fatal(err)
+	}
+	if got := sentText(t, sender); got != "You do not have permission to use this command." {
+		t.Fatalf("reply = %q", got)
+	}
+
+	sender.messages = nil
+	if err := manager.RouteMessage(nil, context.Background(), messageEvent("/cmessage ignored")); err != nil {
+		t.Fatal(err)
+	}
+	if len(sender.messages) != 0 || len(messenger.messages) != 0 {
+		t.Fatalf("alias unexpectedly handled: replies=%d queued=%d", len(sender.messages), len(messenger.messages))
+	}
+}
+
+func TestCallCommandListsCurrentParticipantsAlphabetically(t *testing.T) {
+	sender := &fakeSender{}
+	manager := NewCommandManager(
+		sender,
+		nil,
+		nil,
+		WithCallProvider(&fakeCallProvider{roster: meetmonitor.CallRoster{
+			MonitorState: "online",
+			Participants: []meetmonitor.Participant{
+				{ID: "2", Name: "Yatin T"},
+				{ID: "1", Name: "ADHD SUPPORT GROUP"},
+				{ID: "3", Name: "Yatin T"},
+			},
+		}}),
+	)
+
+	if err := manager.RouteMessage(nil, context.Background(), messageEvent("/call")); err != nil {
+		t.Fatal(err)
+	}
+	want := "In the call (2):\n• ADHD SUPPORT GROUP\n• Yatin T"
+	if got := sentText(t, sender); got != want {
+		t.Fatalf("reply = %q, want %q", got, want)
+	}
+}
+
+func TestCallCommandRefusesToShowStaleRoster(t *testing.T) {
+	sender := &fakeSender{}
+	manager := NewCommandManager(
+		sender,
+		nil,
+		nil,
+		WithCallProvider(&fakeCallProvider{roster: meetmonitor.CallRoster{
+			MonitorState: "offline",
+			Participants: []meetmonitor.Participant{{ID: "1", Name: "Stale person"}},
+		}}),
+	)
+
+	if err := manager.RouteMessage(nil, context.Background(), messageEvent("/call")); err != nil {
+		t.Fatal(err)
+	}
+	if got := sentText(t, sender); got != "Meet monitor is offline, so I can't verify who is in the call." {
+		t.Fatalf("reply = %q", got)
 	}
 }
 

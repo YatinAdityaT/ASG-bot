@@ -225,7 +225,12 @@ func runWithDependencies(ctx context.Context, cfg config.Config, deps runtimeDep
 	}
 	var commandOptions []cmd.ManagerOption
 	if monitorService != nil {
-		commandOptions = append(commandOptions, cmd.WithStatusProvider(monitorService))
+		commandOptions = append(
+			commandOptions,
+			cmd.WithStatusProvider(monitorService),
+			cmd.WithMeetMessenger(monitorService),
+			cmd.WithCallProvider(monitorService),
+		)
 	}
 	commandManager := cmd.NewCommandManager(client, cfg.AdminNumbers, cancel, commandOptions...)
 	handleEvent := eventHandler(

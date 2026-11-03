@@ -114,6 +114,27 @@ func TestServiceCanonicalizesBeforeHashAndPersistence(t *testing.T) {
 	}
 }
 
+func TestServiceCallRosterReturnsCurrentMonitorStateAndParticipants(t *testing.T) {
+	now := time.Date(2026, 11, 3, 10, 0, 0, 0, time.UTC)
+	env := newServiceEnvironment(t, now)
+	snapshot := validSnapshot(now)
+	snapshot.Participants = []meetmonitor.Participant{
+		participant("p-1", "Alice"),
+		participant("p-2", "Bob"),
+	}
+	if _, err := env.service.Process(context.Background(), snapshot); err != nil {
+		t.Fatal(err)
+	}
+
+	roster, err := env.service.CallRoster(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if roster.MonitorState != "online" || !reflect.DeepEqual(roster.Participants, snapshot.Participants) {
+		t.Fatalf("roster = %#v", roster)
+	}
+}
+
 func TestServiceFirstBaselineAndUnchangedHeartbeat(t *testing.T) {
 	now := time.Date(2026, 11, 3, 10, 0, 0, 0, time.UTC)
 	env := newServiceEnvironment(t, now)

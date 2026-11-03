@@ -205,6 +205,12 @@
   });
 
   chrome.runtime.onMessage.addListener((msg, _s, sendResponse) => {
+    if (msg.kind === 'postMeetMessage') {
+      window.MMMeetChat.postMessage(document, msg.text)
+        .then(sent => sendResponse({ sent }))
+        .catch(() => sendResponse({ sent: false }));
+      return true;
+    }
     if (msg.kind === 'getState') {
       sendResponse({
         meeting,

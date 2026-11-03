@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -54,6 +55,53 @@ func (cm *CommandManager) handleStatus(ctx context.Context, client utils.Message
 		"Extension: " + extensionVersionString(status.ExtensionVersion),
 	}
 	return utils.ReplyToMessage(ctx, client, info.Chat, strings.Join(lines, "\n"), info.ID, info.Sender)
+}
+
+func (cm *CommandManager) handleMeetMessage(ctx context.Context, client utils.MessageSender, info types.MessageInfo, args []string) error {
+	if _, err := cm.meetMessenger.QueueMessage(ctx, args[0]); err != nil {
+		return fmt.Errorf("queue Meet message: %w", err)
+	}
+	return utils.ReplyToMessage(ctx, client, info.Chat, "Queued for Google Meet.", info.ID, info.Sender)
+}
+
+func (cm *CommandManager) handleCall(ctx context.Context, client utils.MessageSender, info types.MessageInfo, args []string) error {
+	roster, err := cm.callProvider.CallRoster(ctx)
+	if err != nil {
+		return fmt.Errorf("get Meet call roster: %w", err)
+	}
+	if roster.MonitorState != "online" {
+		return utils.ReplyToMessage(
+			ctx,
+			client,
+			info.Chat,
+			"Meet monitor is offline, so I can't verify who is in the call.",
+			info.ID,
+			info.Sender,
+		)
+	}
+
+	unique := make(map[string]struct{}, len(roster.Participants))
+	for _, participant := range roster.Participants {
+		name := strings.TrimSpace(participant.Name)
+		if name != "" {
+			unique[name] = struct{}{}
+		}
+	}
+	names := make([]string, 0, len(unique))
+	for name := range unique {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	if len(names) == 0 {
+		return utils.ReplyToMessage(ctx, client, info.Chat, "The call is currently empty.", info.ID, info.Sender)
+	}
+
+	var reply strings.Builder
+	fmt.Fprintf(&reply, "In the call (%d):", len(names))
+	for _, name := range names {
+		fmt.Fprintf(&reply, "\n• %s", name)
+	}
+	return utils.ReplyToMessage(ctx, client, info.Chat, reply.String(), info.ID, info.Sender)
 }
 
 func boolString(value bool, whenTrue, whenFalse string) string {

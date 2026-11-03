@@ -12,6 +12,8 @@ var (
 	ErrInvalidSnapshot  = errors.New("invalid Meet snapshot")
 	ErrSequenceConflict = errors.New("Meet snapshot sequence conflict")
 	ErrNotSeen          = errors.New("Meet monitor not seen")
+	ErrInvalidMessage   = errors.New("invalid Meet message")
+	ErrMessageQueueFull = errors.New("Meet message queue is full")
 )
 
 type Participant struct {
@@ -64,6 +66,17 @@ type Status struct {
 	Participants      int
 	ForwardingEnabled bool
 	ExtensionVersion  string
+}
+
+type Message struct {
+	ID        string    `json:"id"`
+	Text      string    `json:"text"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+type CallRoster struct {
+	MonitorState string
+	Participants []Participant
 }
 
 type StateStore interface {

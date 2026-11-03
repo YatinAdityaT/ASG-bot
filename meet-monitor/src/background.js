@@ -25,6 +25,7 @@ const PENDING_SNAPSHOT_KEY = 'pendingMeetSnapshot';
 const HISTORY_KEY = 'monitorHistory';
 const DEBUG_HISTORY_KEY = 'monitorDebugHistory';
 const DEBUG_ENABLED_KEY = 'monitorDebugEnabled';
+const POSTED_COMMANDS_KEY = 'postedMeetCommandIds';
 const MAX_HISTORY_SIZE = 1_000;
 const MAX_DEBUG_HISTORY_SIZE = 250;
 const MAX_SNAPSHOT_ATTEMPTS = 10;
@@ -33,6 +34,7 @@ const storageProtection = chrome.storage.local.setAccessLevel({
 });
 let outboxOperation = Promise.resolve();
 let stateOperation = Promise.resolve();
+let commandPollInFlight = null;
 let nextSendAllowedAt = 0;
 const recentlyForwarded = new Map();
 
@@ -516,7 +518,61 @@ async function receiveObservation(message, sender) {
     await updateHistoryDelivery(historyIds, deliveryState);
   }
   await broadcastMonitorModel();
+  pollMeetCommand(tabId).catch(() => {
+    console.warn('Meet command polling failed');
+  });
   return { elected: true };
+}
+
+function pollMeetCommand(tabId) {
+  if (commandPollInFlight) return commandPollInFlight;
+  commandPollInFlight = performMeetCommandPoll(tabId)
+    .finally(() => {
+      commandPollInFlight = null;
+    });
+  return commandPollInFlight;
+}
+
+async function performMeetCommandPoll(tabId) {
+  const config = await botAPIConfig();
+  const request = MMDelivery.commandRequestFor(
+    config.botAPIURL,
+    config.botAPIToken
+  );
+  if (!request) return false;
+
+  const response = await fetchWithTimeout(request);
+  if (response.status === 204) return false;
+  if (!response.ok) return false;
+
+  const command = await response.json();
+  const id = String(command?.id || '').trim();
+  const text = String(command?.text || '').trim();
+  if (!id || !text) return false;
+
+  const stored = await chrome.storage.local.get({ [POSTED_COMMANDS_KEY]: [] });
+  const posted = boundedArray(stored[POSTED_COMMANDS_KEY], 100);
+  if (!posted.includes(id)) {
+    const result = await chrome.tabs.sendMessage(tabId, {
+      kind: 'postMeetMessage',
+      id,
+      text
+    });
+    if (!result?.sent) return false;
+    posted.push(id);
+    await chrome.storage.local.set({
+      [POSTED_COMMANDS_KEY]: boundedArray(posted, 100)
+    });
+  }
+
+  const acknowledgement = MMDelivery.commandAckRequestFor(
+    id,
+    config.botAPIURL,
+    config.botAPIToken
+  );
+  if (!acknowledgement) return false;
+  const acknowledged = await fetchWithTimeout(acknowledgement);
+  return acknowledged.ok;
 }
 
 async function recordRawObservation(message, sourceTabId, observedAt) {

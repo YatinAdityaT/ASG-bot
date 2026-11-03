@@ -31,6 +31,14 @@ type StatusProvider interface {
 	Status(context.Context) (meetmonitor.Status, error)
 }
 
+type MeetMessenger interface {
+	QueueMessage(context.Context, string) (meetmonitor.Message, error)
+}
+
+type CallProvider interface {
+	CallRoster(context.Context) (meetmonitor.CallRoster, error)
+}
+
 type ManagerOption func(*CommandManager)
 
 type CommandManager struct {
@@ -38,6 +46,8 @@ type CommandManager struct {
 	orderedList    []Command          // for /help order
 	admins         map[string]struct{}
 	statusProvider StatusProvider
+	meetMessenger  MeetMessenger
+	callProvider   CallProvider
 	//logger *log.Logger
 	client   utils.MessageSender
 	shutdown context.CancelFunc
@@ -47,6 +57,18 @@ type CommandManager struct {
 func WithStatusProvider(provider StatusProvider) ManagerOption {
 	return func(manager *CommandManager) {
 		manager.statusProvider = provider
+	}
+}
+
+func WithMeetMessenger(messenger MeetMessenger) ManagerOption {
+	return func(manager *CommandManager) {
+		manager.meetMessenger = messenger
+	}
+}
+
+func WithCallProvider(provider CallProvider) ManagerOption {
+	return func(manager *CommandManager) {
+		manager.callProvider = provider
 	}
 }
 
@@ -108,6 +130,26 @@ func NewCommandManager(client utils.MessageSender, admins []string, shutdown con
 			Regex:          regexp.MustCompile(`^/status$`),
 			Callback:       NoDB(cm.handleStatus),
 			IsAdminCommand: false,
+		})
+	}
+
+	if cm.callProvider != nil {
+		cm.RegisterCommand(Command{
+			Name:           "/call",
+			Description:    "Lists everyone currently in the monitored Google Meet call.",
+			Regex:          regexp.MustCompile(`^/call$`),
+			Callback:       NoDB(cm.handleCall),
+			IsAdminCommand: false,
+		})
+	}
+
+	if cm.meetMessenger != nil {
+		cm.RegisterCommand(Command{
+			Name:           "/meet <message>",
+			Description:    "[Admin only] Posts a message to the monitored Google Meet chat.",
+			Regex:          regexp.MustCompile(`^/meet\s+(.+)$`),
+			Callback:       NoDB(cm.handleMeetMessage),
+			IsAdminCommand: true,
 		})
 	}
 

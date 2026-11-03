@@ -2,6 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  commandAckRequestFor,
+  commandRequestFor,
   eventKey,
   eventRequestFor,
   forwardingKey,
@@ -142,6 +144,37 @@ test('state request targets same-origin /v1/meet-state with snapshot body and be
       'Authorization': 'Bearer private-token'
     },
     body: JSON.stringify(snapshot)
+  });
+});
+
+test('Meet command requests poll and acknowledge on the configured bot origin', () => {
+  const poll = commandRequestFor(
+    'https://bot.example.com/v1/meet-events',
+    'private-token'
+  );
+  assert.deepEqual(poll, {
+    url: 'https://bot.example.com/v1/meet-command',
+    options: {
+      method: 'GET',
+      headers: { 'Authorization': 'Bearer private-token' }
+    }
+  });
+
+  const ack = commandAckRequestFor(
+    'message-1',
+    'https://bot.example.com/v1/meet-events',
+    'private-token'
+  );
+  assert.deepEqual(ack, {
+    url: 'https://bot.example.com/v1/meet-command/ack',
+    options: {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer private-token'
+      },
+      body: JSON.stringify({ id: 'message-1' })
+    }
   });
 });
 

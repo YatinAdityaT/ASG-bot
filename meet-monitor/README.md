@@ -1,6 +1,6 @@
 # Meet Monitor Chrome Extension
 
-Meet Monitor `v1.4.1` is an unpacked Chrome extension for Google Meet. It
+Meet Monitor `v1.5.0` is an unpacked Chrome extension for Google Meet. It
 tracks participant joins and leaves, camera and microphone changes, and chat
 messages for the locked meeting code `jpy-ymgz-tdo`.
 
@@ -12,7 +12,7 @@ messages for the locked meeting code `jpy-ymgz-tdo`.
 3. Open extension options from the popup or the extension details page.
 4. Set the Bot API URL to the server endpoint ending in `/v1/meet-events`.
    Meet Monitor stays configured against `/v1/meet-events` and derives
-   `/v1/meet-state` automatically on the same origin.
+   `/v1/meet-state` and `/v1/meet-command` automatically on the same origin.
 5. Paste the bot bearer token, save, approve the exact origin permission
    request, then reload the unpacked extension and refresh every open Meet tab.
 
@@ -48,6 +48,10 @@ Use `/status` in the configured WhatsApp group to check bot, WhatsApp, and Meet
 monitor health. The reply includes bot online state, WhatsApp connected state,
 monitor online or offline state, last heartbeat age, meeting code, participant
 count, forwarding ON or OFF, and extension version.
+
+Use `/call` to list everyone currently detected in the call. Admins can use
+`/meet <message>` to post a message into the Google Meet chat through the
+monitor extension.
 
 WhatsApp event messages are prefix-free and look like:
 

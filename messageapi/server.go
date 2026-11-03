@@ -166,6 +166,18 @@ func (server *Server) serveHTTP(writer http.ResponseWriter, request *http.Reques
 			return
 		}
 		server.submitMeetState(writer, request)
+	case request.URL.Path == "/v1/meet-command":
+		if request.Method != http.MethodGet {
+			methodNotAllowed(writer, http.MethodGet)
+			return
+		}
+		server.getMeetCommand(writer, request)
+	case request.URL.Path == "/v1/meet-command/ack":
+		if request.Method != http.MethodPost {
+			methodNotAllowed(writer, http.MethodPost)
+			return
+		}
+		server.acknowledgeMeetCommand(writer, request)
 	case strings.HasPrefix(request.URL.Path, "/v1/messages/"):
 		if request.Method != http.MethodGet {
 			methodNotAllowed(writer, http.MethodGet)

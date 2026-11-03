@@ -80,7 +80,45 @@
     };
   };
 
+  const commandRequestFor = (apiURL, token) => {
+    const url = String(apiURL || '').trim();
+    const bearer = String(token || '').trim();
+    if (!isAllowedBotAPIURL(url) || !bearer) return null;
+
+    const derivedURL = new URL(url);
+    derivedURL.pathname = '/v1/meet-command';
+    return {
+      url: derivedURL.toString(),
+      options: {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${bearer}` }
+      }
+    };
+  };
+
+  const commandAckRequestFor = (id, apiURL, token) => {
+    const commandId = String(id || '').trim();
+    const request = commandRequestFor(apiURL, token);
+    if (!commandId || !request) return null;
+
+    const derivedURL = new URL(request.url);
+    derivedURL.pathname = '/v1/meet-command/ack';
+    return {
+      url: derivedURL.toString(),
+      options: {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': request.options.headers.Authorization
+        },
+        body: JSON.stringify({ id: commandId })
+      }
+    };
+  };
+
   return {
+    commandAckRequestFor,
+    commandRequestFor,
     eventKey,
     eventRequestFor,
     forwardingKey,
