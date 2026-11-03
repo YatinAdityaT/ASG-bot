@@ -39,7 +39,7 @@
   const retryDelay = attempts =>
     retryDelays[Math.min(Math.max(Number(attempts) || 0, 0), retryDelays.length - 1)];
 
-  const requestFor = (event, apiURL, token) => {
+  const eventRequestFor = (event, apiURL, token) => {
     const url = String(apiURL || '').trim();
     const bearer = String(token || '').trim();
     if (!isAllowedBotAPIURL(url) || !bearer) return null;
@@ -57,5 +57,36 @@
     };
   };
 
-  return { eventKey, forwardingKey, isAllowedBotAPIURL, requestFor, retryDelay };
+  const requestFor = eventRequestFor;
+
+  const stateRequestFor = (snapshot, apiURL, token) => {
+    const url = String(apiURL || '').trim();
+    const bearer = String(token || '').trim();
+    if (!isAllowedBotAPIURL(url) || !bearer) return null;
+
+    const derivedURL = new URL(url);
+    derivedURL.pathname = '/v1/meet-state';
+
+    return {
+      url: derivedURL.toString(),
+      options: {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${bearer}`
+        },
+        body: JSON.stringify(snapshot)
+      }
+    };
+  };
+
+  return {
+    eventKey,
+    eventRequestFor,
+    forwardingKey,
+    isAllowedBotAPIURL,
+    requestFor,
+    retryDelay,
+    stateRequestFor
+  };
 });
