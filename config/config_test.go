@@ -156,6 +156,7 @@ func TestLoadValidEnabledAPI(t *testing.T) {
 		"ASG_BOT_ADMIN_NUMBERS":       "111",
 		"ASG_BOT_ALLOWED_GROUPS":      "123@g.us,456@g.us",
 		"ASG_BOT_API_ENABLED":         "true",
+		"ASG_BOT_MEET_CODE":           "jpy-ymgz-tdo",
 		"ASG_BOT_API_TOKEN":           "01234567890123456789012345678901",
 		"ASG_BOT_API_TARGET_GROUP":    "456@g.us",
 		"ASG_BOT_API_ALLOWED_ORIGINS": " chrome-extension://abcdefghijklmnop ,chrome-extension://qrstuvwxyzabcdef ",
@@ -170,6 +171,9 @@ func TestLoadValidEnabledAPI(t *testing.T) {
 	}
 	if cfg.APIAddr != "127.0.0.1:8080" {
 		t.Fatalf("APIAddr = %q, want default", cfg.APIAddr)
+	}
+	if cfg.MeetCode != "jpy-ymgz-tdo" {
+		t.Fatalf("MeetCode = %q, want configured meet code", cfg.MeetCode)
 	}
 	if cfg.APIToken != env["ASG_BOT_API_TOKEN"] || cfg.APITargetGroup != "456@g.us" {
 		t.Fatalf("unexpected API configuration: %#v", cfg)
@@ -186,6 +190,7 @@ func TestLoadRejectsInvalidEnabledAPI(t *testing.T) {
 		"ASG_BOT_ALLOWED_GROUPS":   "123@g.us",
 		"ASG_BOT_API_ENABLED":      "true",
 		"ASG_BOT_API_ADDR":         "127.0.0.1:9090",
+		"ASG_BOT_MEET_CODE":        "jpy-ymgz-tdo",
 		"ASG_BOT_API_TOKEN":        "01234567890123456789012345678901",
 		"ASG_BOT_API_TARGET_GROUP": "123@g.us",
 	}
@@ -195,6 +200,8 @@ func TestLoadRejectsInvalidEnabledAPI(t *testing.T) {
 		value  string
 		delete bool
 	}{
+		{name: "missing meet code", key: "ASG_BOT_MEET_CODE", delete: true},
+		{name: "invalid meet code", key: "ASG_BOT_MEET_CODE", value: "JPY-YMGZ-TDO"},
 		{name: "missing token", key: "ASG_BOT_API_TOKEN", delete: true},
 		{name: "short token", key: "ASG_BOT_API_TOKEN", value: "too-short"},
 		{name: "malformed address", key: "ASG_BOT_API_ADDR", value: "127.0.0.1"},
@@ -249,6 +256,7 @@ func TestLoadAPIEnabledAcceptsCaseInsensitiveLiterals(t *testing.T) {
 				"ASG_BOT_ADMIN_NUMBERS":  "111",
 				"ASG_BOT_ALLOWED_GROUPS": "123@g.us",
 				"ASG_BOT_API_ENABLED":    value,
+				"ASG_BOT_MEET_CODE":      "not-used-when-disabled",
 			}
 
 			cfg, err := Load(func(key string) string { return env[key] })

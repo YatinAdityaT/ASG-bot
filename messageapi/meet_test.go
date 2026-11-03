@@ -15,14 +15,13 @@ func TestMeetEventsAreFormattedAndQueued(t *testing.T) {
 		event    map[string]any
 		expected string
 	}{
-		{"join", meetEvent("join", ""), "🎥 Meet abc-defg-hij: Alex joined the call."},
-		{"leave", meetEvent("leave", ""), "🎥 Meet abc-defg-hij: Alex left the call."},
-		{"mic muted", meetEvent("mic_muted", ""), "🎙️ Meet abc-defg-hij: Alex muted their mic."},
-		{"mic unmuted", meetEvent("mic_unmuted", ""), "🎙️ Meet abc-defg-hij: Alex unmuted their mic."},
-		{"camera on", meetEvent("cam_on", ""), "📷 Meet abc-defg-hij: Alex turned their camera on."},
-		{"camera off", meetEvent("cam_off", ""), "📷 Meet abc-defg-hij: Alex turned their camera off."},
-		{"rename", meetEvent("rename", ""), "✏️ Meet abc-defg-hij: A participant is now named Alex."},
-		{"chat", meetEvent("chat_message", "Hello"), `💬 Meet abc-defg-hij: Alex said: Hello`},
+		{"join", meetEvent("join", ""), "🎥 Alex joined the call."},
+		{"leave", meetEvent("leave", ""), "🚪 Alex left the call."},
+		{"mic muted", meetEvent("mic_muted", ""), "🎙️ Alex muted their mic."},
+		{"mic unmuted", meetEvent("mic_unmuted", ""), "🎙️ Alex unmuted their mic."},
+		{"camera on", meetEvent("cam_on", ""), "📷 Alex turned their camera on."},
+		{"camera off", meetEvent("cam_off", ""), "📷 Alex turned their camera off."},
+		{"chat", meetEvent("chat_message", "Hello"), `💬 Alex said: Hello`},
 	}
 
 	for _, test := range tests {
@@ -156,7 +155,7 @@ func TestMeetEventSanitizesParticipantControlledText(t *testing.T) {
 	}
 	decodeResponse(t, response, &submitted)
 	job := getJob(t, store, submitted.ID)
-	if job.Message != "💬 Meet abc-defg-hij: Alex Admin said: hello world" {
+	if job.Message != "💬 Alex Admin said: hello world" {
 		t.Fatalf("sanitized message = %q", job.Message)
 	}
 }
@@ -167,6 +166,7 @@ func TestMeetEventValidation(t *testing.T) {
 		event map[string]any
 	}{
 		{"unsupported type", meetEvent("screen_shared", "")},
+		{"rename disabled", meetEvent("rename", "")},
 		{"blank id", withMeetField(meetEvent("join", ""), "id", " ")},
 		{"blank meeting", withMeetField(meetEvent("join", ""), "meeting", "")},
 		{"blank name", withMeetField(meetEvent("join", ""), "name", "")},

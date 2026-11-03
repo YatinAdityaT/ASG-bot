@@ -53,6 +53,19 @@ var createOutboundJobsTable = `
 	CREATE INDEX IF NOT EXISTS idx_outbound_jobs_status
 		ON outbound_jobs(status);`
 
+var createMeetMonitorStateTable = `
+	CREATE TABLE IF NOT EXISTS meet_monitor_state (
+		meeting_code TEXT PRIMARY KEY,
+		session_id TEXT NOT NULL,
+		sequence INTEGER NOT NULL,
+		snapshot_json TEXT NOT NULL,
+		snapshot_hash TEXT NOT NULL,
+		extension_version TEXT NOT NULL,
+		forwarding_enabled INTEGER NOT NULL CHECK (forwarding_enabled IN (0, 1)),
+		last_heartbeat_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
+	);`
+
 func SetupDB(ctx context.Context, path string) (*sqlstore.Container, *sql.DB, error) {
 	database, err := sql.Open("sqlite", "file:"+path+"?_foreign_keys=on")
 	if err != nil {
@@ -88,6 +101,12 @@ func SetupDB(ctx context.Context, path string) (*sqlstore.Container, *sql.DB, er
 	if err != nil {
 		database.Close()
 		return nil, nil, fmt.Errorf("create outbound jobs schema: %w", err)
+	}
+
+	_, err = database.ExecContext(ctx, createMeetMonitorStateTable)
+	if err != nil {
+		database.Close()
+		return nil, nil, fmt.Errorf("create meet monitor state schema: %w", err)
 	}
 
 	return container, database, nil

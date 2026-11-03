@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"mime"
 	"net/http"
 	"strconv"
@@ -14,6 +13,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"whatsappBot/meetmonitor"
 	"whatsappBot/outbound"
 )
 
@@ -124,44 +124,7 @@ func normalizeAndFormatMeetEvent(event *meetEvent) (string, error) {
 	if event.Text != nil {
 		text = *event.Text
 	}
-	prefix := fmt.Sprintf("Meet %s: ", event.Meeting)
-	switch event.Type {
-	case "join":
-		if strings.TrimSpace(text) != "" {
-			return "", errors.New("unexpected event text")
-		}
-		return "🎥 " + prefix + event.Name + " joined the call.", nil
-	case "leave":
-		if strings.TrimSpace(text) != "" {
-			return "", errors.New("unexpected event text")
-		}
-		return "🎥 " + prefix + event.Name + " left the call.", nil
-	case "mic_muted":
-		if strings.TrimSpace(text) != "" {
-			return "", errors.New("unexpected event text")
-		}
-		return "🎙️ " + prefix + event.Name + " muted their mic.", nil
-	case "mic_unmuted":
-		if strings.TrimSpace(text) != "" {
-			return "", errors.New("unexpected event text")
-		}
-		return "🎙️ " + prefix + event.Name + " unmuted their mic.", nil
-	case "cam_on":
-		if strings.TrimSpace(text) != "" {
-			return "", errors.New("unexpected event text")
-		}
-		return "📷 " + prefix + event.Name + " turned their camera on.", nil
-	case "cam_off":
-		if strings.TrimSpace(text) != "" {
-			return "", errors.New("unexpected event text")
-		}
-		return "📷 " + prefix + event.Name + " turned their camera off.", nil
-	case "rename":
-		if strings.TrimSpace(text) != "" {
-			return "", errors.New("unexpected event text")
-		}
-		return "✏️ " + prefix + "A participant is now named " + event.Name + ".", nil
-	case "chat_message":
+	if event.Type == "chat_message" {
 		if strings.TrimSpace(text) == "" || utf8.RuneCountInString(text) > maxMeetChatRunes {
 			return "", errors.New("invalid chat text")
 		}
@@ -170,10 +133,9 @@ func normalizeAndFormatMeetEvent(event *meetEvent) (string, error) {
 			return "", errors.New("invalid chat text")
 		}
 		event.Text = &text
-		return "💬 " + prefix + event.Name + " said: " + text, nil
-	default:
-		return "", errors.New("unsupported event type")
 	}
+
+	return meetmonitor.FormatEvent(event.Type, event.Name, text)
 }
 
 func meetIdempotencyKey(event meetEvent) (string, error) {

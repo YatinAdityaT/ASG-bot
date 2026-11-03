@@ -19,6 +19,7 @@ const (
 var (
 	adminNumberPattern = regexp.MustCompile(`^[0-9]+$`)
 	groupJIDPattern    = regexp.MustCompile(`^[0-9]+@g\.us$`)
+	meetCodePattern    = regexp.MustCompile(`^[a-z]{3}-[a-z]{4}-[a-z]{3}$`)
 	validLogLevels     = map[string]bool{
 		"TRACE":    true,
 		"DEBUG":    true,
@@ -36,6 +37,7 @@ type Config struct {
 	LogLevel          string
 	APIEnabled        bool
 	APIAddr           string
+	MeetCode          string
 	APIToken          string
 	APITargetGroup    string
 	APIAllowedOrigins []string
@@ -99,6 +101,11 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	if err := validateAPIAddr(cfg.APIAddr); err != nil {
 		return Config{}, err
+	}
+
+	cfg.MeetCode = strings.TrimSpace(getenv("ASG_BOT_MEET_CODE"))
+	if !meetCodePattern.MatchString(cfg.MeetCode) {
+		return Config{}, fmt.Errorf("ASG_BOT_MEET_CODE must be a Google Meet code")
 	}
 
 	cfg.APIToken = strings.TrimSpace(getenv("ASG_BOT_API_TOKEN"))

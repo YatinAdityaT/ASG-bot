@@ -23,6 +23,7 @@ func TestSetupDBCreatesApplicationSchema(t *testing.T) {
 		"birthdays",
 		"birthday_deliveries",
 		"outbound_jobs",
+		"meet_monitor_state",
 		"idx_remind_at",
 		"idx_reminders_requester_chat",
 		"idx_birth_date",
@@ -75,6 +76,30 @@ func TestSetupDBCreatesApplicationSchema(t *testing.T) {
 		}
 		if count != 1 {
 			t.Fatalf("outbound_jobs column %q count = %d, want 1", column, count)
+		}
+	}
+
+	for _, column := range []string{
+		"meeting_code",
+		"session_id",
+		"sequence",
+		"snapshot_json",
+		"snapshot_hash",
+		"extension_version",
+		"forwarding_enabled",
+		"last_heartbeat_at",
+		"updated_at",
+	} {
+		var count int
+		if err := conn.QueryRow(`
+			SELECT COUNT(*)
+			FROM pragma_table_info('meet_monitor_state')
+			WHERE name = ?
+		`, column).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 {
+			t.Fatalf("meet_monitor_state column %q count = %d, want 1", column, count)
 		}
 	}
 }
