@@ -28,6 +28,12 @@ if (-not (Test-Path -LiteralPath (Join-Path $DeployRoot ".git"))) {
 }
 New-Item -ItemType Directory -Path $runtimeDirectory -Force | Out-Null
 New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
+if (Test-Path -LiteralPath $configPath) {
+    Write-ExtensionLocalConfig `
+        -ConfigPath $configPath `
+        -DestinationPath (Join-Path $DeployRoot "meet-monitor\src\local-config.json") |
+        Out-Null
+}
 
 $lock = $null
 try {

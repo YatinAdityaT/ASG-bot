@@ -1024,6 +1024,15 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
       }
     },
     async fetch(url, options) {
+      if (url === 'chrome-extension://extension-id/src/local-config.json') {
+        return {
+          ok: Boolean(initial.managedBotAPIConfig),
+          status: initial.managedBotAPIConfig ? 200 : 404,
+          async json() {
+            return clone(initial.managedBotAPIConfig || {});
+          }
+        };
+      }
       fetchRequests.push({ url, options });
       if (url ===
           'https://raw.githubusercontent.com/YatinAdityaT/ASG-bot/master/meet-monitor/manifest.json') {

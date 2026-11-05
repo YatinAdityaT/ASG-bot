@@ -164,8 +164,9 @@ Remove the previously loaded unpacked Meet Monitor once, then load it from:
 Changing the unpacked-extension path may produce a new Chrome extension ID.
 If it does, update `apiAllowedOrigins` in
 `%LOCALAPPDATA%\ASGBotDeploy\config.local.json` to that exact
-`chrome-extension://<id>` origin and save the Bot API settings again in the
-extension. This is a one-time migration.
+`chrome-extension://<id>` origin. The deployer generates the extension's local
+API URL and token from `config.local.json`; these credentials remain untracked
+and are applied automatically by Meet Monitor.
 
 Meet Monitor checks the GitHub manifest version every minute. After the
 deployment checkout updates, it reloads itself and refreshes only configured

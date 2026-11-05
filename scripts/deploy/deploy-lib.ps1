@@ -53,6 +53,63 @@ function Write-DeployLog {
     Add-Content -LiteralPath $Path -Value "$timestamp $Message"
 }
 
+function Write-ExtensionLocalConfig {
+    param(
+        [Parameter(Mandatory = $true)][string]$ConfigPath,
+        [Parameter(Mandatory = $true)][string]$DestinationPath
+    )
+    $config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
+    $apiEnabled = $null -ne $config.PSObject.Properties["apiEnabled"] -and
+        $config.apiEnabled -eq $true
+    $apiAddr = if ($null -ne $config.PSObject.Properties["apiAddr"]) {
+        [string]$config.apiAddr
+    } else {
+        ""
+    }
+    $apiToken = if ($null -ne $config.PSObject.Properties["apiToken"]) {
+        [string]$config.apiToken
+    } else {
+        ""
+    }
+    if (-not $apiEnabled -or
+        [string]::IsNullOrWhiteSpace($apiAddr) -or
+        [string]::IsNullOrWhiteSpace($apiToken)) {
+        Remove-Item -LiteralPath $DestinationPath -Force -ErrorAction SilentlyContinue
+        return $false
+    }
+
+    $baseURL = $apiAddr.Trim().TrimEnd("/")
+    if ($baseURL -notmatch "^https?://") {
+        $baseURL = "http://$baseURL"
+    }
+    $url = "$baseURL/v1/meet-events"
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [Text.Encoding]::UTF8.GetBytes("$url`0$apiToken")
+        $hash = $sha.ComputeHash($bytes)
+    } finally {
+        $sha.Dispose()
+    }
+    $generation = "managed-" + (
+        ($hash[0..7] | ForEach-Object { $_.ToString("x2") }) -join ""
+    )
+    $payload = [ordered]@{
+        url        = $url
+        token      = $apiToken
+        generation = $generation
+    } | ConvertTo-Json -Compress
+    $directory = Split-Path -Parent $DestinationPath
+    New-Item -ItemType Directory -Path $directory -Force | Out-Null
+    if ((Read-TrimmedFile -Path $DestinationPath) -ne $payload) {
+        [IO.File]::WriteAllText(
+            $DestinationPath,
+            $payload,
+            [Text.UTF8Encoding]::new($false)
+        )
+    }
+    return $true
+}
+
 function Stop-RecordedBot {
     param(
         [Parameter(Mandatory = $true)][string]$PIDPath,

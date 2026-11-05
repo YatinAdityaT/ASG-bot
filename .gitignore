@@ -1,5 +1,6 @@
 *.db
 *.sql
 config.local.json
+meet-monitor/src/local-config.json
 .superpowers/
 .worktrees/

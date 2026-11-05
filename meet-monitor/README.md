@@ -1,6 +1,6 @@
 # Meet Monitor Chrome Extension
 
-Meet Monitor `v1.9.8` is an unpacked Chrome extension for Google Meet. It
+Meet Monitor `v1.9.9` is an unpacked Chrome extension for Google Meet. It
 tracks participant joins and leaves, camera and microphone changes, and chat
 messages for configured Google Meet codes.
 
@@ -12,11 +12,11 @@ messages for configured Google Meet codes.
 3. Open extension options from the extension details page.
 4. Add the comma-separated Google Meet codes that may be monitored. The first
    code is the primary call used by `/status`, `/incall`, and `/meet`.
-5. Set the Bot API URL to the server endpoint ending in `/v1/meet-events`.
-   Meet Monitor stays configured against `/v1/meet-events` and derives
-   `/v1/meet-state` and `/v1/meet-command` automatically on the same origin.
-6. Paste the bot bearer token, save, approve the exact origin permission
-   request, then reload the unpacked extension and refresh every open Meet tab.
+5. When using the managed auto-deploy checkout, the Bot API URL and token are
+   generated from `config.local.json` and loaded automatically. Manual
+   installations can still enter both values in Options.
+6. Ensure the bot allows the extension's exact origin, then reload the unpacked
+   extension and refresh every open Meet tab.
 
 Chrome does not hot-reload unpacked extensions by itself. Without the
 auto-deploy setup, reload the extension and refresh all open Meet tabs after

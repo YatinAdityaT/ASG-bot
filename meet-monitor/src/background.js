@@ -36,6 +36,7 @@ const MAX_SNAPSHOT_ATTEMPTS = 10;
 const storageProtection = chrome.storage.local.setAccessLevel({
   accessLevel: 'TRUSTED_CONTEXTS'
 });
+const managedConfigReady = storageProtection.then(applyManagedBotAPIConfig);
 let outboxOperation = Promise.resolve();
 let stateOperation = Promise.resolve();
 let commandPollInFlight = null;
@@ -43,7 +44,7 @@ let nextSendAllowedAt = 0;
 const recentlyForwarded = new Map();
 
 chrome.runtime.onInstalled.addListener(async () => {
-  await storageProtection;
+  await managedConfigReady;
   const existing = await chrome.storage.sync.get(DEFAULTS);
   const policy = await chrome.storage.sync.get({
     monitoredMeetLinks: MMMeetPolicy.DEFAULT_MEET_CODES
@@ -449,8 +450,40 @@ async function forwardWebhook(rec) {
   });
 }
 
+async function applyManagedBotAPIConfig() {
+  let config;
+  try {
+    const response = await fetch(
+      chrome.runtime.getURL('src/local-config.json'),
+      { cache: 'no-store' }
+    );
+    if (!response.ok) return;
+    config = await response.json();
+  } catch {
+    return;
+  }
+  if (!MMDelivery.isAllowedBotAPIURL(config?.url) ||
+      typeof config?.token !== 'string' ||
+      !config.token) {
+    return;
+  }
+  const managed = {
+    url: config.url,
+    token: config.token,
+    generation: String(config.generation || 'managed-local')
+  };
+  const stored = await chrome.storage.local.get({ botAPIConfig: null });
+  if (stored.botAPIConfig?.url === managed.url &&
+      stored.botAPIConfig?.token === managed.token &&
+      stored.botAPIConfig?.generation === managed.generation) {
+    return;
+  }
+  await chrome.storage.local.set({ botAPIConfig: managed });
+}
+
 async function botAPIConfig() {
   await storageProtection;
+  await applyManagedBotAPIConfig();
   const { botAPIConfig } = await chrome.storage.local.get({ botAPIConfig: null });
   return {
     botAPIURL: botAPIConfig?.url || '',
