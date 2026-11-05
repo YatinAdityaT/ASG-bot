@@ -93,7 +93,7 @@ $('#csv').onclick = async () => {
 $('#opts').onclick = () => chrome.runtime.openOptionsPage();
 $('#open-monitor').onclick = async () => {
   const tab = await activeMeetTab();
-  if (tab) await chrome.sidePanel.open({ windowId: tab.windowId });
+  if (tab) await chrome.sidePanel.open({ tabId: tab.id });
 };
 
 initSendingControl();

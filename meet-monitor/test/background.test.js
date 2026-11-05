@@ -883,7 +883,7 @@ test('popup loads and persists the active tab monitoring toggle', async () => {
   assert.equal(harness.elements['#sending-state'].textContent, 'ON');
 });
 
-test('popup reads the monitor model and opens the side panel for the active window', async () => {
+test('popup reads the monitor model and opens the tab-specific side panel', async () => {
   const harness = createPopupHarness(true, {
     id: 7,
     windowId: 42,
@@ -895,7 +895,7 @@ test('popup reads the monitor model and opens the side panel for the active wind
 
   assert.deepEqual(
     JSON.parse(JSON.stringify(harness.sidePanelOpens)),
-    [{ windowId: 42 }]
+    [{ tabId: 7 }]
   );
   assert.ok(harness.runtimeMessages.some(message =>
     message.kind === 'getMonitorModel'
