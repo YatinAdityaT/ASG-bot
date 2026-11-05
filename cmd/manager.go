@@ -141,6 +141,13 @@ func NewCommandManager(client utils.MessageSender, admins []string, shutdown con
 			Callback:       NoDB(cm.handleCall),
 			IsAdminCommand: false,
 		})
+		cm.RegisterCommand(Command{
+			Name:           "/pingcall",
+			Description:    "Mentions this WhatsApp group and lists who is in the Google Meet call.",
+			Regex:          regexp.MustCompile(`^/pingcall$`),
+			Callback:       NoDB(cm.handlePingCall),
+			IsAdminCommand: false,
+		})
 	}
 
 	if cm.meetMessenger != nil {

@@ -14,9 +14,10 @@ For operators, keep the bot configured with
 `ASG_BOT_MEET_CODE=jpy-ymgz-tdo`, set the extension Bot API URL to
 `/v1/meet-events`, and let the extension derive `/v1/meet-state` and
 `/v1/meet-command` on the same origin. After any code or settings change, reload the unpacked extension and
-refresh every open Meet tab. Use the popup for the sending toggle and quick
-feed, use the side panel for continuous health, use `/status` to verify monitor
-state, `/call` to list participants, and `/meet <message>` to post into Meet
+refresh every open Meet tab. Click the extension button to open the side panel,
+use `/status` to verify monitor state, `/call` to list participants,
+`/pingcall` to mention the WhatsApp group with the current roster, and
+`/meet <message>` to post into Meet
 chat. See
 [`meet-monitor/README.md`](meet-monitor/README.md) for the compact extension
 runbook, including the `30s` heartbeat, `45s` content stale window, `90s`
@@ -63,6 +64,8 @@ stable group IDs live in the ignored local file. Copy `config.example.json` to
 Whitespace around comma-separated entries is removed, but empty entries are
 invalid. Obtain the numeric group JID from trusted WhatsApp/whatsmeow diagnostic
 output before starting the bot; do not substitute the group's display name.
+Set `ASG_BOT_API_TARGET_GROUP` to the Accountability Subscribers group JID if
+Meet events and `/w` messages should go there.
 
 The JSON file accepts the equivalent keys `adminNumbers`, `allowedGroups`,
 `accountabilityGroup`, `dbPath`, `logLevel`, `apiEnabled`, `apiAddr`,
@@ -135,6 +138,11 @@ Send these exact commands in an allowed group:
 - `/ping` replies `Pong!`.
 - `/echo <text>` repeats the supplied text.
 - `/help` lists non-admin commands.
+- `/status` shows bot, WhatsApp, and Meet monitor health.
+- `/call` lists the current Meet roster and media state.
+- `/pingcall` mentions every member of the current WhatsApp group and includes
+  the current Meet roster.
+- `/meet <message>` posts a message to the monitored Meet chat.
 - `/remind <request>` creates a reminder from natural-language time and
   message text. Supported forms include:
   - `/remind @Alex "submit the form" tomorrow at 3pm`

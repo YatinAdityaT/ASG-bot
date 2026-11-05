@@ -17,3 +17,10 @@ test('options page exposes comma-separated monitored Meet links', () => {
   assert.match(html, /id="monitoredMeetLinks"/);
   assert.match(html, /comma-separated/i);
 });
+
+test('side panel controls per-tab monitoring, reload, and identity probing', () => {
+  const source = fs.readFileSync(path.join(ROOT, 'src', 'side-panel.js'), 'utf8');
+  assert.match(source, /kind:\s*'setTabMonitoring'/);
+  assert.match(source, /chrome\.runtime\.reload\(\)/);
+  assert.match(source, /kind:\s*'getIdentityProbe'/);
+});

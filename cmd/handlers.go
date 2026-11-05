@@ -10,6 +10,7 @@ import (
 	"time"
 	"whatsappBot/utils"
 
+	waProto "go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 )
 
@@ -128,6 +129,103 @@ func (cm *CommandManager) handleCall(ctx context.Context, client utils.MessageSe
 		)
 	}
 	return utils.ReplyToMessage(ctx, client, info.Chat, reply.String(), info.ID, info.Sender)
+}
+
+type groupInfoProvider interface {
+	GetGroupInfo(context.Context, types.JID) (*types.GroupInfo, error)
+}
+
+func (cm *CommandManager) handlePingCall(
+	ctx context.Context,
+	client utils.MessageSender,
+	info types.MessageInfo,
+	_ []string,
+) error {
+	roster, err := cm.callProvider.CallRoster(ctx)
+	if err != nil {
+		return fmt.Errorf("get Meet call roster: %w", err)
+	}
+	if roster.MonitorState != "online" {
+		return utils.ReplyToMessage(
+			ctx, client, info.Chat,
+			"Meet monitor is offline, so I can't verify who is in the call.",
+			info.ID, info.Sender,
+		)
+	}
+
+	nameSet := make(map[string]struct{}, len(roster.Participants))
+	for _, participant := range roster.Participants {
+		if name := strings.TrimSpace(participant.Name); name != "" {
+			nameSet[name] = struct{}{}
+		}
+	}
+	names := make([]string, 0, len(nameSet))
+	for name := range nameSet {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	if len(names) == 0 {
+		return utils.ReplyToMessage(
+			ctx, client, info.Chat, "The call is currently empty.", info.ID, info.Sender,
+		)
+	}
+
+	groups, ok := client.(groupInfoProvider)
+	if !ok {
+		return utils.ReplyToMessage(
+			ctx, client, info.Chat, "Group mentions are unavailable.", info.ID, info.Sender,
+		)
+	}
+	group, err := groups.GetGroupInfo(ctx, info.Chat)
+	if err != nil {
+		return fmt.Errorf("get WhatsApp group info: %w", err)
+	}
+
+	mentioned := make([]string, 0, len(group.Participants))
+	labels := make([]string, 0, len(group.Participants))
+	seen := make(map[string]struct{}, len(group.Participants))
+	for _, participant := range group.Participants {
+		mentionJID := participant.JID
+		if mentionJID.User == "" {
+			mentionJID = participant.PhoneNumber
+		}
+		mentionJID = mentionJID.ToNonAD()
+		if mentionJID.User == "" {
+			continue
+		}
+		key := mentionJID.String()
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		mentioned = append(mentioned, key)
+		labelJID := participant.PhoneNumber
+		if labelJID.User == "" {
+			labelJID = mentionJID
+		}
+		labels = append(labels, "@"+labelJID.User)
+	}
+	if len(mentioned) == 0 {
+		return utils.ReplyToMessage(
+			ctx, client, info.Chat, "No group members were available to mention.", info.ID, info.Sender,
+		)
+	}
+
+	text := fmt.Sprintf(
+		"📣 %s\nThese people are in the call (%d): %s",
+		strings.Join(labels, " "),
+		len(names),
+		strings.Join(names, ", "),
+	)
+	_, err = client.SendMessage(ctx, info.Chat, &waProto.Message{
+		ExtendedTextMessage: &waProto.ExtendedTextMessage{
+			Text: &text,
+			ContextInfo: &waProto.ContextInfo{
+				MentionedJID: mentioned,
+			},
+		},
+	})
+	return err
 }
 
 func boolString(value bool, whenTrue, whenFalse string) string {

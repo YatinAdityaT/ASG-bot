@@ -1,6 +1,6 @@
 # Meet Monitor Chrome Extension
 
-Meet Monitor `v1.7.0` is an unpacked Chrome extension for Google Meet. It
+Meet Monitor `v1.8.0` is an unpacked Chrome extension for Google Meet. It
 tracks participant joins and leaves, camera and microphone changes, and chat
 messages for configured Google Meet links.
 
@@ -36,6 +36,9 @@ refresh all open Meet tabs.
 - Use **Reload extension** after installing updated extension files, then
   refresh each open Meet tab. Reloading clears extension runtime state but
   preserves saved options.
+- Use **Copy identity probe** while the Meet People panel is open to copy the
+  participant IDs, identity-related DOM attributes, and any email addresses
+  that Google Meet has actually rendered. The probe stays local until pasted.
 
 ## Health timing and reconnect behavior
 
@@ -56,7 +59,8 @@ monitor online or offline state, last heartbeat age, meeting code, participant
 count, forwarding ON or OFF, and extension version.
 
 Use `/call` to list everyone currently detected in the call with their camera
-and microphone state. Use
+and microphone state. Use `/pingcall` to mention every member of the current
+WhatsApp group and include the current call roster. Use
 `/meet <message>` to post a message into the Google Meet chat through the
 monitor extension. Meet receives it as `"WhatsApp name" said "message"`, and
 the monitor suppresses its own `You` chat events to prevent WhatsApp echoes.

@@ -48,6 +48,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   await chrome.storage.sync.set({
     ...DEFAULTS,
     ...existing,
+    sendingEnabled: true,
     monitoredMeetLinks: policy.monitoredMeetLinks
   });
   await chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true });

@@ -186,11 +186,24 @@
     childList: true, subtree: true, attributes: true, attributeFilter: ['data-is-muted']
   });
   scanInterval = setInterval(scan, 3000);
-  scan();
-  if (stopped) return;
+  const meetPolicy = window.MMMeetPolicy;
+  if (!meetPolicy) scan();
 
-  chrome.storage.sync.get({ consentBanner: true }).then(({ consentBanner }) => {
-    if (stopped || !consentBanner) return;
+  chrome.storage.sync.get({
+    consentBanner: true,
+    monitoredMeetLinks: meetPolicy?.DEFAULT_MEET_LINKS || []
+  }).then(({ consentBanner, monitoredMeetLinks }) => {
+    if (stopped) return;
+    if (meetPolicy &&
+        !meetPolicy.isMonitoredMeetURL(
+          `https://meet.google.com/${meeting}`,
+          monitoredMeetLinks
+        )) {
+      stopStaleWork();
+      return;
+    }
+    if (meetPolicy) scan();
+    if (!consentBanner) return;
     const b = document.createElement('div');
     b.textContent = 'This call is being monitored (join/leave, camera, mute, chat).';
     Object.assign(b.style, {
@@ -217,6 +230,13 @@
         self: S.selfState(),
         roster: Object.fromEntries(roster),
         events: events.slice(-500)
+      });
+    }
+    if (msg.kind === 'getIdentityProbe') {
+      sendResponse({
+        generatedAt: new Date().toISOString(),
+        meeting,
+        ...window.MMIdentityProbe.inspect(document, S)
       });
     }
   });

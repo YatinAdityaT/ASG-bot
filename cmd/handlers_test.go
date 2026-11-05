@@ -45,6 +45,16 @@ func (f *fakeCallProvider) CallRoster(context.Context) (meetmonitor.CallRoster, 
 	return f.roster, f.err
 }
 
+type fakeGroupSender struct {
+	fakeSender
+	groupInfo *types.GroupInfo
+	groupErr  error
+}
+
+func (f *fakeGroupSender) GetGroupInfo(context.Context, types.JID) (*types.GroupInfo, error) {
+	return f.groupInfo, f.groupErr
+}
+
 func (f *fakeStatusProvider) Status(context.Context) (meetmonitor.Status, error) {
 	f.calls++
 	if f.err != nil {
@@ -905,6 +915,42 @@ func TestCallCommandRefusesToShowStaleRoster(t *testing.T) {
 	}
 	if got := sentText(t, sender); got != "Meet monitor is offline, so I can't verify who is in the call." {
 		t.Fatalf("reply = %q", got)
+	}
+}
+
+func TestPingCallMentionsGroupAndListsCurrentRoster(t *testing.T) {
+	sender := &fakeGroupSender{groupInfo: &types.GroupInfo{
+		Participants: []types.GroupParticipant{
+			{JID: types.NewJID("111", types.DefaultUserServer)},
+			{JID: types.NewJID("222", types.DefaultUserServer)},
+		},
+	}}
+	manager := NewCommandManager(
+		sender,
+		nil,
+		nil,
+		WithCallProvider(&fakeCallProvider{roster: meetmonitor.CallRoster{
+			MonitorState: "online",
+			Participants: []meetmonitor.Participant{
+				{ID: "2", Name: "Yatin T"},
+				{ID: "1", Name: "ADHD SUPPORT GROUP"},
+				{ID: "3", Name: "Yatin T"},
+			},
+		}}),
+	)
+
+	if err := manager.RouteMessage(nil, context.Background(), messageEvent("/pingcall")); err != nil {
+		t.Fatal(err)
+	}
+	if got := sentText(t, &sender.fakeSender); got !=
+		"📣 @111 @222\nThese people are in the call (2): ADHD SUPPORT GROUP, Yatin T" {
+		t.Fatalf("reply = %q", got)
+	}
+	gotMentions := sender.messages[0].GetExtendedTextMessage().
+		GetContextInfo().GetMentionedJID()
+	wantMentions := []string{"111@s.whatsapp.net", "222@s.whatsapp.net"}
+	if strings.Join(gotMentions, ",") != strings.Join(wantMentions, ",") {
+		t.Fatalf("mentions = %#v, want %#v", gotMentions, wantMentions)
 	}
 }
 

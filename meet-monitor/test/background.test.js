@@ -301,9 +301,9 @@ test('disabled sending reaches neither outbound path', async () => {
   assert.equal(harness.localData.botAPIOutbox.length, 0);
 });
 
-test('sending defaults to enabled when the extension is installed', async () => {
+test('installation retires a disabled shared toggle in favor of per-tab state', async () => {
   const harness = await createHarness([]);
-  delete harness.syncData.sendingEnabled;
+  harness.syncData.sendingEnabled = false;
 
   await harness.listeners.installed();
 

@@ -12,6 +12,7 @@ test('side panel exposes health, roster, filters, controls, and actions', () => 
     'meeting', 'version', 'content-health', 'api-health', 'whatsapp-health',
     'roster', 'timeline', 'event-filter', 'forwarding', 'debug',
     'clear-history', 'export-csv', 'open-options', 'reload-extension',
+    'copy-identity-probe', 'identity-probe-status',
     'permanent-error'
   ]) {
     assert.match(html, new RegExp(`id="${id}"`));

@@ -230,6 +230,25 @@
     document.getElementById('export-csv')?.addEventListener('click', () => {
       downloadHistory(document, currentModel);
     });
+    document.getElementById('copy-identity-probe')?.addEventListener(
+      'click',
+      async () => {
+        const status = document.getElementById('identity-probe-status');
+        try {
+          if (!Number.isInteger(activeTabId)) throw new Error('No active Meet tab');
+          const probe = await chrome.tabs.sendMessage(activeTabId, {
+            kind: 'getIdentityProbe'
+          });
+          await navigator.clipboard.writeText(JSON.stringify(probe, null, 2));
+          if (status) {
+            status.textContent =
+              `Copied ${probe?.participants?.length || 0} participant identities`;
+          }
+        } catch {
+          if (status) status.textContent = 'Could not inspect the active Meet tab';
+        }
+      }
+    );
     document.getElementById('reload-extension')?.addEventListener(
       'click',
       () => chrome.runtime.reload()
