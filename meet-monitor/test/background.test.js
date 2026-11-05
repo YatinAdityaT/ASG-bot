@@ -698,7 +698,7 @@ test('monitor controls require a trusted extension view and clear history', asyn
   ));
 });
 
-test('monitoring can be disabled for one allowed tab without disabling another', async () => {
+test('side panel is scoped to allowed tabs while the toolbar popup stays available', async () => {
   const harness = await createHarness([202], null, {
     tabs: {
       7: { id: 7, url: 'https://meet.google.com/jpy-ymgz-tdo' },
@@ -714,8 +714,8 @@ test('monitoring can be disabled for one allowed tab without disabling another',
   });
   await settle();
   assert.deepEqual(harness.sidePanelBehaviors, []);
-  assert.deepEqual(harness.actionEnabled, [7, 8]);
-  assert.deepEqual(harness.actionDisabled, [9]);
+  assert.deepEqual(harness.actionEnabled, [7, 8, 9]);
+  assert.deepEqual(harness.actionDisabled, []);
   assert.deepEqual(
     harness.sidePanelOptions.sort((a, b) => a.tabId - b.tabId),
     [

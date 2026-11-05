@@ -228,11 +228,7 @@ async function updateMeetAction(tabId, knownURL) {
   }
   const links = await monitoredMeetLinks();
   const allowed = MMMeetPolicy.isMonitoredMeetURL(url, links);
-  if (allowed) {
-    await chrome.action.enable(tabId);
-  } else {
-    await chrome.action.disable(tabId);
-  }
+  await chrome.action.enable(tabId);
   try {
     await chrome.sidePanel?.setOptions?.({
       tabId,
