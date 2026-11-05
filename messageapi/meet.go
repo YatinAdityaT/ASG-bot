@@ -62,6 +62,10 @@ func (server *Server) submitMeetEvent(writer http.ResponseWriter, request *http.
 		writeError(writer, http.StatusBadRequest, "invalid_request", "invalid request")
 		return
 	}
+	if event.Type != "join" && event.Type != "leave" {
+		writer.WriteHeader(http.StatusNoContent)
+		return
+	}
 	key, err := meetIdempotencyKey(event)
 	if err != nil {
 		writeError(writer, http.StatusInternalServerError, "internal_error", "internal server error")

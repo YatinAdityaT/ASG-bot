@@ -169,7 +169,11 @@ func (s *Service) accept(
 	status string,
 	changes []participantChange,
 ) (Result, error) {
+	queued := 0
 	for _, change := range changes {
+		if change.changeType != "join" && change.changeType != "leave" {
+			continue
+		}
 		text, err := FormatEvent(change.changeType, change.name, "")
 		if err != nil {
 			return Result{}, fmt.Errorf("format Meet monitor event: %w", err)
@@ -187,6 +191,7 @@ func (s *Service) accept(
 		if err != nil {
 			return Result{}, err
 		}
+		queued++
 	}
 
 	state := PersistedState{
@@ -203,7 +208,7 @@ func (s *Service) accept(
 	if err := s.store.Save(ctx, state); err != nil {
 		return Result{}, err
 	}
-	return s.result(status, snapshot.Sequence, now, true, len(changes)), nil
+	return s.result(status, snapshot.Sequence, now, true, queued), nil
 }
 
 func (s *Service) result(status string, sequence int64, now time.Time, online bool, queued int) Result {
