@@ -1,4 +1,4 @@
-importScripts('meet-policy.js', 'delivery.js', 'snapshot.js');
+importScripts('meet-policy.js', 'version-update.js', 'delivery.js', 'snapshot.js');
 
 const DEFAULTS = {
   webhook: '',
@@ -27,6 +27,9 @@ const DEBUG_HISTORY_KEY = 'monitorDebugHistory';
 const DEBUG_ENABLED_KEY = 'monitorDebugEnabled';
 const POSTED_COMMANDS_KEY = 'postedMeetCommandIds';
 const TAB_MONITORING_KEY = 'tabMonitoringEnabled';
+const UPDATE_ALARM = 'meet-monitor-update-check';
+const RUNNING_VERSION_KEY = 'runningExtensionVersion';
+const PENDING_VERSION_KEY = 'pendingExtensionVersion';
 const MAX_HISTORY_SIZE = 1_000;
 const MAX_DEBUG_HISTORY_SIZE = 250;
 const MAX_SNAPSHOT_ATTEMPTS = 10;
@@ -53,13 +56,16 @@ chrome.runtime.onInstalled.addListener(async () => {
   });
   await chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true });
   createHeartbeatAlarm();
+  createUpdateAlarm();
 });
 
 Promise.resolve(
   chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true })
 ).catch(() => {});
 createHeartbeatAlarm();
+createUpdateAlarm();
 refreshMeetActions().catch(() => {});
+refreshTabsAfterVersionChange().catch(() => {});
 
 chrome.tabs.onUpdated?.addListener((tabId, change, tab) => {
   if (change.url || change.status === 'complete') {
@@ -179,6 +185,11 @@ chrome.alarms.onAlarm.addListener(alarm => {
       console.warn('Meet state retry failed');
     });
   }
+  if (alarm.name === UPDATE_ALARM) {
+    checkForExtensionUpdate().catch(() => {
+      console.warn('Meet Monitor update check failed');
+    });
+  }
 });
 
 chrome.runtime.onStartup.addListener(() => {
@@ -187,6 +198,9 @@ chrome.runtime.onStartup.addListener(() => {
   });
   withStateLock(restorePendingSnapshot).catch(() => {
     console.warn('Meet state startup retry failed');
+  });
+  checkForExtensionUpdate().catch(() => {
+    console.warn('Meet Monitor startup update check failed');
   });
 });
 
@@ -1052,6 +1066,63 @@ async function sanitizeOutbox() {
 
 function createHeartbeatAlarm() {
   chrome.alarms.create(HEARTBEAT_ALARM, { periodInMinutes: HEARTBEAT_MS / 60_000 });
+}
+
+function createUpdateAlarm() {
+  chrome.alarms.create(UPDATE_ALARM, { periodInMinutes: 1 });
+}
+
+async function checkForExtensionUpdate() {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const response = await fetch(MMVersionUpdate.manifestURL, {
+      cache: 'no-store',
+      signal: controller.signal
+    });
+    if (!response.ok) return false;
+    const manifest = await response.json();
+    const current = chrome.runtime.getManifest().version;
+    if (!MMVersionUpdate.isNewer(current, manifest?.version)) return false;
+    await chrome.storage.local.set({
+      [PENDING_VERSION_KEY]: manifest.version
+    });
+    chrome.runtime.reload();
+    return true;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function refreshTabsAfterVersionChange() {
+  const current = chrome.runtime.getManifest().version;
+  const stored = await chrome.storage.local.get({
+    [RUNNING_VERSION_KEY]: '',
+    [PENDING_VERSION_KEY]: ''
+  });
+  const previous = stored[RUNNING_VERSION_KEY];
+  if (!previous) {
+    await chrome.storage.local.set({ [RUNNING_VERSION_KEY]: current });
+    if (stored[PENDING_VERSION_KEY] === current) {
+      await chrome.storage.local.remove(PENDING_VERSION_KEY);
+    }
+    return false;
+  }
+  if (previous === current) return false;
+
+  await chrome.storage.local.set({ [RUNNING_VERSION_KEY]: current });
+  if (stored[PENDING_VERSION_KEY] === current) {
+    await chrome.storage.local.remove(PENDING_VERSION_KEY);
+  }
+  const links = await monitoredMeetLinks();
+  const tabs = await chrome.tabs.query({});
+  await Promise.all(tabs.map(tab =>
+    Number.isInteger(tab.id) &&
+    MMMeetPolicy.isMonitoredMeetURL(tab.url, links)
+      ? chrome.tabs.reload(tab.id)
+      : null
+  ));
+  return true;
 }
 
 function scheduleStateRetry(delay) {

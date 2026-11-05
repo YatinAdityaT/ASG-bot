@@ -117,7 +117,7 @@ test('startup flush preserves queued entries without fetching while sending is d
   harness.listeners.startup();
   await settle();
 
-  assert.equal(harness.fetchRequests.length, 0);
+  assert.equal(harness.eventRequests().length, 0);
   assert.equal(harness.localData.botAPIOutbox.length, 1);
 });
 
@@ -739,6 +739,55 @@ test('monitoring can be disabled for one allowed tab without disabling another',
   assert.equal(JSON.parse(harness.eventRequests()[0].options.body).id, 'enabled-tab');
 });
 
+test('a newer GitHub manifest reloads the extension', async () => {
+  const harness = await createHarness([], null, {
+    manifestVersion: '2.0.0',
+    remoteManifest: { version: '2.1.0' }
+  });
+
+  harness.listeners.alarm({ name: 'meet-monitor-update-check' });
+  await waitFor(() => harness.runtimeReloads() === 1);
+
+  assert.equal(harness.localData.pendingExtensionVersion, '2.1.0');
+});
+
+test('a new runtime version refreshes only configured Meet tabs', async () => {
+  const harness = await createHarness([], null, {
+    manifestVersion: '2.0.0',
+    localData: { runningExtensionVersion: '1.9.0' },
+    tabs: {
+      7: { id: 7, url: 'https://meet.google.com/jpy-ymgz-tdo' },
+      8: { id: 8, url: 'https://meet.google.com/abc-defg-hij' },
+      9: { id: 9, url: 'https://example.com/' }
+    },
+    syncData: {
+      monitoredMeetLinks: ['https://meet.google.com/jpy-ymgz-tdo']
+    }
+  });
+
+  await waitFor(() => harness.tabReloads.length === 1);
+
+  assert.deepEqual(harness.tabReloads, [7]);
+  assert.equal(harness.localData.runningExtensionVersion, '2.0.0');
+});
+
+test('an equal or failed GitHub manifest check does not reload', async () => {
+  const equal = await createHarness([], null, {
+    manifestVersion: '2.0.0',
+    remoteManifest: { version: '2.0.0' }
+  });
+  equal.listeners.alarm({ name: 'meet-monitor-update-check' });
+  await settle();
+  assert.equal(equal.runtimeReloads(), 0);
+
+  const failed = await createHarness([], null, {
+    remoteManifestError: new Error('offline')
+  });
+  failed.listeners.alarm({ name: 'meet-monitor-update-check' });
+  await settle();
+  assert.equal(failed.runtimeReloads(), 0);
+});
+
 test('elected Meet tab receives a pending command and then acknowledges it', async () => {
   const harness = await createHarness([200], null, {
     meetCommands: [{ id: 'message-1', text: 'Hello from WhatsApp' }]
@@ -856,6 +905,8 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
   const sidePanelBehaviors = [];
   const actionEnabled = [];
   const actionDisabled = [];
+  const tabReloads = [];
+  let runtimeReloads = 0;
   let uuid = 0;
 
   const clone = value => JSON.parse(JSON.stringify(value));
@@ -899,12 +950,25 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
       if (scripts.includes('meet-policy.js')) {
         sandbox.MMMeetPolicy = require('../src/meet-policy.js');
       }
+      if (scripts.includes('version-update.js')) {
+        sandbox.MMVersionUpdate = require('../src/version-update.js');
+      }
       if (scripts.includes('snapshot.js')) {
         sandbox.MMSnapshot = require('../src/snapshot.js');
       }
     },
     async fetch(url, options) {
       fetchRequests.push({ url, options });
+      if (url ===
+          'https://raw.githubusercontent.com/YatinAdityaT/ASG-bot/master/meet-monitor/manifest.json') {
+        if (initial.remoteManifestError) throw initial.remoteManifestError;
+        const manifest = initial.remoteManifest || { version: initial.manifestVersion || '2.0.0' };
+        return {
+          ok: true,
+          status: 200,
+          async json() { return clone(manifest); }
+        };
+      }
       if (url === 'https://bot.example.com/v1/meet-command') {
         const command = meetCommands[0];
         return {
@@ -948,7 +1012,8 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
       runtime: {
         id: 'extension-id',
         getURL: value => `chrome-extension://extension-id/${value}`,
-        getManifest: () => ({ version: '2.0.0' }),
+        getManifest: () => ({ version: initial.manifestVersion || '2.0.0' }),
+        reload() { runtimeReloads += 1; },
         async sendMessage(message) { broadcasts.push(clone(message)); },
         onInstalled: { addListener(fn) { listeners.installed = fn; } },
         onMessage: { addListener(fn) { listeners.message = fn; } },
@@ -974,6 +1039,9 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
         async sendMessage(tabId, message) {
           commandTabMessages.push({ tabId, message: clone(message) });
           return { sent: true };
+        },
+        async reload(tabId) {
+          tabReloads.push(tabId);
         }
       },
       sidePanel: {
@@ -1009,6 +1077,8 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
     sidePanelBehaviors,
     actionEnabled,
     actionDisabled,
+    tabReloads,
+    runtimeReloads: () => runtimeReloads,
     syncData,
     alarmCreates,
     advance(milliseconds) { now += milliseconds; },
