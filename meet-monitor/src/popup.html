@@ -17,6 +17,7 @@
             max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
     #btns { display: flex; gap: 6px; margin-top: 8px; }
     button { flex: 1; padding: 6px 8px; font: inherit; cursor: pointer; }
+    #monitor-status { color: #b42318; font-size: 11px; min-height: 1.2em; margin-top: 5px; }
     #empty { color: #999; font-style: italic; }
   </style>
 </head>
@@ -36,6 +37,8 @@
     <button id="csv">Export CSV</button>
     <button id="opts">Options</button>
   </div>
+  <div id="monitor-status" role="status"></div>
+  <script src="meet-policy.js"></script>
   <script src="csv.js"></script>
   <script src="popup.js"></script>
 </body>

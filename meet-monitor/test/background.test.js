@@ -908,6 +908,10 @@ test('popup reads the monitor model and opens the tab-specific side panel', asyn
   await harness.elements['#open-monitor'].onclick();
 
   assert.deepEqual(
+    JSON.parse(JSON.stringify(harness.sidePanelOptions)),
+    [{ tabId: 7, path: 'src/side-panel.html', enabled: true }]
+  );
+  assert.deepEqual(
     JSON.parse(JSON.stringify(harness.sidePanelOpens)),
     [{ tabId: 7 }]
   );
@@ -1244,6 +1248,7 @@ function createPopupHarness(sendingEnabled, activeTab = null) {
       '#csv',
       '#opts',
       '#open-monitor',
+      '#monitor-status',
       '#sending',
       '#sending-state'
     ].map(selector => [selector, {
@@ -1256,6 +1261,7 @@ function createPopupHarness(sendingEnabled, activeTab = null) {
   );
   const syncWrites = [];
   const runtimeMessages = [];
+  const sidePanelOptions = [];
   const sidePanelOpens = [];
   const model = {
     meeting: 'jpy-ymgz-tdo',
@@ -1268,6 +1274,7 @@ function createPopupHarness(sendingEnabled, activeTab = null) {
     Blob,
     Date,
     MMCSV: { row: values => values.join(',') },
+    MMMeetPolicy: require('../src/meet-policy.js'),
     Promise,
     URL: {
       createObjectURL: () => 'blob:test',
@@ -1284,6 +1291,9 @@ function createPopupHarness(sendingEnabled, activeTab = null) {
         onMessage: { addListener() {} }
       },
       sidePanel: {
+        async setOptions(options) {
+          sidePanelOptions.push(options);
+        },
         async open(options) {
           sidePanelOpens.push(options);
         }
@@ -1325,7 +1335,13 @@ function createPopupHarness(sendingEnabled, activeTab = null) {
     'utf8'
   );
   vm.runInNewContext(source, sandbox, { filename: 'popup.js' });
-  return { elements, runtimeMessages, sidePanelOpens, syncWrites };
+  return {
+    elements,
+    runtimeMessages,
+    sidePanelOpens,
+    sidePanelOptions,
+    syncWrites
+  };
 }
 
 function meetEvent(id) {

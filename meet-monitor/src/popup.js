@@ -2,6 +2,8 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let currentModel = null;
 let activeTabId = null;
+let activeTabForMonitor = null;
+let activeTabAllowed = false;
 
 async function activeMeetTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -60,8 +62,22 @@ function initSendingControl() {
 
 async function refresh() {
   try {
-    const tab = await activeMeetTab();
+    const [tab, policy] = await Promise.all([
+      activeMeetTab(),
+      chrome.storage.sync.get({
+        monitoredMeetLinks: MMMeetPolicy.DEFAULT_MEET_LINKS
+      })
+    ]);
     activeTabId = Number.isInteger(tab?.id) ? tab.id : null;
+    activeTabForMonitor = tab;
+    activeTabAllowed = Boolean(tab) && MMMeetPolicy.isMonitoredMeetURL(
+      tab.url,
+      policy.monitoredMeetLinks
+    );
+    $('#open-monitor').disabled = !activeTabAllowed;
+    $('#monitor-status').textContent = tab && !activeTabAllowed
+      ? 'This Meet link is not configured for monitoring.'
+      : '';
     render(await chrome.runtime.sendMessage({
       kind: 'getMonitorModel',
       tabId: activeTabId
@@ -92,8 +108,19 @@ $('#csv').onclick = async () => {
 
 $('#opts').onclick = () => chrome.runtime.openOptionsPage();
 $('#open-monitor').onclick = async () => {
-  const tab = await activeMeetTab();
-  if (tab) await chrome.sidePanel.open({ tabId: tab.id });
+  if (!activeTabForMonitor || !activeTabAllowed) return;
+  const status = $('#monitor-status');
+  try {
+    await chrome.sidePanel.setOptions({
+      tabId: activeTabForMonitor.id,
+      path: 'src/side-panel.html',
+      enabled: true
+    });
+    await chrome.sidePanel.open({ tabId: activeTabForMonitor.id });
+    status.textContent = '';
+  } catch (error) {
+    status.textContent = `Could not open monitor: ${error?.message || 'unknown error'}`;
+  }
 };
 
 initSendingControl();
