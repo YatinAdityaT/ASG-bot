@@ -6,6 +6,21 @@ const vm = require('node:vm');
 
 const { ParticipantTracker, leftParticipantName } = require('../src/state.js');
 
+test('baseline discovery records participants without join events', () => {
+  const tracker = new ParticipantTracker();
+  const alex = { name: 'Alex', cam: false, mic: 'muted' };
+
+  assert.deepEqual(tracker.update(new Map([['alex', alex]]), 0, true), []);
+  assert.deepEqual(tracker.roster.get('alex'), alex);
+  assert.deepEqual(
+    tracker.update(new Map([
+      ['alex', alex],
+      ['bob', { ...alex, name: 'Bob' }]
+    ]), 9000).map(event => event.type),
+    ['join']
+  );
+});
+
 test('temporarily missing participants do not emit leave or duplicate join', () => {
   const tracker = new ParticipantTracker(30_000);
   const alex = { name: 'Alex', cam: false, mic: 'muted' };

@@ -394,6 +394,25 @@ test('first observation elects one source and sends sequence one baseline', asyn
   assert.equal(harness.stateBodies()[0].participants[0].name, 'Alex');
 });
 
+test('a restarted content script starts a new silent server baseline', async () => {
+  const harness = await createHarness([202, 202], null, {
+    sessionData: { monitorSession: null }
+  });
+
+  await harness.sendObservation(7, roster('Alex'), { instanceId: 'page-1' });
+  await harness.sendObservation(7, roster('Alex'), {
+    instanceId: 'page-2',
+    baselining: true
+  });
+  assert.equal(harness.stateBodies().length, 1);
+  await harness.sendObservation(7, roster('Alex'), { instanceId: 'page-2' });
+
+  assert.equal(harness.sessionData.monitorSession.sessionId, 'session-2');
+  assert.equal(harness.sessionData.monitorSession.contentInstanceId, 'page-2');
+  assert.equal(harness.stateBodies().length, 2);
+  assert.equal(harness.stateBodies()[1].sequence, 1);
+});
+
 test('unchanged observations do not send until the heartbeat', async () => {
   const harness = await createHarness([202, 202], null, {
     sessionData: { monitorSession: null }
@@ -1196,6 +1215,8 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
         assert.equal(listeners.message({
           kind: 'monitorObservation',
           meeting: 'jpy-ymgz-tdo',
+          instanceId: details.instanceId,
+          baselining: details.baselining === true,
           observedAt: now,
           roster: observedRoster,
           rawRoster: details.rawRoster || observedRoster,

@@ -769,18 +769,21 @@ async function receiveObservation(message, sender) {
   let session = stored[SESSION_KEY];
   const takeover = session && session.sourceTabId !== tabId &&
     now - session.lastObservedAt > SOURCE_STALE_MS;
+  const contentRestarted = Boolean(message.instanceId) &&
+    session?.contentInstanceId !== message.instanceId;
 
   if (session && session.sourceTabId !== tabId && !takeover) {
     return { elected: false };
   }
 
-  if (!session || takeover) {
+  if (!session || takeover || contentRestarted) {
     session = newMonitorSession(tabId, message, now);
     await chrome.storage.session.remove(PENDING_SNAPSHOT_KEY);
   } else {
     session.lastObservedAt = now;
     session.roster = message.roster;
     session.self = message.self || {};
+    session.baselining = message.baselining === true;
   }
 
   await recordRawObservation(message, tabId, now);
@@ -921,6 +924,8 @@ function newMonitorSession(sourceTabId, message, now) {
   return {
     sessionId: crypto.randomUUID(),
     sourceTabId,
+    contentInstanceId: message.instanceId || null,
+    baselining: message.baselining === true,
     sequence: 0,
     meeting: message.meeting,
     lastObservedAt: now,
@@ -943,6 +948,7 @@ async function queueCurrentSnapshot(force) {
 }
 
 async function queueSnapshotForSession(session, force, heartbeat = false) {
+  if (session.baselining) return false;
   const config = await botAPIConfig();
   const policy = await chrome.storage.sync.get({ sendingEnabled: true });
   const pendingStored = await chrome.storage.session.get({

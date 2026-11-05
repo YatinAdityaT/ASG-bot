@@ -7,6 +7,8 @@
   const participantTracker = new window.MMParticipantTracker(2000);
   const roster = participantTracker.roster;
   const events = [];
+  const instanceId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const baselineUntil = Date.now() + 8000;
   const seenChats = new Set();
   const recentLeaveAnnouncements = new Map();
   const MAX = 2000;
@@ -122,7 +124,11 @@
 
     const observedAt = Date.now();
     const changes = [];
-    for (const change of participantTracker.update(now, observedAt)) {
+    for (const change of participantTracker.update(
+      now,
+      observedAt,
+      observedAt < baselineUntil
+    )) {
       const rec = emit(change.type, change.id, change.cur);
       if (rec) changes.push(rec);
     }
@@ -150,6 +156,8 @@
     deliver({
       kind: 'monitorObservation',
       meeting,
+      instanceId,
+      baselining: observedAt < baselineUntil,
       observedAt,
       roster: Object.fromEntries(roster),
       rawRoster: Object.fromEntries(now),

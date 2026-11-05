@@ -12,7 +12,7 @@
       this.candidates = new Map();
     }
 
-    update(now, observedAt = Date.now()) {
+    update(now, observedAt = Date.now(), suppressNew = false) {
       const changes = [];
       for (const id of this.departed) {
         if (!now.has(id)) this.departed.delete(id);
@@ -35,7 +35,7 @@
           }
           const confirmed = { ...cur, name };
           this.roster.set(id, confirmed);
-          changes.push({ type: 'join', id, cur: confirmed });
+          if (!suppressNew) changes.push({ type: 'join', id, cur: confirmed });
           continue;
         }
 

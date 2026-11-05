@@ -84,9 +84,9 @@ test('unknown toolbar values preserve the self tile media state', () => {
     tileState: { mic: 'muted', cam: true }
   });
 
-  const join = harness.events().find(event => event.type === 'join');
-  assert.equal(join.mic, 'muted');
-  assert.equal(join.cam, true);
+  const participant = harness.observations()[0].roster['self-id'];
+  assert.equal(participant.mic, 'muted');
+  assert.equal(participant.cam, true);
 });
 
 test('a disappearing toolbar does not create false self media transitions', () => {
@@ -99,7 +99,7 @@ test('a disappearing toolbar does not create false self media transitions', () =
   harness.runIntervalAt(10_100);
   harness.runIntervalAt(12_100);
 
-  assert.deepEqual(harness.events().map(event => event.type), ['join']);
+  assert.deepEqual(harness.events().map(event => event.type), []);
 });
 
 test('the active confirmation callback emits one confirmed event exactly once', () => {
@@ -151,12 +151,12 @@ test('each completed scan sends confirmed and raw roster observations', () => {
   );
 });
 
-test('participant records emitted by a scan are included in observation changes', () => {
+test('the initial participant roster is a silent baseline', () => {
   const harness = createBehaviorHarness();
 
   assert.deepEqual(
     Array.from(harness.observations()[0].changes, change => change.type),
-    ['join']
+    []
   );
 });
 
