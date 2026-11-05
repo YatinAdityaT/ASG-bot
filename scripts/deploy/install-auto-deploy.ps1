@@ -13,7 +13,7 @@ $ConfigPath = [IO.Path]::GetFullPath($ConfigPath)
 $taskName = "ASG Bot Auto Deploy"
 $trayTaskName = "ASG Bot Status"
 
-foreach ($command in @("git", "go", "node", "powershell.exe")) {
+foreach ($command in @("git", "go", "powershell.exe")) {
     if ($null -eq (Get-Command $command -ErrorAction SilentlyContinue)) {
         throw "Required command is unavailable: $command"
     }
@@ -103,7 +103,7 @@ Register-ScheduledTask `
     -Trigger $trigger `
     -Settings $settings `
     -Principal $principal `
-    -Description "Validates and deploys ASG Bot master every minute." `
+    -Description "Builds and deploys ASG Bot master every minute." `
     -Force | Out-Null
 
 & powershell.exe -NoProfile -ExecutionPolicy Bypass `

@@ -142,11 +142,11 @@ powershell -ExecutionPolicy Bypass -File .\scripts\deploy\install-auto-deploy.ps
 ```
 
 This creates a dedicated checkout at
-`%LOCALAPPDATA%\ASGBotDeploy`, validates `origin/master` every minute, and
-restarts the bot only after Go tests, extension tests, and a new build pass.
-The current bot stays online during validation. Failures are recorded without
-replacing the running release. Scheduled checks and the managed bot run hidden
-without opening terminal windows.
+`%LOCALAPPDATA%\ASGBotDeploy`, checks `origin/master` every minute, builds the
+new bot binary without running test suites, and then updates the checkout and
+restarts the bot. The current bot stays online during the build. Build failures
+are recorded without replacing the running release. Scheduled checks and the
+managed bot run hidden without opening terminal windows.
 
 The installer also adds an **ASG Bot** notification-area icon at login. Its
 status dot is green when the bot is online, red when offline, and amber during

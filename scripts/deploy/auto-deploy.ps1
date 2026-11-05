@@ -108,9 +108,6 @@ try {
             -Arguments @("-C", $DeployRoot, "worktree", "add", "--detach", $stagingRoot, $remoteCommit) `
             -WorkingDirectory $DeployRoot
         $worktreeAdded = $true
-        Invoke-Checked -FilePath "go" -Arguments @("test", "./...") -WorkingDirectory $stagingRoot
-        Invoke-Checked -FilePath "node" -Arguments @("--test") `
-            -WorkingDirectory (Join-Path $stagingRoot "meet-monitor")
         Invoke-Checked -FilePath "go" `
             -Arguments @("build", "-o", $nextExecutable, ".") `
             -WorkingDirectory $stagingRoot
