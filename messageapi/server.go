@@ -113,12 +113,6 @@ func (server *Server) Start(ctx context.Context) <-chan error {
 }
 
 func (server *Server) serveHTTP(writer http.ResponseWriter, request *http.Request) {
-	if !server.limiter.allow(request) {
-		writer.Header().Set("Retry-After", "60")
-		writeError(writer, http.StatusTooManyRequests, "rate_limited", "rate limit exceeded")
-		return
-	}
-
 	origin := request.Header.Get("Origin")
 	if origin != "" {
 		writer.Header().Set("Vary", "Origin")
@@ -132,7 +126,14 @@ func (server *Server) serveHTTP(writer http.ResponseWriter, request *http.Reques
 	if request.Method == http.MethodOptions && origin != "" {
 		writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		writer.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+		writer.Header().Set("Access-Control-Max-Age", "600")
 		writer.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	if !server.limiter.allow(request) {
+		writer.Header().Set("Retry-After", "60")
+		writeError(writer, http.StatusTooManyRequests, "rate_limited", "rate limit exceeded")
 		return
 	}
 
