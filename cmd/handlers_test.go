@@ -879,7 +879,7 @@ func TestCallCommandListsCurrentParticipantsAlphabetically(t *testing.T) {
 			MonitorState: "online",
 			Participants: []meetmonitor.Participant{
 				{ID: "2", Name: "Yatin T", Cam: true, Mic: "unmuted"},
-				{ID: "1", Name: "ADHD SUPPORT GROUP", Cam: false, Mic: "muted"},
+				{ID: "1", Name: "ADHD SUPPORT GROUP", Cam: false, Mic: "muted", Self: true},
 				{ID: "3", Name: "Yatin T", Cam: false, Mic: "muted"},
 			},
 		}}),
@@ -889,8 +889,7 @@ func TestCallCommandListsCurrentParticipantsAlphabetically(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := strings.Join([]string{
-		"In the call (2):",
-		"• ADHD SUPPORT GROUP — Camera off · Mic muted",
+		"In the call (1):",
 		"• Yatin T — Camera on · Mic unmuted",
 	}, "\n")
 	if got := sentText(t, sender); got != want {
@@ -933,7 +932,7 @@ func TestPingCallMentionsGroupAndListsCurrentRoster(t *testing.T) {
 			MonitorState: "online",
 			Participants: []meetmonitor.Participant{
 				{ID: "2", Name: "Yatin T"},
-				{ID: "1", Name: "ADHD SUPPORT GROUP"},
+				{ID: "1", Name: "ADHD SUPPORT GROUP", Self: true},
 				{ID: "3", Name: "Yatin T"},
 			},
 		}}),
@@ -943,7 +942,7 @@ func TestPingCallMentionsGroupAndListsCurrentRoster(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := sentText(t, &sender.fakeSender); got !=
-		"📣 @111 @222\nThese people are in the call (2): ADHD SUPPORT GROUP, Yatin T" {
+		"📣 @111 @222\nThese people are in the call (1): Yatin T" {
 		t.Fatalf("reply = %q", got)
 	}
 	gotMentions := sender.messages[0].GetExtendedTextMessage().

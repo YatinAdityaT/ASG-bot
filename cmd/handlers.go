@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"whatsappBot/meetmonitor"
 	"whatsappBot/utils"
 
 	waProto "go.mau.fi/whatsmeow/proto/waE2E"
@@ -99,6 +100,9 @@ func (cm *CommandManager) handleCall(ctx context.Context, client utils.MessageSe
 	}
 	unique := make(map[string]mediaState, len(roster.Participants))
 	for _, participant := range roster.Participants {
+		if isMonitorParticipant(participant) {
+			continue
+		}
 		name := strings.TrimSpace(participant.Name)
 		if name != "" {
 			current := unique[name]
@@ -155,6 +159,9 @@ func (cm *CommandManager) handlePingCall(
 
 	nameSet := make(map[string]struct{}, len(roster.Participants))
 	for _, participant := range roster.Participants {
+		if isMonitorParticipant(participant) {
+			continue
+		}
 		if name := strings.TrimSpace(participant.Name); name != "" {
 			nameSet[name] = struct{}{}
 		}
@@ -226,6 +233,11 @@ func (cm *CommandManager) handlePingCall(
 		},
 	})
 	return err
+}
+
+func isMonitorParticipant(participant meetmonitor.Participant) bool {
+	return participant.Self ||
+		strings.EqualFold(strings.TrimSpace(participant.Name), "ADHD SUPPORT GROUP")
 }
 
 func boolString(value bool, whenTrue, whenFalse string) string {
