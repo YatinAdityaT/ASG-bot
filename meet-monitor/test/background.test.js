@@ -803,14 +803,11 @@ test('a newer GitHub manifest reloads the extension', async () => {
 
   harness.listeners.alarm({ name: 'meet-monitor-update-check' });
   await waitFor(() => harness.runtimeReloads() === 1);
-
-  assert.equal(harness.localData.pendingExtensionVersion, '2.1.0');
 });
 
-test('a new runtime version refreshes only configured Meet tabs', async () => {
+test('loading a new runtime does not reload open Meet tabs', async () => {
   const harness = await createHarness([], null, {
     manifestVersion: '2.0.0',
-    localData: { runningExtensionVersion: '1.9.0' },
     tabs: {
       7: { id: 7, url: 'https://meet.google.com/jpy-ymgz-tdo' },
       8: { id: 8, url: 'https://meet.google.com/abc-defg-hij' },
@@ -821,10 +818,9 @@ test('a new runtime version refreshes only configured Meet tabs', async () => {
     }
   });
 
-  await waitFor(() => harness.tabReloads.length === 1);
+  await settle();
 
-  assert.deepEqual(harness.tabReloads, [7]);
-  assert.equal(harness.localData.runningExtensionVersion, '2.0.0');
+  assert.deepEqual(harness.tabReloads, []);
 });
 
 test('an equal or failed GitHub manifest check does not reload', async () => {

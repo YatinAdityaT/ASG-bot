@@ -28,8 +28,6 @@ const DEBUG_ENABLED_KEY = 'monitorDebugEnabled';
 const POSTED_COMMANDS_KEY = 'postedMeetCommandIds';
 const TAB_MONITORING_KEY = 'tabMonitoringEnabled';
 const UPDATE_ALARM = 'meet-monitor-update-check';
-const RUNNING_VERSION_KEY = 'runningExtensionVersion';
-const PENDING_VERSION_KEY = 'pendingExtensionVersion';
 const CONTENT_SCRIPT_FILES = [
   'src/meet-policy.js',
   'src/selectors.js',
@@ -78,7 +76,6 @@ chrome.runtime.onInstalled.addListener(async () => {
 createHeartbeatAlarm();
 createUpdateAlarm();
 refreshMeetActions().catch(() => {});
-refreshTabsAfterVersionChange().catch(() => {});
 repairMonitoredTabs().catch(() => {});
 
 chrome.tabs.onUpdated?.addListener((tabId, change, tab) => {
@@ -1191,45 +1188,11 @@ async function checkForExtensionUpdate() {
     const manifest = await response.json();
     const current = chrome.runtime.getManifest().version;
     if (!MMVersionUpdate.isNewer(current, manifest?.version)) return false;
-    await chrome.storage.local.set({
-      [PENDING_VERSION_KEY]: manifest.version
-    });
     chrome.runtime.reload();
     return true;
   } finally {
     clearTimeout(timer);
   }
-}
-
-async function refreshTabsAfterVersionChange() {
-  const current = chrome.runtime.getManifest().version;
-  const stored = await chrome.storage.local.get({
-    [RUNNING_VERSION_KEY]: '',
-    [PENDING_VERSION_KEY]: ''
-  });
-  const previous = stored[RUNNING_VERSION_KEY];
-  if (!previous) {
-    await chrome.storage.local.set({ [RUNNING_VERSION_KEY]: current });
-    if (stored[PENDING_VERSION_KEY] === current) {
-      await chrome.storage.local.remove(PENDING_VERSION_KEY);
-    }
-    return false;
-  }
-  if (previous === current) return false;
-
-  await chrome.storage.local.set({ [RUNNING_VERSION_KEY]: current });
-  if (stored[PENDING_VERSION_KEY] === current) {
-    await chrome.storage.local.remove(PENDING_VERSION_KEY);
-  }
-  const links = await monitoredMeetLinks();
-  const tabs = await chrome.tabs.query({});
-  await Promise.all(tabs.map(tab =>
-    Number.isInteger(tab.id) &&
-    MMMeetPolicy.isMonitoredMeetURL(tab.url, links)
-      ? chrome.tabs.reload(tab.id)
-      : null
-  ));
-  return true;
 }
 
 function scheduleStateRetry(delay) {
