@@ -30,6 +30,14 @@ const TAB_MONITORING_KEY = 'tabMonitoringEnabled';
 const UPDATE_ALARM = 'meet-monitor-update-check';
 const RUNNING_VERSION_KEY = 'runningExtensionVersion';
 const PENDING_VERSION_KEY = 'pendingExtensionVersion';
+const CONTENT_SCRIPT_FILES = [
+  'src/meet-policy.js',
+  'src/selectors.js',
+  'src/state.js',
+  'src/meet-chat.js',
+  'src/identity-probe.js',
+  'src/content.js'
+];
 const MAX_HISTORY_SIZE = 1_000;
 const MAX_DEBUG_HISTORY_SIZE = 250;
 const MAX_SNAPSHOT_ATTEMPTS = 10;
@@ -71,10 +79,14 @@ createHeartbeatAlarm();
 createUpdateAlarm();
 refreshMeetActions().catch(() => {});
 refreshTabsAfterVersionChange().catch(() => {});
+repairMonitoredTabs().catch(() => {});
 
 chrome.tabs.onUpdated?.addListener((tabId, change, tab) => {
   if (change.url || change.status === 'complete') {
     updateMeetAction(tabId, tab?.url || change.url).catch(() => {});
+  }
+  if (change.status === 'complete') {
+    ensureMonitorContentScript(tabId, tab?.url).catch(() => {});
   }
 });
 chrome.tabs.onActivated?.addListener(({ tabId }) => {
@@ -184,6 +196,9 @@ chrome.alarms.onAlarm.addListener(alarm => {
     withStateLock(sendHeartbeat).catch(() => {
       console.warn('Meet state heartbeat failed');
     });
+    repairMonitoredTabs().catch(() => {
+      console.warn('Meet content-script recovery failed');
+    });
   }
   if (alarm.name === STATE_RETRY_ALARM) {
     withStateLock(retryPendingSnapshot).catch(() => {
@@ -212,6 +227,7 @@ chrome.runtime.onStartup.addListener(() => {
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName === 'sync' && changes.monitoredMeetLinks) {
     refreshMeetActions().catch(() => {});
+    repairMonitoredTabs().catch(() => {});
   }
   if (areaName === 'sync' && changes.sendingEnabled) {
     withStateLock(() => queueCurrentSnapshot(true)).catch(() => {
@@ -254,6 +270,39 @@ async function refreshMeetActions() {
   const tabs = await chrome.tabs.query({});
   await Promise.all(tabs.map(tab =>
     Number.isInteger(tab.id) ? updateMeetAction(tab.id, tab.url) : null
+  ));
+}
+
+async function ensureMonitorContentScript(tabId, knownURL) {
+  if (!Number.isInteger(tabId) || !chrome.scripting?.executeScript) return false;
+  let url = knownURL;
+  if (!url) {
+    try {
+      url = (await chrome.tabs.get(tabId)).url;
+    } catch {
+      return false;
+    }
+  }
+  const links = await monitoredMeetLinks();
+  if (!MMMeetPolicy.isMonitoredMeetURL(url, links)) return false;
+  try {
+    const response = await chrome.tabs.sendMessage(tabId, { kind: 'monitorPing' });
+    if (response?.alive) return false;
+  } catch {
+    // A missing receiver is repaired below.
+  }
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: CONTENT_SCRIPT_FILES
+  });
+  return true;
+}
+
+async function repairMonitoredTabs() {
+  if (!chrome.scripting?.executeScript) return;
+  const tabs = await chrome.tabs.query({});
+  await Promise.all(tabs.map(tab =>
+    ensureMonitorContentScript(tab.id, tab.url).catch(() => false)
   ));
 }
 

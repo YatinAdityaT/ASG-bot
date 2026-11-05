@@ -1,7 +1,7 @@
 (() => {
   const S = window.MMSelectors;
-  if (!S || window.__mmLoaded) return;
-  window.__mmLoaded = true;
+  if (!S) return;
+  if (typeof window.__mmStop === 'function') window.__mmStop();
 
   const meeting = S.meetingCode();
   const participantTracker = new window.MMParticipantTracker(2000);
@@ -32,7 +32,9 @@
     confirmationTimer = null;
     if (scanInterval !== null) clearInterval(scanInterval);
     scanInterval = null;
+    if (window.__mmStop === stopStaleWork) window.__mmStop = null;
   };
+  window.__mmStop = stopStaleWork;
 
   const handleContextFailure = error => {
     if (!isContextInvalidated(error)) return false;
@@ -218,6 +220,10 @@
   });
 
   chrome.runtime.onMessage.addListener((msg, _s, sendResponse) => {
+    if (msg.kind === 'monitorPing') {
+      sendResponse({ alive: !stopped, meeting });
+      return false;
+    }
     if (msg.kind === 'postMeetMessage') {
       window.MMMeetChat.postMessage(document, msg.text)
         .then(sent => sendResponse({ sent }))
