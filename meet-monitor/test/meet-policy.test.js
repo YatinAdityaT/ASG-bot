@@ -37,6 +37,13 @@ test('rejects malformed Meet codes', () => {
 test('matches only configured Meet pages', () => {
   const codes = ['jpy-ymgz-tdo'];
   assert.equal(isMonitoredMeetURL('https://meet.google.com/jpy-ymgz-tdo?authuser=1', codes), true);
+  assert.equal(
+    isMonitoredMeetURL(
+      'https://meet.google.com/meet/jpy-ymgz-tdo?pli=1&authuser=4',
+      codes
+    ),
+    true
+  );
   assert.equal(isMonitoredMeetURL('https://meet.google.com/abc-defg-hij', codes), false);
   assert.equal(meetingCode(codes[0]), 'jpy-ymgz-tdo');
   assert.deepEqual(DEFAULT_MEET_CODES, ['jpy-ymgz-tdo']);

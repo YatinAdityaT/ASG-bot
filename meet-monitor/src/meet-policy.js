@@ -14,8 +14,13 @@
       const url = new URL(raw);
       if (url.protocol !== 'https:' || url.hostname !== 'meet.google.com') return null;
       const segments = url.pathname.split('/').filter(Boolean);
-      return segments.length === 1 && codePattern.test(segments[0])
+      const code = segments.length === 1
         ? segments[0]
+        : segments.length === 2 && segments[0] === 'meet'
+          ? segments[1]
+          : '';
+      return codePattern.test(code)
+        ? code
         : null;
     } catch {
       return null;
