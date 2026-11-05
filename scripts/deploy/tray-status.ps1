@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$DeployRoot
+    [Parameter(Mandatory = $true)][string]$DeployRoot,
+    [switch]$Once
 )
 
 $ErrorActionPreference = "Stop"
@@ -116,6 +117,33 @@ function Get-CurrentTrayState {
         Commit    = $commit
         Version   = $version
     }
+}
+
+if ($Once) {
+    try {
+        $state = Get-CurrentTrayState
+        $color = if ($state.Deploying) {
+            [Drawing.Color]::Goldenrod
+        } elseif ($state.BotOnline) {
+            [Drawing.Color]::LimeGreen
+        } else {
+            [Drawing.Color]::Crimson
+        }
+        $icon = New-ASGTrayIcon -StatusColor $color
+        $icon.Dispose()
+        Format-TrayTooltip `
+            -BotOnline $state.BotOnline `
+            -Deploying $state.Deploying `
+            -Version $state.Version `
+            -Commit $state.Commit
+    } finally {
+        try {
+            $mutex.ReleaseMutex()
+        } catch {
+        }
+        $mutex.Dispose()
+    }
+    return
 }
 
 [Windows.Forms.Application]::EnableVisualStyles()

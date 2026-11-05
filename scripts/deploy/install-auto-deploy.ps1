@@ -11,6 +11,7 @@ Set-StrictMode -Version 2
 $DeployRoot = [IO.Path]::GetFullPath($DeployRoot)
 $ConfigPath = [IO.Path]::GetFullPath($ConfigPath)
 $taskName = "ASG Bot Auto Deploy"
+$trayTaskName = "ASG Bot Status"
 
 foreach ($command in @("git", "go", "node", "powershell.exe")) {
     if ($null -eq (Get-Command $command -ErrorAction SilentlyContinue)) {
@@ -108,6 +109,30 @@ if ($LASTEXITCODE -ne 0) {
     throw "Initial deployment failed with exit code $LASTEXITCODE"
 }
 
+$trayScript = Join-Path $DeployRoot "scripts\deploy\tray-status.ps1"
+if (-not (Test-Path -LiteralPath $trayScript)) {
+    throw "Tray status script is missing from master: $trayScript"
+}
+$currentUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+$trayArguments = "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$trayScript`" -DeployRoot `"$DeployRoot`""
+$trayAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $trayArguments
+$trayTrigger = New-ScheduledTaskTrigger -AtLogOn -User $currentUser
+$traySettings = New-ScheduledTaskSettingsSet `
+    -StartWhenAvailable `
+    -MultipleInstances IgnoreNew `
+    -ExecutionTimeLimit ([TimeSpan]::Zero)
+
+Register-ScheduledTask `
+    -TaskName $trayTaskName `
+    -Action $trayAction `
+    -Trigger $trayTrigger `
+    -Settings $traySettings `
+    -Principal $principal `
+    -Description "Shows ASG Bot status and controls in the Windows notification area." `
+    -Force | Out-Null
+Start-ScheduledTask -TaskName $trayTaskName
+
 Write-Output "Auto-deploy installed."
+Write-Output "Tray status installed."
 Write-Output "Bot checkout: $DeployRoot"
 Write-Output "Load Chrome extension from: $(Join-Path $DeployRoot 'meet-monitor')"

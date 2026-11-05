@@ -8,12 +8,13 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 2
 
 $DeployRoot = [IO.Path]::GetFullPath($DeployRoot)
-$taskName = "ASG Bot Auto Deploy"
 
-$task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-if ($null -ne $task) {
-    Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+foreach ($taskName in @("ASG Bot Status", "ASG Bot Auto Deploy")) {
+    $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    if ($null -ne $task) {
+        Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+    }
 }
 
 $library = Join-Path $DeployRoot "scripts\deploy\deploy-lib.ps1"

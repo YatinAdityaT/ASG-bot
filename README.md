@@ -148,6 +148,13 @@ The current bot stays online during validation. Failures are recorded without
 replacing the running release. Scheduled checks and the managed bot run hidden
 without opening terminal windows.
 
+The installer also adds an **ASG Bot** notification-area icon at login. Its
+status dot is green when the bot is online, red when offline, and amber during
+deployment. Hovering shows bot status, Meet Monitor version, and deployed
+commit. Right-click it to check for updates, restart the bot, open logs, or
+exit the tray. Exiting the tray does not stop the bot or auto-deployer; the
+icon returns at the next login or installer run.
+
 Remove the previously loaded unpacked Meet Monitor once, then load it from:
 
 ```text
@@ -169,7 +176,7 @@ Useful operations:
 
 ```powershell
 # Status
-Get-ScheduledTask -TaskName "ASG Bot Auto Deploy"
+Get-ScheduledTask -TaskName "ASG Bot Auto Deploy","ASG Bot Status"
 
 # Run one update immediately
 powershell -ExecutionPolicy Bypass -File `
