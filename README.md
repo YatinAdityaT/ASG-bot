@@ -131,6 +131,63 @@ messages and unlisted groups receive no response. Unknown slash commands are
 ignored by command routing, but recognized tone indicators such as `/s` can
 still trigger an automatic tone response.
 
+## Automatic deployment on Windows
+
+Install auto-deploy once from a clean pull of this repository:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\deploy\install-auto-deploy.ps1 `
+  -ConfigPath .\config.local.json
+```
+
+This creates a dedicated checkout at
+`%LOCALAPPDATA%\ASGBotDeploy`, validates `origin/master` every minute, and
+restarts the bot only after Go tests, extension tests, and a new build pass.
+The current bot stays online during validation. Failures are recorded without
+replacing the running release.
+
+Remove the previously loaded unpacked Meet Monitor once, then load it from:
+
+```text
+%LOCALAPPDATA%\ASGBotDeploy\meet-monitor
+```
+
+Changing the unpacked-extension path may produce a new Chrome extension ID.
+If it does, update `apiAllowedOrigins` in
+`%LOCALAPPDATA%\ASGBotDeploy\config.local.json` to that exact
+`chrome-extension://<id>` origin and save the Bot API settings again in the
+extension. This is a one-time migration.
+
+Meet Monitor checks the GitHub manifest version every minute. After the
+deployment checkout updates, it reloads itself and refreshes only configured
+Meet tabs. Every extension code change must increment
+`meet-monitor/manifest.json`; bot-only changes do not need a version bump.
+
+Useful operations:
+
+```powershell
+# Status
+Get-ScheduledTask -TaskName "ASG Bot Auto Deploy"
+
+# Run one update immediately
+powershell -ExecutionPolicy Bypass -File `
+  "$env:LOCALAPPDATA\ASGBotDeploy\scripts\deploy\auto-deploy.ps1" `
+  -DeployRoot "$env:LOCALAPPDATA\ASGBotDeploy"
+
+# Preview whether an update is pending
+powershell -ExecutionPolicy Bypass -File `
+  "$env:LOCALAPPDATA\ASGBotDeploy\scripts\deploy\auto-deploy.ps1" `
+  -DeployRoot "$env:LOCALAPPDATA\ASGBotDeploy" -CheckOnly
+
+# Uninstall the task and stop the managed bot, preserving config and logs
+powershell -ExecutionPolicy Bypass -File `
+  .\scripts\deploy\uninstall-auto-deploy.ps1
+```
+
+Deployment logs are in `%LOCALAPPDATA%\ASGBotDeploy\logs`. Pass
+`-RemoveFiles` to the uninstall script only when the preserved checkout,
+configuration, and logs should also be deleted.
+
 ## Supported behavior
 
 Send these exact commands in an allowed group:

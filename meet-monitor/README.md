@@ -1,6 +1,6 @@
 # Meet Monitor Chrome Extension
 
-Meet Monitor `v1.8.0` is an unpacked Chrome extension for Google Meet. It
+Meet Monitor `v1.9.0` is an unpacked Chrome extension for Google Meet. It
 tracks participant joins and leaves, camera and microphone changes, and chat
 messages for configured Google Meet links.
 
@@ -18,9 +18,14 @@ messages for configured Google Meet links.
 6. Paste the bot bearer token, save, approve the exact origin permission
    request, then reload the unpacked extension and refresh every open Meet tab.
 
-Chrome does not hot-reload unpacked extensions. After every code or settings
-change that affects forwarding or content scripts, reload the extension and
-refresh all open Meet tabs.
+Chrome does not hot-reload unpacked extensions by itself. Without the
+auto-deploy setup, reload the extension and refresh all open Meet tabs after
+every code change that affects forwarding or content scripts.
+
+When loaded from the dedicated auto-deploy checkout, Meet Monitor checks
+GitHub once a minute. A newer manifest version reloads the extension after the
+checkout updates and refreshes configured Meet tabs automatically. Every
+extension release must increment `manifest.json`.
 
 ## Daily use
 
