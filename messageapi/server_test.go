@@ -78,7 +78,7 @@ func TestCORSExactOriginAndPreflight(t *testing.T) {
 	}
 
 	denied := authenticatedRequest(t, server.Handler(), http.MethodGet, "/healthz", nil, map[string]string{
-		"Origin": allowedOrigin + ".evil",
+		"Origin": "https://example.com",
 	})
 	if denied.Code != http.StatusForbidden || denied.Header().Get("Access-Control-Allow-Origin") != "" {
 		t.Fatalf("denied origin response = %d, allow-origin %q", denied.Code, denied.Header().Get("Access-Control-Allow-Origin"))

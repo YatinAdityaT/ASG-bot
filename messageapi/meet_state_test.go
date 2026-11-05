@@ -213,7 +213,7 @@ func TestMeetStateCORSAndSharedRateLimit(t *testing.T) {
 		t.Fatalf("allowed origin response = %d, headers %#v", allowed.Code, allowed.Header())
 	}
 	denied := authenticatedRequest(t, server.Handler(), http.MethodPost, "/v1/meet-state",
-		strings.NewReader(body), map[string]string{"Content-Type": "application/json", "Origin": allowedOrigin + ".evil"})
+		strings.NewReader(body), map[string]string{"Content-Type": "application/json", "Origin": "https://example.com"})
 	assertError(t, denied, http.StatusForbidden, "origin_forbidden")
 
 	preflight := requestFrom(t, server.Handler(), "192.0.2.2:1234", http.MethodOptions, "/v1/meet-state", nil,

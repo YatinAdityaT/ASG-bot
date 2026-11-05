@@ -8,6 +8,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -31,7 +32,6 @@ type Server struct {
 	meet    *meetmonitor.Service
 	now     func() time.Time
 	limiter *fixedWindowLimiter
-	origins map[string]struct{}
 }
 
 type Option func(*Server)
@@ -46,16 +46,11 @@ func New(cfg config.Config, store *outbound.Store, now func() time.Time, options
 	if now == nil {
 		now = time.Now
 	}
-	origins := make(map[string]struct{}, len(cfg.APIAllowedOrigins))
-	for _, origin := range cfg.APIAllowedOrigins {
-		origins[origin] = struct{}{}
-	}
 	server := &Server{
 		config:  cfg,
 		store:   store,
 		now:     now,
 		limiter: newFixedWindowLimiter(now),
-		origins: origins,
 	}
 	for _, option := range options {
 		option(server)
@@ -116,7 +111,7 @@ func (server *Server) serveHTTP(writer http.ResponseWriter, request *http.Reques
 	origin := request.Header.Get("Origin")
 	if origin != "" {
 		writer.Header().Set("Vary", "Origin")
-		if _, allowed := server.origins[origin]; !allowed {
+		if !isChromeExtensionOrigin(origin) {
 			writeError(writer, http.StatusForbidden, "origin_forbidden", "origin not allowed")
 			return
 		}
@@ -188,6 +183,17 @@ func (server *Server) serveHTTP(writer http.ResponseWriter, request *http.Reques
 	default:
 		writeError(writer, http.StatusNotFound, "not_found", "not found")
 	}
+}
+
+func isChromeExtensionOrigin(origin string) bool {
+	parsed, err := url.Parse(origin)
+	return err == nil &&
+		parsed.Scheme == "chrome-extension" &&
+		parsed.Host != "" &&
+		parsed.User == nil &&
+		parsed.Path == "" &&
+		parsed.RawQuery == "" &&
+		parsed.Fragment == ""
 }
 
 type submitRequest struct {
