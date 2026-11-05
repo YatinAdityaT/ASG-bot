@@ -1,6 +1,7 @@
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let currentModel = null;
+let activeTabId = null;
 
 async function activeMeetTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -50,14 +51,22 @@ function initSendingControl() {
   $('#sending').onchange = () => {
     renderSendingState();
     return chrome.runtime.sendMessage({
-      kind: 'setForwarding',
+      kind: 'setTabMonitoring',
+      tabId: activeTabId,
       enabled: $('#sending').checked
     });
   };
 }
 
 async function refresh() {
-  try { render(await chrome.runtime.sendMessage({ kind: 'getMonitorModel' })); }
+  try {
+    const tab = await activeMeetTab();
+    activeTabId = Number.isInteger(tab?.id) ? tab.id : null;
+    render(await chrome.runtime.sendMessage({
+      kind: 'getMonitorModel',
+      tabId: activeTabId
+    }));
+  }
   catch { render(null); }
 }
 
@@ -90,5 +99,5 @@ $('#open-monitor').onclick = async () => {
 initSendingControl();
 refresh();
 chrome.runtime.onMessage.addListener(message => {
-  if (message?.kind === 'monitorModelChanged') render(message.model);
+  if (message?.kind === 'monitorModelChanged') refresh();
 });

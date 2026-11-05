@@ -1,6 +1,6 @@
 # Meet Monitor Chrome Extension
 
-Meet Monitor `v1.9.0` is an unpacked Chrome extension for Google Meet. It
+Meet Monitor `v1.9.1` is an unpacked Chrome extension for Google Meet. It
 tracks participant joins and leaves, camera and microphone changes, and chat
 messages for configured Google Meet links.
 
@@ -29,7 +29,8 @@ extension release must increment `manifest.json`.
 
 ## Daily use
 
-- Click the Meet Monitor toolbar button to open its side panel.
+- Click the Meet Monitor toolbar button to open its popup. Use **Open Monitor**
+  in the popup for the persistent side panel.
 - The toolbar button is available only on configured Meet links.
 - Use **Monitoring this tab** to enable or disable each Meet tab independently.
   Enabled configured tabs can monitor simultaneously.

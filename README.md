@@ -14,8 +14,9 @@ For operators, keep the bot configured with
 `ASG_BOT_MEET_CODE=jpy-ymgz-tdo`, set the extension Bot API URL to
 `/v1/meet-events`, and let the extension derive `/v1/meet-state` and
 `/v1/meet-command` on the same origin. After any code or settings change, reload the unpacked extension and
-refresh every open Meet tab. Click the extension button to open the side panel,
-use `/status` to verify monitor state, `/incall` to list participants,
+refresh every open Meet tab. Click the extension button for the Meet Monitor
+popup, then use **Open Monitor** when you want the persistent side panel.
+Use `/status` to verify monitor state, `/incall` to list participants,
 `/pingcall` to mention the WhatsApp group with the current roster, and
 `/meet <message>` to post into Meet
 chat. See

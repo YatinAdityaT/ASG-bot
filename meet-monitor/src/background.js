@@ -54,14 +54,10 @@ chrome.runtime.onInstalled.addListener(async () => {
     sendingEnabled: true,
     monitoredMeetLinks: policy.monitoredMeetLinks
   });
-  await chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true });
   createHeartbeatAlarm();
   createUpdateAlarm();
 });
 
-Promise.resolve(
-  chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true })
-).catch(() => {});
 createHeartbeatAlarm();
 createUpdateAlarm();
 refreshMeetActions().catch(() => {});

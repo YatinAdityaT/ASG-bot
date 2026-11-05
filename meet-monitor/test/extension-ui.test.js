@@ -5,9 +5,9 @@ const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..');
 
-test('toolbar action opens the side panel instead of a popup', () => {
+test('toolbar action restores the Meet Monitor popup', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'manifest.json'), 'utf8'));
-  assert.equal(manifest.action.default_popup, undefined);
+  assert.equal(manifest.action.default_popup, 'src/popup.html');
   assert.ok(manifest.permissions.includes('sidePanel'));
   assert.ok(manifest.permissions.includes('tabs'));
 });

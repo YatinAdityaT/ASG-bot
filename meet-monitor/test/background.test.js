@@ -713,9 +713,7 @@ test('monitoring can be disabled for one allowed tab without disabling another',
     }
   });
   await settle();
-  assert.deepEqual(harness.sidePanelBehaviors, [{
-    openPanelOnActionClick: true
-  }]);
+  assert.deepEqual(harness.sidePanelBehaviors, []);
   assert.deepEqual(harness.actionEnabled, [7, 8]);
   assert.deepEqual(harness.actionDisabled, [9]);
 
@@ -808,20 +806,24 @@ test('elected Meet tab receives a pending command and then acknowledges it', asy
   assert.equal(harness.meetCommands.length, 0);
 });
 
-test('popup contains a labeled sending control with ON/OFF status', () => {
+test('popup contains a labeled per-tab monitoring control with ON/OFF status', () => {
   const html = fs.readFileSync(
     path.join(__dirname, '..', 'src', 'popup.html'),
     'utf8'
   );
 
   assert.match(html, /<label id="sending-control">/);
-  assert.match(html, /<input type="checkbox" id="sending"> Sending/);
+  assert.match(html, /<input type="checkbox" id="sending"> Monitoring this tab/);
   assert.match(html, /<strong id="sending-state">ON<\/strong>/);
   assert.match(html, /id="open-monitor"/);
 });
 
-test('popup loads and persists the sending toggle', async () => {
-  const harness = createPopupHarness(false);
+test('popup loads and persists the active tab monitoring toggle', async () => {
+  const harness = createPopupHarness(false, {
+    id: 7,
+    windowId: 42,
+    url: 'https://meet.google.com/jpy-ymgz-tdo'
+  });
 
   await waitFor(() => harness.elements['#sending-state'].textContent === 'OFF');
   assert.equal(harness.elements['#sending'].checked, false);
@@ -830,7 +832,8 @@ test('popup loads and persists the sending toggle', async () => {
   await harness.elements['#sending'].onchange();
 
   assert.deepEqual(JSON.parse(JSON.stringify(harness.runtimeMessages.at(-1))), {
-    kind: 'setForwarding',
+    kind: 'setTabMonitoring',
+    tabId: 7,
     enabled: true
   });
   assert.equal(harness.elements['#sending-state'].textContent, 'ON');
