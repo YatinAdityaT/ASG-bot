@@ -210,9 +210,14 @@ func runWithDependencies(ctx context.Context, cfg config.Config, deps runtimeDep
 
 	var monitorService *meetmonitor.Service
 	if cfg.APIEnabled {
+		notificationStore := outboundStore
+		if cfg.MeetNotificationGroup != "" &&
+			cfg.MeetNotificationGroup != cfg.APITargetGroup {
+			notificationStore = outbound.NewStore(database, cfg.MeetNotificationGroup)
+		}
 		monitorService = meetmonitor.NewService(
 			meetmonitor.NewStore(database),
-			outboundStore,
+			notificationStore,
 			cfg.MeetCode,
 			client.IsConnected,
 			time.Now,

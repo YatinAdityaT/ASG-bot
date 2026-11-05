@@ -27,11 +27,12 @@ const (
 )
 
 type Server struct {
-	config  config.Config
-	store   *outbound.Store
-	meet    *meetmonitor.Service
-	now     func() time.Time
-	limiter *fixedWindowLimiter
+	config       config.Config
+	store        *outbound.Store
+	presenceJobs meetmonitor.JobCreator
+	meet         *meetmonitor.Service
+	now          func() time.Time
+	limiter      *fixedWindowLimiter
 }
 
 type Option func(*Server)
@@ -39,6 +40,9 @@ type Option func(*Server)
 func WithMeetService(service *meetmonitor.Service) Option {
 	return func(server *Server) {
 		server.meet = service
+		if service != nil {
+			server.presenceJobs = service.NotificationJobs()
+		}
 	}
 }
 
@@ -47,10 +51,11 @@ func New(cfg config.Config, store *outbound.Store, now func() time.Time, options
 		now = time.Now
 	}
 	server := &Server{
-		config:  cfg,
-		store:   store,
-		now:     now,
-		limiter: newFixedWindowLimiter(now),
+		config:       cfg,
+		store:        store,
+		presenceJobs: store,
+		now:          now,
+		limiter:      newFixedWindowLimiter(now),
 	}
 	for _, option := range options {
 		option(server)

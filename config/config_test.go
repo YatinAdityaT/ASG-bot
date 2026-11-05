@@ -148,7 +148,8 @@ func TestLoadAPIDisabledByDefault(t *testing.T) {
 	if cfg.APIEnabled {
 		t.Fatal("APIEnabled = true, want false")
 	}
-	if cfg.APIAddr != "" || cfg.APIToken != "" || cfg.APITargetGroup != "" || cfg.APIAllowedOrigins != nil {
+	if cfg.APIAddr != "" || cfg.APIToken != "" || cfg.APITargetGroup != "" ||
+		cfg.MeetNotificationGroup != "" || cfg.APIAllowedOrigins != nil {
 		t.Fatalf("disabled API fields unexpectedly populated: %#v", cfg)
 	}
 }
@@ -177,7 +178,9 @@ func TestLoadValidEnabledAPI(t *testing.T) {
 	if cfg.MeetCode != "jpy-ymgz-tdo" {
 		t.Fatalf("MeetCode = %q, want configured meet code", cfg.MeetCode)
 	}
-	if cfg.APIToken != env["ASG_BOT_API_TOKEN"] || cfg.APITargetGroup != "456@g.us" {
+	if cfg.APIToken != env["ASG_BOT_API_TOKEN"] ||
+		cfg.APITargetGroup != "456@g.us" ||
+		cfg.MeetNotificationGroup != "456@g.us" {
 		t.Fatalf("unexpected API configuration: %#v", cfg)
 	}
 	wantOrigins := []string{"chrome-extension://abcdefghijklmnop", "chrome-extension://qrstuvwxyzabcdef"}
@@ -310,6 +313,7 @@ func TestLoadReadsJSONConfigAndEnvironmentOverridesIt(t *testing.T) {
 	}
 	if !cfg.APIEnabled || cfg.APIAddr != "127.0.0.1:9090" ||
 		cfg.APITargetGroup != "456@g.us" ||
+		cfg.MeetNotificationGroup != "123@g.us" ||
 		!reflect.DeepEqual(cfg.APIAllowedOrigins, []string{"chrome-extension://abcdefghijklmnop"}) {
 		t.Fatalf("API config not loaded from file: %#v", cfg)
 	}

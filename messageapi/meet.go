@@ -72,7 +72,11 @@ func (server *Server) submitMeetEvent(writer http.ResponseWriter, request *http.
 		return
 	}
 
-	job, err := server.store.Create(request.Context(), outbound.CreateRequest{
+	var jobs meetmonitor.JobCreator = server.store
+	if event.Type == "join" || event.Type == "leave" {
+		jobs = server.presenceJobs
+	}
+	job, err := jobs.Create(request.Context(), outbound.CreateRequest{
 		IdempotencyKey: key,
 		Text:           formatted,
 	})

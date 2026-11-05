@@ -59,19 +59,20 @@ stable group IDs live in the ignored local file. Copy `config.example.json` to
 | `ASG_BOT_API_ENABLED` | No | Case-insensitive literal `true` or `false`; no other aliases are accepted. Defaults to `false`. |
 | `ASG_BOT_API_ADDR` | No | Listen address used when the API is enabled. Defaults to `127.0.0.1:8080`. Keep the loopback host when using a local tunnel. |
 | `ASG_BOT_API_TOKEN` | When API enabled | Bearer token containing at least 32 characters. Generate a random secret; never commit or expose it in extension source. |
-| `ASG_BOT_API_TARGET_GROUP` | When API enabled without an Accountability group | The destination group JID. When `ASG_BOT_ACCOUNTABILITY_GROUP` is set, it becomes the API and Meet-event destination automatically. |
+| `ASG_BOT_API_TARGET_GROUP` | When API enabled without an Accountability group | Destination for explicit API and Meet `/w` messages. The Accountability group is used automatically when configured. |
+| `ASG_BOT_MEET_NOTIFICATION_GROUP` | No | Destination for automatic Meet join/leave notifications. Defaults to the first allowed group other than the Accountability group. |
 | `ASG_BOT_API_ALLOWED_ORIGINS` | No | Comma-separated exact `chrome-extension://<extension-id>` origins. Empty denies browser cross-origin requests while allowing clients that send no `Origin`, such as curl. |
 
 Whitespace around comma-separated entries is removed, but empty entries are
 invalid. Obtain the numeric group JID from trusted WhatsApp/whatsmeow diagnostic
 output before starting the bot; do not substitute the group's display name.
-Set `ASG_BOT_API_TARGET_GROUP` to the Accountability Subscribers group JID if
-Meet events and `/w` messages should go there.
+Automatic Meet presence notifications and explicit `/w` messages have separate
+destinations so the Accountability group can stay free of join/leave noise.
 
 The JSON file accepts the equivalent keys `adminNumbers`, `allowedGroups`,
 `accountabilityGroup`, `dbPath`, `logLevel`, `apiEnabled`, `apiAddr`,
-`meetCode`, `apiToken`, `apiTargetGroup`, and `apiAllowedOrigins`. Unknown keys
-are rejected to catch configuration typos.
+`meetCode`, `apiToken`, `apiTargetGroup`, `meetNotificationGroup`, and
+`apiAllowedOrigins`. Unknown keys are rejected to catch configuration typos.
 
 Example for the current PowerShell session:
 
@@ -91,7 +92,8 @@ $bytes = New-Object byte[] 48
 $env:ASG_BOT_API_TOKEN = [Convert]::ToBase64String($bytes)
 $env:ASG_BOT_API_ENABLED = "true"
 $env:ASG_BOT_API_ADDR = "127.0.0.1:8080"
-$env:ASG_BOT_API_TARGET_GROUP = "120363012345678901@g.us"
+$env:ASG_BOT_API_TARGET_GROUP = "120363012345678902@g.us"
+$env:ASG_BOT_MEET_NOTIFICATION_GROUP = "120363012345678901@g.us"
 $env:ASG_BOT_API_ALLOWED_ORIGINS = "chrome-extension://abcdefghijklmnop"
 ```
 

@@ -52,6 +52,10 @@ func NewService(store StateStore, jobs JobCreator, meeting string, connected fun
 	}
 }
 
+func (s *Service) NotificationJobs() JobCreator {
+	return s.jobs
+}
+
 func (s *Service) Process(ctx context.Context, snapshot Snapshot) (Result, error) {
 	now := s.now().UTC()
 	normalized, snapshotHash, err := normalizeSnapshot(snapshot, s.meeting, now)

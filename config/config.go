@@ -35,31 +35,33 @@ var (
 )
 
 type Config struct {
-	AdminNumbers        []string
-	AllowedGroups       []string
-	AccountabilityGroup string
-	DBPath              string
-	LogLevel            string
-	APIEnabled          bool
-	APIAddr             string
-	MeetCode            string
-	APIToken            string
-	APITargetGroup      string
-	APIAllowedOrigins   []string
+	AdminNumbers          []string
+	AllowedGroups         []string
+	AccountabilityGroup   string
+	DBPath                string
+	LogLevel              string
+	APIEnabled            bool
+	APIAddr               string
+	MeetCode              string
+	APIToken              string
+	APITargetGroup        string
+	MeetNotificationGroup string
+	APIAllowedOrigins     []string
 }
 
 type fileConfig struct {
-	AdminNumbers        []string `json:"adminNumbers"`
-	AllowedGroups       []string `json:"allowedGroups"`
-	AccountabilityGroup string   `json:"accountabilityGroup"`
-	DBPath              string   `json:"dbPath"`
-	LogLevel            string   `json:"logLevel"`
-	APIEnabled          *bool    `json:"apiEnabled"`
-	APIAddr             string   `json:"apiAddr"`
-	MeetCode            string   `json:"meetCode"`
-	APIToken            string   `json:"apiToken"`
-	APITargetGroup      string   `json:"apiTargetGroup"`
-	APIAllowedOrigins   []string `json:"apiAllowedOrigins"`
+	AdminNumbers          []string `json:"adminNumbers"`
+	AllowedGroups         []string `json:"allowedGroups"`
+	AccountabilityGroup   string   `json:"accountabilityGroup"`
+	DBPath                string   `json:"dbPath"`
+	LogLevel              string   `json:"logLevel"`
+	APIEnabled            *bool    `json:"apiEnabled"`
+	APIAddr               string   `json:"apiAddr"`
+	MeetCode              string   `json:"meetCode"`
+	APIToken              string   `json:"apiToken"`
+	APITargetGroup        string   `json:"apiTargetGroup"`
+	MeetNotificationGroup string   `json:"meetNotificationGroup"`
+	APIAllowedOrigins     []string `json:"apiAllowedOrigins"`
 }
 
 func Load(getenv func(string) string) (Config, error) {
@@ -166,6 +168,28 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 	if !contains(allowedGroups, cfg.APITargetGroup) {
 		return Config{}, fmt.Errorf("ASG_BOT_API_TARGET_GROUP must appear in ASG_BOT_ALLOWED_GROUPS")
+	}
+
+	cfg.MeetNotificationGroup = strings.TrimSpace(value(
+		"ASG_BOT_MEET_NOTIFICATION_GROUP",
+		fileValues.MeetNotificationGroup,
+	))
+	if cfg.MeetNotificationGroup == "" {
+		cfg.MeetNotificationGroup = cfg.APITargetGroup
+		if accountabilityGroup != "" {
+			for _, group := range allowedGroups {
+				if group != accountabilityGroup {
+					cfg.MeetNotificationGroup = group
+					break
+				}
+			}
+		}
+	}
+	if !groupJIDPattern.MatchString(cfg.MeetNotificationGroup) {
+		return Config{}, fmt.Errorf("ASG_BOT_MEET_NOTIFICATION_GROUP must be a group JID")
+	}
+	if !contains(allowedGroups, cfg.MeetNotificationGroup) {
+		return Config{}, fmt.Errorf("ASG_BOT_MEET_NOTIFICATION_GROUP must appear in ASG_BOT_ALLOWED_GROUPS")
 	}
 
 	cfg.APIAllowedOrigins, err = parseAPIOrigins(value(
