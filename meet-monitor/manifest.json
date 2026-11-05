@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Meet Monitor",
-  "version": "1.10.2",
+  "version": "1.11.0",
   "description": "Logs Google Meet activity and can forward it to an ASG WhatsApp bot.",
   "permissions": ["storage", "alarms", "sidePanel", "tabs", "scripting"],
   "host_permissions": [
@@ -13,7 +13,7 @@
   "optional_host_permissions": ["https://*/*", "http://*/*"],
   "content_scripts": [{
     "matches": ["https://meet.google.com/*"],
-    "js": ["src/meet-policy.js", "src/selectors.js", "src/state.js", "src/meet-chat.js", "src/identity-probe.js", "src/content.js"],
+    "js": ["src/meet-policy.js", "src/selectors.js", "src/state.js", "src/meet-chat.js", "src/meet-call.js", "src/identity-probe.js", "src/content.js"],
     "run_at": "document_idle"
   }],
   "background": { "service_worker": "src/background.js" },

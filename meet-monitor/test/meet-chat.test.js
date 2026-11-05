@@ -1,7 +1,19 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { postMessage } = require('../src/meet-chat.js');
+const { openChat, postMessage } = require('../src/meet-chat.js');
+
+test('opens Meet chat without posting a message', () => {
+  let clicks = 0;
+  const document = fakeDocument({
+    'button[aria-label*="Chat with everyone" i]': {
+      click() { clicks += 1; }
+    }
+  });
+
+  assert.equal(openChat(document), true);
+  assert.equal(clicks, 1);
+});
 
 test('posts text through an already-open Meet chat composer', async () => {
   const events = [];

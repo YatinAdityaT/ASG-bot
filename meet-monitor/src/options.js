@@ -5,6 +5,9 @@ Promise.all([
     webhook: '',
     botAPIURL: '',
     consentBanner: true,
+    meetScheduleEnabled: true,
+    meetQuietStart: '00:00',
+    meetQuietEnd: '05:00',
     monitoredMeetLinks: MMMeetPolicy.DEFAULT_MEET_CODES
   }),
   chrome.storage.local.get({ botAPIConfig: null })
@@ -13,6 +16,9 @@ Promise.all([
   $('#botAPIURL').value = local.botAPIConfig?.url || sync.botAPIURL;
   $('#botAPIToken').value = local.botAPIConfig?.token || '';
   $('#consentBanner').checked = sync.consentBanner;
+  $('#meetScheduleEnabled').checked = sync.meetScheduleEnabled;
+  $('#meetQuietStart').value = sync.meetQuietStart;
+  $('#meetQuietEnd').value = sync.meetQuietEnd;
   let monitoredMeetCodes;
   try {
     monitoredMeetCodes = MMMeetPolicy.normalizeMeetCodes(sync.monitoredMeetLinks);
@@ -27,6 +33,8 @@ $('#save').onclick = async () => {
   const webhook = $('#webhook').value.trim();
   const botAPIURL = $('#botAPIURL').value.trim();
   const botAPIToken = $('#botAPIToken').value.trim();
+  const meetQuietStart = $('#meetQuietStart').value;
+  const meetQuietEnd = $('#meetQuietEnd').value;
   let monitoredMeetLinks;
   try {
     monitoredMeetLinks = MMMeetPolicy.normalizeMeetCodes(
@@ -38,6 +46,12 @@ $('#save').onclick = async () => {
   }
   if (!!botAPIURL !== !!botAPIToken) {
     $('#saved').textContent = 'Bot API URL and token are both required';
+    return;
+  }
+  if (!/^\d{2}:\d{2}$/.test(meetQuietStart) ||
+      !/^\d{2}:\d{2}$/.test(meetQuietEnd) ||
+      meetQuietStart === meetQuietEnd) {
+    $('#saved').textContent = 'Leave and rejoin times must be different';
     return;
   }
 
@@ -86,6 +100,9 @@ $('#save').onclick = async () => {
     webhook,
     botAPIURL,
     consentBanner: $('#consentBanner').checked,
+    meetScheduleEnabled: $('#meetScheduleEnabled').checked,
+    meetQuietStart,
+    meetQuietEnd,
     monitoredMeetLinks
   });
 

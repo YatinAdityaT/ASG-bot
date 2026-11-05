@@ -17,6 +17,9 @@ test('options page exposes comma-separated monitored Meet codes', () => {
   assert.match(html, /id="monitoredMeetLinks"/);
   assert.match(html, /comma-separated Google Meet codes/i);
   assert.match(html, /placeholder="jpy-ymgz-tdo"/);
+  assert.match(html, /id="meetScheduleEnabled"/);
+  assert.match(html, /id="meetQuietStart"/);
+  assert.match(html, /id="meetQuietEnd"/);
 });
 
 test('side panel controls per-tab monitoring, reload, and identity probing', () => {

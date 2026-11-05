@@ -4,7 +4,10 @@ const DEFAULTS = {
   webhook: '',
   botAPIURL: '',
   consentBanner: true,
-  sendingEnabled: true
+  sendingEnabled: true,
+  meetScheduleEnabled: true,
+  meetQuietStart: '00:00',
+  meetQuietEnd: '05:00'
 };
 const ALLOWED_MEETING = 'jpy-ymgz-tdo';
 const FORWARD_DEDUPE_MS = 5_000;
@@ -28,11 +31,13 @@ const DEBUG_ENABLED_KEY = 'monitorDebugEnabled';
 const POSTED_COMMANDS_KEY = 'postedMeetCommandIds';
 const TAB_MONITORING_KEY = 'tabMonitoringEnabled';
 const UPDATE_ALARM = 'meet-monitor-update-check';
+const MEET_SCHEDULE_ALARM = 'meet-schedule-check';
 const CONTENT_SCRIPT_FILES = [
   'src/meet-policy.js',
   'src/selectors.js',
   'src/state.js',
   'src/meet-chat.js',
+  'src/meet-call.js',
   'src/identity-probe.js',
   'src/content.js'
 ];
@@ -71,19 +76,24 @@ chrome.runtime.onInstalled.addListener(async () => {
   });
   createHeartbeatAlarm();
   createUpdateAlarm();
+  createMeetScheduleAlarm();
 });
 
 createHeartbeatAlarm();
 createUpdateAlarm();
+createMeetScheduleAlarm();
 refreshMeetActions().catch(() => {});
 repairMonitoredTabs().catch(() => {});
+reconcileMeetSchedule().catch(() => {});
 
 chrome.tabs.onUpdated?.addListener((tabId, change, tab) => {
   if (change.url || change.status === 'complete') {
     updateMeetAction(tabId, tab?.url || change.url).catch(() => {});
   }
   if (change.status === 'complete') {
-    ensureMonitorContentScript(tabId, tab?.url).catch(() => {});
+    ensureMonitorContentScript(tabId, tab?.url)
+      .then(() => reconcileMeetScheduleForTab(tabId, tab?.url))
+      .catch(() => {});
   }
 });
 chrome.tabs.onActivated?.addListener(({ tabId }) => {
@@ -207,6 +217,11 @@ chrome.alarms.onAlarm.addListener(alarm => {
       console.warn('Meet Monitor update check failed');
     });
   }
+  if (alarm.name === MEET_SCHEDULE_ALARM) {
+    reconcileMeetSchedule().catch(() => {
+      console.warn('Meet schedule reconciliation failed');
+    });
+  }
 });
 
 chrome.runtime.onStartup.addListener(() => {
@@ -219,12 +234,23 @@ chrome.runtime.onStartup.addListener(() => {
   checkForExtensionUpdate().catch(() => {
     console.warn('Meet Monitor startup update check failed');
   });
+  reconcileMeetSchedule().catch(() => {
+    console.warn('Meet schedule startup reconciliation failed');
+  });
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName === 'sync' && changes.monitoredMeetLinks) {
     refreshMeetActions().catch(() => {});
     repairMonitoredTabs().catch(() => {});
+  }
+  if (areaName === 'sync' && (
+    changes.monitoredMeetLinks ||
+    changes.meetScheduleEnabled ||
+    changes.meetQuietStart ||
+    changes.meetQuietEnd
+  )) {
+    reconcileMeetSchedule().catch(() => {});
   }
   if (areaName === 'sync' && changes.sendingEnabled) {
     withStateLock(() => queueCurrentSnapshot(true)).catch(() => {
@@ -301,6 +327,83 @@ async function repairMonitoredTabs() {
   await Promise.all(tabs.map(tab =>
     ensureMonitorContentScript(tab.id, tab.url).catch(() => false)
   ));
+}
+
+function clockMinutes(value) {
+  const match = String(value || '').match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+  return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+}
+
+function isQuietTime(now, start, end) {
+  const startMinutes = clockMinutes(start);
+  const endMinutes = clockMinutes(end);
+  if (startMinutes === null || endMinutes === null || startMinutes === endMinutes) {
+    return false;
+  }
+  const current = now.getHours() * 60 + now.getMinutes();
+  return startMinutes < endMinutes
+    ? current >= startMinutes && current < endMinutes
+    : current >= startMinutes || current < endMinutes;
+}
+
+async function meetSchedule() {
+  const stored = await chrome.storage.sync.get({
+    meetScheduleEnabled: true,
+    meetQuietStart: '00:00',
+    meetQuietEnd: '05:00',
+    monitoredMeetLinks: MMMeetPolicy.DEFAULT_MEET_CODES
+  });
+  let codes;
+  try {
+    codes = MMMeetPolicy.normalizeMeetCodes(stored.monitoredMeetLinks);
+  } catch {
+    codes = MMMeetPolicy.DEFAULT_MEET_CODES;
+  }
+  return {
+    enabled: stored.meetScheduleEnabled !== false,
+    quiet: isQuietTime(new Date(), stored.meetQuietStart, stored.meetQuietEnd),
+    code: codes[0]
+  };
+}
+
+async function reconcileMeetScheduleForTab(tabId, knownURL) {
+  if (!Number.isInteger(tabId)) return false;
+  const schedule = await meetSchedule();
+  if (!schedule.enabled ||
+      MMMeetPolicy.meetingCode(knownURL) !== schedule.code) {
+    return false;
+  }
+  await ensureMonitorContentScript(tabId, knownURL);
+  try {
+    const response = await chrome.tabs.sendMessage(tabId, {
+      kind: 'setScheduledPresence',
+      present: !schedule.quiet
+    });
+    return response?.applied === true;
+  } catch {
+    return false;
+  }
+}
+
+async function reconcileMeetSchedule() {
+  const schedule = await meetSchedule();
+  if (!schedule.enabled) return false;
+  const tabs = await chrome.tabs.query({});
+  const matching = tabs.filter(tab =>
+    Number.isInteger(tab.id) &&
+    MMMeetPolicy.meetingCode(tab.url) === schedule.code
+  );
+  if (!matching.length && !schedule.quiet && chrome.tabs.create) {
+    await chrome.tabs.create({
+      url: `https://meet.google.com/${schedule.code}`,
+      active: false
+    });
+    return true;
+  }
+  await Promise.all(matching.map(tab =>
+    reconcileMeetScheduleForTab(tab.id, tab.url)
+  ));
+  return matching.length > 0;
 }
 
 async function getMonitorModel(tabId) {
@@ -1180,6 +1283,10 @@ function createHeartbeatAlarm() {
 
 function createUpdateAlarm() {
   chrome.alarms.create(UPDATE_ALARM, { periodInMinutes: 1 });
+}
+
+function createMeetScheduleAlarm() {
+  chrome.alarms.create(MEET_SCHEDULE_ALARM, { periodInMinutes: 1 });
 }
 
 async function checkForExtensionUpdate() {

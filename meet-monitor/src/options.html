@@ -5,7 +5,10 @@
   <style>
     body { font: 14px system-ui; max-width: 540px; margin: 24px auto; padding: 0 16px; }
     label { display: block; margin: 16px 0 4px; font-weight: 600; }
-    input[type=url], input[type=password], textarea { width: 100%; padding: 6px; font: inherit; box-sizing: border-box; }
+    input[type=url], input[type=password], input[type=time], textarea { padding: 6px; font: inherit; box-sizing: border-box; }
+    input[type=url], input[type=password], textarea { width: 100%; }
+    .schedule { display: flex; gap: 16px; align-items: end; }
+    .schedule label { margin-top: 8px; }
     .hint { font-size: 12px; color: #666; margin-top: 4px; }
     #saved { color: #0b8043; margin-left: 8px; }
     code { background: #f2f2f2; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
@@ -34,6 +37,18 @@
   <div class="hint">Stored only on this Chrome profile and sent as a Bearer token to the URL above.</div>
 
   <label><input type="checkbox" id="consentBanner"> Show an in-call "monitoring" banner</label>
+
+  <label><input type="checkbox" id="meetScheduleEnabled">
+    Keep the primary Meet on a daily schedule</label>
+  <div class="schedule">
+    <label for="meetQuietStart">Leave at
+      <input type="time" id="meetQuietStart" value="00:00">
+    </label>
+    <label for="meetQuietEnd">Rejoin at
+      <input type="time" id="meetQuietEnd" value="05:00">
+    </label>
+  </div>
+  <div class="hint">Uses this laptop's local timezone. Chat opens automatically after joining.</div>
 
   <p><button id="save">Save</button><span id="saved"></span></p>
 

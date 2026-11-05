@@ -4,11 +4,11 @@
   if (typeof window.__mmStop === 'function') window.__mmStop();
 
   const meeting = S.meetingCode();
-  const participantTracker = new window.MMParticipantTracker(2000);
-  const roster = participantTracker.roster;
+  let participantTracker = new window.MMParticipantTracker(2000);
+  let roster = participantTracker.roster;
   const events = [];
-  const instanceId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const baselineUntil = Date.now() + 8000;
+  let instanceId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  let baselineUntil = Date.now() + 8000;
   const seenChats = new Set();
   const recentLeaveAnnouncements = new Map();
   const MAX = 2000;
@@ -18,6 +18,7 @@
   let scanInterval = null;
   let observer = null;
   let stopped = false;
+  let chatOpened = false;
 
   const isContextInvalidated = error =>
     /extension context invalidated/i.test(error?.message || '');
@@ -42,6 +43,16 @@
     if (!isContextInvalidated(error)) return false;
     stopStaleWork();
     return true;
+  };
+
+  const resetTrackingBaseline = () => {
+    confirmationGeneration += 1;
+    if (confirmationTimer !== null) clearTimeout(confirmationTimer);
+    confirmationTimer = null;
+    participantTracker = new window.MMParticipantTracker(2000);
+    roster = participantTracker.roster;
+    instanceId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    baselineUntil = Date.now() + 8000;
   };
 
   const deliver = message => {
@@ -93,6 +104,11 @@
 
   const scan = () => {
     if (stopped) return;
+    if (!chatOpened &&
+        window.MMMeetCall?.isInCall(document) &&
+        window.MMMeetChat?.openChat(document)) {
+      chatOpened = true;
+    }
     const groups = new Map();
     for (const tile of document.querySelectorAll(S.tileSel)) {
       const id = tile.getAttribute(S.idAttr);
@@ -231,6 +247,24 @@
     if (msg.kind === 'monitorPing') {
       sendResponse({ alive: !stopped, meeting });
       return false;
+    }
+    if (msg.kind === 'setScheduledPresence') {
+      if (msg.present === false) {
+        window.MMMeetCall?.leave(document);
+        sendResponse({ applied: true });
+        return false;
+      }
+      Promise.resolve(window.MMMeetCall?.join(document) || false)
+        .then(joined => {
+          if (joined) {
+            resetTrackingBaseline();
+            scan();
+            chatOpened = window.MMMeetChat?.openChat(document) || chatOpened;
+          }
+          sendResponse({ applied: joined });
+        })
+        .catch(() => sendResponse({ applied: false }));
+      return true;
     }
     if (msg.kind === 'postMeetMessage') {
       window.MMMeetChat.postMessage(document, msg.text)

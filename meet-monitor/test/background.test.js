@@ -942,7 +942,8 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
     webhook: '',
     botAPIURL: 'https://bot.example.com/v1/meet-events',
     consentBanner: true,
-    sendingEnabled: true
+    sendingEnabled: true,
+    meetScheduleEnabled: false
   };
   const localData = {
     botAPIToken: 'private-token',

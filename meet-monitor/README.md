@@ -1,6 +1,6 @@
 # Meet Monitor Chrome Extension
 
-Meet Monitor `v1.9.9` is an unpacked Chrome extension for Google Meet. It
+Meet Monitor `v1.11.0` is an unpacked Chrome extension for Google Meet. It
 tracks participant joins and leaves, camera and microphone changes, and chat
 messages for configured Google Meet codes.
 
@@ -15,8 +15,8 @@ messages for configured Google Meet codes.
 5. When using the managed auto-deploy checkout, the Bot API URL and token are
    generated from `config.local.json` and loaded automatically. Manual
    installations can still enter both values in Options.
-6. Ensure the bot allows the extension's exact origin, then reload the unpacked
-   extension and refresh every open Meet tab.
+6. Configure the optional daily schedule. It defaults to leaving the primary
+   call at midnight and rejoining at 5:00 AM in the bot laptop's local time.
 
 Chrome does not hot-reload unpacked extensions by itself. Without the
 auto-deploy setup, reload the extension and refresh all open Meet tabs after
@@ -24,8 +24,8 @@ every code change that affects forwarding or content scripts.
 
 When loaded from the dedicated auto-deploy checkout, Meet Monitor checks
 GitHub once a minute. A newer manifest version reloads the extension after the
-checkout updates and refreshes configured Meet tabs automatically. Every
-extension release must increment `manifest.json`.
+checkout updates, then reinjects monitoring without reloading open Meet tabs.
+Every extension release must increment `manifest.json`.
 
 ## Daily use
 
@@ -33,6 +33,8 @@ extension release must increment `manifest.json`.
   in the popup for the persistent side panel.
 - The toolbar popup remains available so options can always be reached. The
   side panel and monitoring activate only on configured Meet codes.
+- The primary call follows the configured daily leave/rejoin schedule, and its
+  chat panel opens automatically after joining.
 - Use **Monitoring this tab** to enable or disable each Meet tab independently.
   Enabled configured tabs can monitor simultaneously.
 - The first configured code is the primary call. Other configured codes

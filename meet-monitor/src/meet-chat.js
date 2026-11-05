@@ -28,6 +28,14 @@
   const defaultWait = milliseconds =>
     new Promise(resolve => setTimeout(resolve, milliseconds));
 
+  function openChat(document) {
+    if (firstMatch(document, composerSelectors)) return true;
+    const button = firstMatch(document, openChatSelectors);
+    if (!button) return false;
+    button.click();
+    return true;
+  }
+
   async function postMessage(document, text, options = {}) {
     const message = String(text || '').trim();
     if (!message) return false;
@@ -65,5 +73,5 @@
     return true;
   }
 
-  return { postMessage };
+  return { openChat, postMessage };
 });
