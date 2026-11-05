@@ -1,6 +1,6 @@
 # Meet Monitor Chrome Extension
 
-Meet Monitor `v1.11.1` is an unpacked Chrome extension for Google Meet. It
+Meet Monitor `v1.11.2` is an unpacked Chrome extension for Google Meet. It
 tracks participant joins and leaves, camera and microphone changes, and chat
 messages for configured Google Meet codes.
 

@@ -139,32 +139,33 @@
     }
 
     const observedAt = Date.now();
+    const baselining = observedAt < baselineUntil;
     const changes = [];
     for (const change of participantTracker.update(
       now,
       observedAt,
-      observedAt < baselineUntil
+      baselining
     )) {
       const rec = emit(change.type, change.id, change.cur);
       if (rec) changes.push(rec);
     }
 
-    for (const element of document.querySelectorAll(S.announcementSel)) {
-      if (element.getAttribute('data-mm-leave-processed') === 'true') continue;
-      const text = (element.innerText || element.textContent || '').trim();
-      const name = window.MMLeftParticipantName(text);
-      if (!name || observedAt - (recentLeaveAnnouncements.get(text) || 0) < 10_000) continue;
+    if (!baselining) {
+      for (const element of document.querySelectorAll(S.announcementSel)) {
+        const text = (element.innerText || element.textContent || '').trim();
+        const name = window.MMLeftParticipantName(text);
+        if (!name || observedAt - (recentLeaveAnnouncements.get(text) || 0) < 10_000) continue;
 
-      for (const [id, info] of roster) {
-        if (info.name !== name) continue;
-        const change = participantTracker.leave(id);
-        if (change) {
-          element.setAttribute('data-mm-leave-processed', 'true');
-          recentLeaveAnnouncements.set(text, observedAt);
-          const rec = emit(change.type, change.id, change.cur);
-          if (rec) changes.push(rec);
+        for (const [id, info] of roster) {
+          if (info.name !== name) continue;
+          const change = participantTracker.leave(id);
+          if (change) {
+            recentLeaveAnnouncements.set(text, observedAt);
+            const rec = emit(change.type, change.id, change.cur);
+            if (rec) changes.push(rec);
+          }
+          break;
         }
-        break;
       }
     }
     for (const [text, timestamp] of recentLeaveAnnouncements) {
@@ -175,7 +176,7 @@
       kind: 'monitorObservation',
       meeting,
       instanceId,
-      baselining: observedAt < baselineUntil,
+      baselining,
       observedAt,
       roster: Object.fromEntries(roster),
       rawRoster: Object.fromEntries(now),
