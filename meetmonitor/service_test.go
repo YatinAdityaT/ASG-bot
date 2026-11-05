@@ -198,7 +198,7 @@ func TestServiceQueuesDeterministicOrderedChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertResult(t, result, "changed", 2, env.now, true, false, 2)
+	assertResult(t, result, "changed", 2, env.now, true, false, 6)
 
 	got := loadJobIdentityAndText(t, env.database)
 	changes := []struct {
@@ -208,6 +208,10 @@ func TestServiceQueuesDeterministicOrderedChanges(t *testing.T) {
 	}{
 		{"a", "leave", "🚪 Alice left the call."},
 		{"c", "join", "🎥 Carol joined the call."},
+		{"d", "cam_on", "📷 David turned their camera on."},
+		{"d", "mic_muted", "🎙️ David muted their mic."},
+		{"e", "cam_off", "📷 Eve turned their camera off."},
+		{"e", "mic_unmuted", "🎙️ Eve unmuted their mic."},
 	}
 	if len(got) != len(changes) {
 		t.Fatalf("jobs = %#v, want %d", got, len(changes))

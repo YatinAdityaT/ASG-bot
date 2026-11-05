@@ -59,15 +59,15 @@ stable group IDs live in the ignored local file. Copy `config.example.json` to
 | `ASG_BOT_API_ENABLED` | No | Case-insensitive literal `true` or `false`; no other aliases are accepted. Defaults to `false`. |
 | `ASG_BOT_API_ADDR` | No | Listen address used when the API is enabled. Defaults to `127.0.0.1:8080`. Keep the loopback host when using a local tunnel. |
 | `ASG_BOT_API_TOKEN` | When API enabled | Bearer token containing at least 32 characters. Generate a random secret; never commit or expose it in extension source. |
-| `ASG_BOT_API_TARGET_GROUP` | When API enabled without an Accountability group | Destination for explicit API and Meet `/w` messages. The Accountability group is used automatically when configured. |
-| `ASG_BOT_MEET_NOTIFICATION_GROUP` | No | Destination for automatic Meet join/leave notifications. Defaults to the first allowed group other than the Accountability group. |
+| `ASG_BOT_API_TARGET_GROUP` | When API enabled | Legacy API destination setting; Meet reflection uses the Meet notification group below. |
+| `ASG_BOT_MEET_NOTIFICATION_GROUP` | No | Destination for every Meet-originated event and message. Defaults to the first allowed group other than the Accountability group. |
 | `ASG_BOT_API_ALLOWED_ORIGINS` | No | Comma-separated exact `chrome-extension://<extension-id>` origins. Empty denies browser cross-origin requests while allowing clients that send no `Origin`, such as curl. |
 
 Whitespace around comma-separated entries is removed, but empty entries are
 invalid. Obtain the numeric group JID from trusted WhatsApp/whatsmeow diagnostic
 output before starting the bot; do not substitute the group's display name.
-Automatic Meet presence notifications and explicit `/w` messages have separate
-destinations so the Accountability group can stay free of join/leave noise.
+All Meet reflection—including presence, media, `/w`, and debug chat—uses the
+Meet notification group. The Accountability group receives no Meet reflection.
 
 The JSON file accepts the equivalent keys `adminNumbers`, `allowedGroups`,
 `accountabilityGroup`, `dbPath`, `logLevel`, `apiEnabled`, `apiAddr`,

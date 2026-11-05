@@ -17,6 +17,10 @@ func TestMeetEventsAreFormattedAndQueued(t *testing.T) {
 	}{
 		{"join", meetEvent("join", ""), "🎥 Alex joined the call."},
 		{"leave", meetEvent("leave", ""), "🚪 Alex left the call."},
+		{"mic muted", meetEvent("mic_muted", ""), "🎙️ Alex muted their mic."},
+		{"mic unmuted", meetEvent("mic_unmuted", ""), "🎙️ Alex unmuted their mic."},
+		{"camera on", meetEvent("cam_on", ""), "📷 Alex turned their camera on."},
+		{"camera off", meetEvent("cam_off", ""), "📷 Alex turned their camera off."},
 		{"manual message", meetEvent("chat_message", "Hello"), "💬 Alex said: Hello"},
 	}
 
@@ -64,28 +68,6 @@ func TestMeetEventReplayIsIdempotent(t *testing.T) {
 	}
 	if len(jobs) != 1 {
 		t.Fatalf("queued jobs = %d, want 1", len(jobs))
-	}
-}
-
-func TestMeetMediaEventsAreAcceptedWithoutQueueing(t *testing.T) {
-	for _, event := range []map[string]any{
-		meetEvent("mic_muted", ""),
-		meetEvent("mic_unmuted", ""),
-		meetEvent("cam_on", ""),
-		meetEvent("cam_off", ""),
-	} {
-		server, store := newFixture(t, func() time.Time { return fixedNow })
-		response := submitMeet(t, server.Handler(), event)
-		if response.Code != http.StatusNoContent {
-			t.Fatalf("event %q status = %d, body %q", event["type"], response.Code, response.Body.String())
-		}
-		jobs, err := store.Due(t.Context(), fixedNow, 10)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(jobs) != 0 {
-			t.Fatalf("event %q queued %d jobs, want 0", event["type"], len(jobs))
-		}
 	}
 }
 

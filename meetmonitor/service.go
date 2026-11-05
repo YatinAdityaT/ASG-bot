@@ -175,9 +175,6 @@ func (s *Service) accept(
 ) (Result, error) {
 	queued := 0
 	for _, change := range changes {
-		if change.changeType != "join" && change.changeType != "leave" {
-			continue
-		}
 		text, err := FormatEvent(change.changeType, change.name, "")
 		if err != nil {
 			return Result{}, fmt.Errorf("format Meet monitor event: %w", err)

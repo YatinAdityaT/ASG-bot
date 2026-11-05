@@ -191,6 +191,7 @@ func Load(getenv func(string) string) (Config, error) {
 	if !contains(allowedGroups, cfg.MeetNotificationGroup) {
 		return Config{}, fmt.Errorf("ASG_BOT_MEET_NOTIFICATION_GROUP must appear in ASG_BOT_ALLOWED_GROUPS")
 	}
+	cfg.APITargetGroup = cfg.MeetNotificationGroup
 
 	cfg.APIAllowedOrigins, err = parseAPIOrigins(value(
 		"ASG_BOT_API_ALLOWED_ORIGINS",
