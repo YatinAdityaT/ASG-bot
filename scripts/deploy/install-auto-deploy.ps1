@@ -78,8 +78,12 @@ $deployScript = Join-Path $DeployRoot "scripts\deploy\auto-deploy.ps1"
 if (-not (Test-Path -LiteralPath $deployScript)) {
     throw "Deployment script is missing from master: $deployScript"
 }
-$taskArguments = "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$deployScript`" -DeployRoot `"$DeployRoot`""
-$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $taskArguments
+$hiddenLauncher = Join-Path $DeployRoot "scripts\deploy\run-hidden.vbs"
+if (-not (Test-Path -LiteralPath $hiddenLauncher)) {
+    throw "Windowless launcher is missing from master: $hiddenLauncher"
+}
+$taskArguments = "//B //NoLogo `"$hiddenLauncher`" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$deployScript`" -DeployRoot `"$DeployRoot`""
+$action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument $taskArguments
 $trigger = New-ScheduledTaskTrigger `
     -Once `
     -At (Get-Date).AddMinutes(1) `
@@ -114,8 +118,8 @@ if (-not (Test-Path -LiteralPath $trayScript)) {
     throw "Tray status script is missing from master: $trayScript"
 }
 $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent().Name
-$trayArguments = "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$trayScript`" -DeployRoot `"$DeployRoot`""
-$trayAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $trayArguments
+$trayArguments = "//B //NoLogo `"$hiddenLauncher`" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$trayScript`" -DeployRoot `"$DeployRoot`""
+$trayAction = New-ScheduledTaskAction -Execute "wscript.exe" -Argument $trayArguments
 $trayTrigger = New-ScheduledTaskTrigger -AtLogOn -User $currentUser
 $traySettings = New-ScheduledTaskSettingsSet `
     -StartWhenAvailable `

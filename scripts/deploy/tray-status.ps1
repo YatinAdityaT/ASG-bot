@@ -79,11 +79,11 @@ function New-ASGTrayIcon {
 }
 
 function Start-HiddenDeploy {
-    $arguments = "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden " +
-        "-ExecutionPolicy Bypass -File `"$deployScript`" -DeployRoot `"$DeployRoot`""
-    Start-Process -FilePath "powershell.exe" `
-        -ArgumentList $arguments `
-        -WindowStyle Hidden | Out-Null
+    $hiddenLauncher = Join-Path $PSScriptRoot "run-hidden.vbs"
+    $arguments = "//B //NoLogo `"$hiddenLauncher`" -NoLogo -NoProfile " +
+        "-NonInteractive -ExecutionPolicy Bypass -File `"$deployScript`" " +
+        "-DeployRoot `"$DeployRoot`""
+    Start-Process -FilePath "wscript.exe" -ArgumentList $arguments | Out-Null
 }
 
 function Open-ASGLogs {
