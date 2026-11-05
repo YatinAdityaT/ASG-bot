@@ -56,7 +56,10 @@
   function addEmails(target, value) {
     const text = String(value || '');
     for (const match of text.matchAll(EMAIL)) {
-      target.add(match[0].toLowerCase());
+      const email = match[0]
+        .replace(/^['"`‘’“”]+|['"`‘’“”]+$/g, '')
+        .toLowerCase();
+      if (email) target.add(email);
     }
   }
 

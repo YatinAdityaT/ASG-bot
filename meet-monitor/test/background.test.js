@@ -716,6 +716,14 @@ test('monitoring can be disabled for one allowed tab without disabling another',
   assert.deepEqual(harness.sidePanelBehaviors, []);
   assert.deepEqual(harness.actionEnabled, [7, 8]);
   assert.deepEqual(harness.actionDisabled, [9]);
+  assert.deepEqual(
+    harness.sidePanelOptions.sort((a, b) => a.tabId - b.tabId),
+    [
+      { tabId: 7, path: 'src/side-panel.html', enabled: true },
+      { tabId: 8, path: 'src/side-panel.html', enabled: true },
+      { tabId: 9, path: 'src/side-panel.html', enabled: false }
+    ]
+  );
 
   const saved = await harness.sendViewMessage({
     kind: 'setTabMonitoring',
@@ -735,6 +743,42 @@ test('monitoring can be disabled for one allowed tab without disabling another',
   assert.equal(disabled.queued, false);
   assert.equal(enabled.queued, true);
   assert.equal(JSON.parse(harness.eventRequests()[0].options.body).id, 'enabled-tab');
+});
+
+test('monitor health remains unknown without fresh API evidence', async () => {
+  const harness = await createHarness([]);
+
+  let model = await harness.sendViewMessage({ kind: 'getMonitorModel' });
+
+  assert.equal(model.api.state, 'unknown');
+  assert.equal(model.api.online, null);
+  assert.equal(model.whatsAppConnected, null);
+
+  harness.sessionData.monitorSession.lastServerSuccessAt = 1_000_000;
+  harness.sessionData.monitorSession.lastServerResult = {
+    status: 202,
+    whatsAppConnected: true
+  };
+  model = await harness.sendViewMessage({ kind: 'getMonitorModel' });
+  assert.equal(model.api.state, 'online');
+  assert.equal(model.api.online, true);
+  assert.equal(model.whatsAppConnected, true);
+
+  harness.advance(45_001);
+  model = await harness.sendViewMessage({ kind: 'getMonitorModel' });
+  assert.equal(model.api.state, 'unknown');
+  assert.equal(model.api.online, null);
+  assert.equal(model.whatsAppConnected, null);
+
+  harness.sessionData.monitorSession.lastServerError = {
+    category: 'unreachable',
+    status: 0,
+    timestamp: 1_045_001
+  };
+  model = await harness.sendViewMessage({ kind: 'getMonitorModel' });
+  assert.equal(model.api.state, 'offline');
+  assert.equal(model.api.online, false);
+  assert.equal(model.whatsAppConnected, null);
 });
 
 test('a newer GitHub manifest reloads the extension', async () => {
@@ -906,6 +950,7 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
     1: { id: 1, url: 'https://meet.google.com/jpy-ymgz-tdo' }
   };
   const sidePanelBehaviors = [];
+  const sidePanelOptions = [];
   const actionEnabled = [];
   const actionDisabled = [];
   const tabReloads = [];
@@ -1050,6 +1095,9 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
       sidePanel: {
         async setPanelBehavior(options) {
           sidePanelBehaviors.push(clone(options));
+        },
+        async setOptions(options) {
+          sidePanelOptions.push(clone(options));
         }
       },
       action: {
@@ -1078,6 +1126,7 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
     commandTabMessages,
     meetCommands,
     sidePanelBehaviors,
+    sidePanelOptions,
     actionEnabled,
     actionDisabled,
     tabReloads,

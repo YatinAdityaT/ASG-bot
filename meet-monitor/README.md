@@ -1,6 +1,6 @@
 # Meet Monitor Chrome Extension
 
-Meet Monitor `v1.9.1` is an unpacked Chrome extension for Google Meet. It
+Meet Monitor `v1.9.2` is an unpacked Chrome extension for Google Meet. It
 tracks participant joins and leaves, camera and microphone changes, and chat
 messages for configured Google Meet links.
 
@@ -31,14 +31,19 @@ extension release must increment `manifest.json`.
 
 - Click the Meet Monitor toolbar button to open its popup. Use **Open Monitor**
   in the popup for the persistent side panel.
-- The toolbar button is available only on configured Meet links.
+- The toolbar button and side panel are available only on configured Meet
+  links.
 - Use **Monitoring this tab** to enable or disable each Meet tab independently.
   Enabled configured tabs can monitor simultaneously.
 - The first configured link is the primary call. Other configured links
   forward their events without replacing the primary `/status` and `/incall`
   snapshot.
-- Health labels are color-coded: green is online and red is
-  offline/disconnected.
+- Health labels follow the browser theme and are bold, uppercase, and
+  color-coded: green is online/connected, red is offline/disconnected, and
+  amber is unknown. API and WhatsApp stay unknown until a recent API response
+  provides evidence.
+- The roster is a Name/Cam/Mic table and omits the monitor's own
+  `ADHD SUPPORT GROUP` participant.
 - Use **Reload extension** after installing updated extension files, then
   refresh each open Meet tab. Reloading clears extension runtime state but
   preserves saved options.
@@ -51,6 +56,8 @@ extension release must increment `manifest.json`.
 - The extension sends a Meet state heartbeat every `30s`.
 - Content is considered fresh only if the elected Meet tab has observed the
   meeting within `45s`.
+- API and WhatsApp status evidence is considered fresh for `45s`; stale or
+  missing evidence is shown as unknown instead of disconnected.
 - The server reports the monitor as offline after `90s` without an accepted
   heartbeat.
 - After a stale tab takeover, extension restart, server restart, or other

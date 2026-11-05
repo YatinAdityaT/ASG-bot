@@ -18,6 +18,10 @@ test('side panel exposes health, roster, filters, controls, and actions', () => 
     assert.match(html, new RegExp(`id="${id}"`));
   }
   assert.match(html, /aria-label="Event type filter"/);
+  assert.match(html, /<table[^>]*aria-label="Current participants"/);
+  assert.match(html, /<th[^>]*>Name<\/th>\s*<th[^>]*>Cam<\/th>\s*<th[^>]*>Mic<\/th>/);
+  assert.match(html, /@media\s*\(prefers-color-scheme:\s*dark\)/);
+  assert.match(html, /\.health strong\s*\{[^}]*font-weight:\s*700/s);
   assert.match(html, /src="side-panel\.js"/);
 });
 
@@ -66,15 +70,27 @@ test('side panel rendering uses text nodes for participant and chat content', ()
     forwardingEnabled: true,
     debugEnabled: false,
     content: { online: true, lastObservedAt: 1 },
-    api: { online: false, error: { category: 'unauthorized' } },
+    api: { state: 'offline', online: false, error: { category: 'unauthorized' } },
     whatsAppConnected: false,
     roster: {
       participant: {
         name: hostile,
         cam: true,
         mic: 'muted',
-        self: true,
+        self: false,
         host: true
+      },
+      self: {
+        name: 'Monitor Account',
+        cam: true,
+        mic: 'muted',
+        self: true
+      },
+      monitor: {
+        name: '  ADHD   SUPPORT GROUP ',
+        cam: true,
+        mic: 'muted',
+        self: false
       }
     },
     history: [{
@@ -89,13 +105,35 @@ test('side panel rendering uses text nodes for participant and chat content', ()
   }, 'all');
 
   assert.match(document.nodes.roster.textContent, /<img src=x/);
+  assert.doesNotMatch(document.nodes.roster.textContent, /Monitor Account/);
+  assert.doesNotMatch(document.nodes.roster.textContent, /ADHD SUPPORT GROUP/i);
+  assert.equal(document.nodes.roster.children[0].tag, 'tr');
+  assert.deepEqual(
+    document.nodes.roster.children[0].children.map(child => child.tag),
+    ['td', 'td', 'td']
+  );
   assert.match(document.nodes.timeline.textContent, /<img src=x/);
   assert.equal(document.nodes.roster.innerHTMLWrites, 0);
   assert.equal(document.nodes.timeline.innerHTMLWrites, 0);
   assert.match(document.nodes['permanent-error'].textContent, /unauthorized/);
+  assert.equal(document.nodes['content-health'].textContent, 'ONLINE');
+  assert.equal(document.nodes['api-health'].textContent, 'OFFLINE');
+  assert.equal(document.nodes['whatsapp-health'].textContent, 'DISCONNECTED');
   assert.equal(document.nodes['content-health'].dataset.state, 'online');
   assert.equal(document.nodes['api-health'].dataset.state, 'offline');
   assert.equal(document.nodes['whatsapp-health'].dataset.state, 'disconnected');
+
+  panel.renderModel(document, {
+    content: { online: false },
+    api: { state: 'unknown', online: null },
+    whatsAppConnected: null,
+    roster: {},
+    history: []
+  }, 'all');
+  assert.equal(document.nodes['api-health'].textContent, 'UNKNOWN');
+  assert.equal(document.nodes['api-health'].dataset.state, 'unknown');
+  assert.equal(document.nodes['whatsapp-health'].textContent, 'UNKNOWN');
+  assert.equal(document.nodes['whatsapp-health'].dataset.state, 'unknown');
 });
 
 function fakeDocument() {

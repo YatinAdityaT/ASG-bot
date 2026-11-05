@@ -49,6 +49,26 @@ test('identity probe reports Meet IDs and locally visible email candidates', () 
   }]);
 });
 
+test('identity probe removes quote artifacts before deduplicating emails', () => {
+  const page = node(
+    `Signed in as "'adhdsg000@gmail.com" and adhdsg000@gmail.com`
+  );
+  const root = {
+    documentElement: page,
+    querySelectorAll() {
+      return [];
+    }
+  };
+
+  const result = probe.inspect(root, {
+    tileSel: '[data-participant-id]',
+    idAttr: 'data-participant-id',
+    pickName: () => ''
+  });
+
+  assert.deepEqual(result.emailCandidates, ['adhdsg000@gmail.com']);
+});
+
 function node(text, attributes = {}, descendants = []) {
   return {
     innerText: text,

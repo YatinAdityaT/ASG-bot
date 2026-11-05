@@ -5,29 +5,58 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Meet Monitor</title>
   <style>
-    :root { color-scheme: light dark; font: 13px system-ui, sans-serif; }
-    body { margin: 0; padding: 14px; color: CanvasText; background: Canvas; }
+    :root {
+      color-scheme: light;
+      font: 13px system-ui, sans-serif;
+      --page: #ffffff;
+      --text: #17202a;
+      --muted: #5f6b76;
+      --surface: #f4f6f8;
+      --border: #d7dde3;
+      --positive: #15803d;
+      --negative: #c62828;
+      --unknown: #a16207;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        color-scheme: dark;
+        --page: #181a1b;
+        --text: #f1f3f5;
+        --muted: #aeb6bf;
+        --surface: #24282c;
+        --border: #3d444b;
+        --positive: #4ade80;
+        --negative: #f87171;
+        --unknown: #fbbf24;
+      }
+    }
+    body { margin: 0; padding: 14px; color: var(--text); background: var(--page); }
     header, .row, .actions { display: flex; align-items: center; gap: 8px; }
     header { justify-content: space-between; }
     h1 { font-size: 18px; margin: 0; }
     h2 { font-size: 13px; margin: 18px 0 8px; }
-    .muted { color: GrayText; font-size: 11px; }
-    .card { border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+    .muted { color: var(--muted); font-size: 11px; }
+    .card { border: 1px solid var(--border);
       border-radius: 8px; padding: 10px; }
     #health { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
     .health { text-align: center; padding: 8px 3px; border-radius: 6px;
-      background: color-mix(in srgb, CanvasText 7%, transparent); }
-    .health strong { display: block; }
+      background: var(--surface); }
+    .health strong { display: block; font-weight: 700; }
     .health strong[data-state="online"],
-    .health strong[data-state="connected"] { color: #16a34a; }
+    .health strong[data-state="connected"] { color: var(--positive); }
     .health strong[data-state="offline"],
-    .health strong[data-state="disconnected"] { color: #dc2626; }
+    .health strong[data-state="disconnected"] { color: var(--negative); }
+    .health strong[data-state="unknown"] { color: var(--unknown); }
     ul { list-style: none; margin: 0; padding: 0; }
-    li { padding: 7px 2px; border-bottom: 1px solid color-mix(in srgb, CanvasText 12%, transparent); }
+    li { padding: 7px 2px; border-bottom: 1px solid var(--border); }
     li:last-child { border: 0; }
-    .badges { color: #087f5b; font-size: 11px; }
+    table { width: 100%; border-collapse: collapse; }
+    .roster-table { padding: 0; overflow: hidden; }
+    th, td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; }
+    th { background: var(--surface); font-size: 11px; }
+    tbody tr:last-child td { border-bottom: 0; }
     #timeline { max-height: 42vh; overflow: auto; }
-    .event-meta { color: GrayText; font: 11px ui-monospace, monospace; }
+    .event-meta { color: var(--muted); font: 11px ui-monospace, monospace; }
     .event-text { white-space: pre-wrap; overflow-wrap: anywhere; }
     label { display: flex; align-items: center; gap: 7px; }
     select, button { font: inherit; padding: 6px 8px; }
@@ -48,9 +77,9 @@
 
   <h2>Health</h2>
   <section id="health" aria-label="Monitor health">
-    <div class="health">Content<strong id="content-health">Offline</strong></div>
-    <div class="health">API<strong id="api-health">Offline</strong></div>
-    <div class="health">WhatsApp<strong id="whatsapp-health">Disconnected</strong></div>
+    <div class="health">Content<strong id="content-health">OFFLINE</strong></div>
+    <div class="health">API<strong id="api-health">UNKNOWN</strong></div>
+    <div class="health">WhatsApp<strong id="whatsapp-health">UNKNOWN</strong></div>
   </section>
   <div id="permanent-error" role="alert"></div>
 
@@ -62,7 +91,10 @@
   </section>
 
   <h2>Roster</h2>
-  <ul id="roster" class="card" aria-live="polite"></ul>
+  <table class="card roster-table" aria-label="Current participants">
+    <thead><tr><th>Name</th><th>Cam</th><th>Mic</th></tr></thead>
+    <tbody id="roster" aria-live="polite"></tbody>
+  </table>
 
   <div class="row">
     <h2 style="flex:1">Timeline</h2>

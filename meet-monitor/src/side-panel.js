@@ -54,7 +54,7 @@
   function setHealth(document, id, label, state) {
     const node = document.getElementById(id);
     if (!node) return;
-    node.textContent = label;
+    node.textContent = String(label || 'unknown').toUpperCase();
     node.dataset.state = state;
   }
 
@@ -66,20 +66,28 @@
     setHealth(
       document,
       'content-health',
-      currentModel.content?.online ? 'Online' : 'Offline',
+      currentModel.content?.online ? 'online' : 'offline',
       currentModel.content?.online ? 'online' : 'offline'
     );
+    const apiState = ['online', 'offline'].includes(currentModel.api?.state)
+      ? currentModel.api.state
+      : 'unknown';
     setHealth(
       document,
       'api-health',
-      currentModel.api?.online ? 'Online' : 'Offline',
-      currentModel.api?.online ? 'online' : 'offline'
+      apiState,
+      apiState
     );
+    const whatsAppState = currentModel.whatsAppConnected === true
+      ? 'connected'
+      : currentModel.whatsAppConnected === false
+        ? 'disconnected'
+        : 'unknown';
     setHealth(
       document,
       'whatsapp-health',
-      currentModel.whatsAppConnected ? 'Connected' : 'Disconnected',
-      currentModel.whatsAppConnected ? 'connected' : 'disconnected'
+      whatsAppState,
+      whatsAppState
     );
     setText(
       document,
@@ -111,31 +119,37 @@
   function renderRoster(document, roster) {
     const container = document.getElementById('roster');
     if (!container) return;
-    const rows = Object.entries(roster || {});
+    const rows = Object.entries(roster || {}).filter(([, participant]) => {
+      const name = normalizedParticipantName(participant?.name);
+      return participant?.self !== true && name.toLowerCase() !== 'adhd support group';
+    });
     if (!rows.length) {
-      const empty = document.createElement('li');
+      const row = document.createElement('tr');
+      const empty = document.createElement('td');
       empty.id = 'empty-roster';
+      empty.colSpan = 3;
       empty.textContent = 'No participants detected';
-      container.replaceChildren(empty);
+      row.append(empty);
+      container.replaceChildren(row);
       return;
     }
     const nodes = rows.map(([id, participant]) => {
-      const item = document.createElement('li');
-      const name = document.createElement('div');
-      name.textContent = participant?.name || id || '(unnamed)';
-      const state = document.createElement('div');
-      state.className = 'badges';
-      const labels = [
-        participant?.cam ? 'Camera on' : 'Camera off',
-        participant?.mic === 'muted' ? 'Mic muted' : 'Mic on'
-      ];
-      if (participant?.self) labels.push('You');
-      if (participant?.host) labels.push('Host');
-      state.textContent = labels.join(' · ');
-      item.append(name, state);
-      return item;
+      const row = document.createElement('tr');
+      const name = document.createElement('td');
+      const cam = document.createElement('td');
+      const mic = document.createElement('td');
+      name.textContent = normalizedParticipantName(participant?.name) ||
+        id || '(unnamed)';
+      cam.textContent = participant?.cam ? 'On' : 'Off';
+      mic.textContent = participant?.mic === 'unmuted' ? 'On' : 'Muted';
+      row.append(name, cam, mic);
+      return row;
     });
     container.replaceChildren(...nodes);
+  }
+
+  function normalizedParticipantName(value) {
+    return String(value || '').trim().replace(/\s+/g, ' ');
   }
 
   function renderHistory(document, history, filter) {

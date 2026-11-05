@@ -227,7 +227,13 @@ async function updateMeetAction(tabId, knownURL) {
     }
   }
   const links = await monitoredMeetLinks();
-  if (MMMeetPolicy.isMonitoredMeetURL(url, links)) {
+  const allowed = MMMeetPolicy.isMonitoredMeetURL(url, links);
+  await chrome.sidePanel?.setOptions?.({
+    tabId,
+    path: 'src/side-panel.html',
+    enabled: allowed
+  });
+  if (allowed) {
     await chrome.action.enable(tabId);
   } else {
     await chrome.action.disable(tabId);
@@ -263,6 +269,18 @@ async function getMonitorModel(tabId) {
   const selectedMeeting = tabState?.meeting || session?.meeting || ALLOWED_MEETING;
   const result = safeServerResult(session?.lastServerResult);
   const error = safeServerError(session?.lastServerError);
+  const now = Date.now();
+  const lastSuccessAt = Number(session?.lastServerSuccessAt) || 0;
+  const lastErrorAt = Number(error?.timestamp) || 0;
+  const successFresh = lastSuccessAt > 0 &&
+    now - lastSuccessAt <= SOURCE_STALE_MS;
+  const errorFresh = lastErrorAt > 0 &&
+    now - lastErrorAt <= SOURCE_STALE_MS;
+  const apiState = errorFresh && lastErrorAt >= lastSuccessAt
+    ? 'offline'
+    : successFresh
+      ? 'online'
+      : 'unknown';
   const tabEnabled = Number.isInteger(tabId)
     ? await isTabMonitoringEnabled(tabId)
     : true;
@@ -284,14 +302,16 @@ async function getMonitorModel(tabId) {
           : null
     },
     api: {
-      online: Boolean(session?.lastServerSuccessAt) &&
-        !session?.lastServerError,
-      lastSuccessAt: session?.lastServerSuccessAt || null,
+      state: apiState,
+      online: apiState === 'unknown' ? null : apiState === 'online',
+      lastSuccessAt: lastSuccessAt || null,
       serverTime: result?.serverTime || null,
       result,
       error
     },
-    whatsAppConnected: Boolean(result?.whatsAppConnected),
+    whatsAppConnected: apiState === 'online' && result
+      ? result.whatsAppConnected
+      : null,
     roster: tabState?.roster || (
       session?.meeting === selectedMeeting ? session?.roster : {}
     ) || {},
