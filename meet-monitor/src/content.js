@@ -150,6 +150,7 @@
     }
 
     for (const element of document.querySelectorAll(S.announcementSel)) {
+      if (element.getAttribute('data-mm-leave-processed') === 'true') continue;
       const text = (element.innerText || element.textContent || '').trim();
       const name = window.MMLeftParticipantName(text);
       if (!name || observedAt - (recentLeaveAnnouncements.get(text) || 0) < 10_000) continue;
@@ -158,6 +159,7 @@
         if (info.name !== name) continue;
         const change = participantTracker.leave(id);
         if (change) {
+          element.setAttribute('data-mm-leave-processed', 'true');
           recentLeaveAnnouncements.set(text, observedAt);
           const rec = emit(change.type, change.id, change.cur);
           if (rec) changes.push(rec);
@@ -254,11 +256,14 @@
         sendResponse({ applied: true });
         return false;
       }
+      const wasInCall = window.MMMeetCall?.isInCall(document) === true;
       Promise.resolve(window.MMMeetCall?.join(document) || false)
         .then(joined => {
-          if (joined) {
+          if (joined && !wasInCall) {
             resetTrackingBaseline();
             scan();
+          }
+          if (joined) {
             chatOpened = window.MMMeetChat?.openChat(document) || chatOpened;
           }
           sendResponse({ applied: joined });
