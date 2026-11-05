@@ -3,12 +3,15 @@
   root.MMMeetPolicy = api;
   if (typeof module === 'object' && module.exports) module.exports = api;
 })(typeof globalThis === 'object' ? globalThis : this, () => {
-  const DEFAULT_MEET_LINKS = ['https://meet.google.com/jpy-ymgz-tdo'];
+  const DEFAULT_MEET_CODES = ['jpy-ymgz-tdo'];
+  const DEFAULT_MEET_LINKS = DEFAULT_MEET_CODES;
   const codePattern = /^[a-z]{3}-[a-z]{4}-[a-z]{3}$/;
 
   function meetingCode(rawURL) {
+    const raw = String(rawURL || '').trim();
+    if (codePattern.test(raw)) return raw;
     try {
-      const url = new URL(String(rawURL || '').trim());
+      const url = new URL(raw);
       if (url.protocol !== 'https:' || url.hostname !== 'meet.google.com') return null;
       const segments = url.pathname.split('/').filter(Boolean);
       return segments.length === 1 && codePattern.test(segments[0])
@@ -19,39 +22,40 @@
     }
   }
 
-  function normalizeMeetLinks(value) {
+  function normalizeMeetCodes(value) {
     const entries = Array.isArray(value)
       ? value
       : String(value || '').split(/[\n,]/);
-    const links = [];
+    const codes = [];
     for (const entry of entries) {
       const raw = String(entry || '').trim();
       if (!raw) continue;
       const code = meetingCode(raw);
-      if (!code) throw new Error(`Invalid Google Meet link: ${raw}`);
-      const normalized = `https://meet.google.com/${code}`;
-      if (!links.includes(normalized)) links.push(normalized);
+      if (!code) throw new Error(`Invalid Google Meet code: ${raw}`);
+      if (!codes.includes(code)) codes.push(code);
     }
-    if (!links.length) throw new Error('Add at least one Google Meet link');
-    return links;
+    if (!codes.length) throw new Error('Add at least one Google Meet code');
+    return codes;
   }
 
-  function isMonitoredMeetURL(url, links) {
+  function isMonitoredMeetURL(url, codes) {
     const code = meetingCode(url);
     if (!code) return false;
     let normalized;
     try {
-      normalized = normalizeMeetLinks(links);
+      normalized = normalizeMeetCodes(codes);
     } catch {
       return false;
     }
-    return normalized.includes(`https://meet.google.com/${code}`);
+    return normalized.includes(code);
   }
 
   return {
+    DEFAULT_MEET_CODES,
     DEFAULT_MEET_LINKS,
     isMonitoredMeetURL,
     meetingCode,
-    normalizeMeetLinks
+    normalizeMeetCodes,
+    normalizeMeetLinks: normalizeMeetCodes
   };
 });

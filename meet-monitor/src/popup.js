@@ -65,7 +65,7 @@ async function refresh() {
     const [tab, policy] = await Promise.all([
       activeMeetTab(),
       chrome.storage.sync.get({
-        monitoredMeetLinks: MMMeetPolicy.DEFAULT_MEET_LINKS
+        monitoredMeetLinks: MMMeetPolicy.DEFAULT_MEET_CODES
       })
     ]);
     activeTabId = Number.isInteger(tab?.id) ? tab.id : null;
@@ -76,7 +76,7 @@ async function refresh() {
     );
     $('#open-monitor').disabled = !activeTabAllowed;
     $('#monitor-status').textContent = tab && !activeTabAllowed
-      ? 'This Meet link is not configured for monitoring.'
+      ? 'This Meet code is not configured for monitoring.'
       : '';
     render(await chrome.runtime.sendMessage({
       kind: 'getMonitorModel',

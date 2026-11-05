@@ -1,8 +1,8 @@
 # Meet Monitor Chrome Extension
 
-Meet Monitor `v1.9.6` is an unpacked Chrome extension for Google Meet. It
+Meet Monitor `v1.9.7` is an unpacked Chrome extension for Google Meet. It
 tracks participant joins and leaves, camera and microphone changes, and chat
-messages for configured Google Meet links.
+messages for configured Google Meet codes.
 
 ## Operator setup
 
@@ -10,8 +10,8 @@ messages for configured Google Meet links.
 2. In Chrome, open `chrome://extensions`, enable **Developer mode**, and load
    the `meet-monitor` folder as an unpacked extension.
 3. Open extension options from the extension details page.
-4. Add the comma-separated Google Meet links that may be monitored. The first
-   link is the primary call used by `/status`, `/incall`, and `/meet`.
+4. Add the comma-separated Google Meet codes that may be monitored. The first
+   code is the primary call used by `/status`, `/incall`, and `/meet`.
 5. Set the Bot API URL to the server endpoint ending in `/v1/meet-events`.
    Meet Monitor stays configured against `/v1/meet-events` and derives
    `/v1/meet-state` and `/v1/meet-command` automatically on the same origin.
@@ -32,10 +32,10 @@ extension release must increment `manifest.json`.
 - Click the Meet Monitor toolbar button to open its popup. Use **Open Monitor**
   in the popup for the persistent side panel.
 - The toolbar popup remains available so options can always be reached. The
-  side panel and monitoring activate only on configured Meet links.
+  side panel and monitoring activate only on configured Meet codes.
 - Use **Monitoring this tab** to enable or disable each Meet tab independently.
   Enabled configured tabs can monitor simultaneously.
-- The first configured link is the primary call. Other configured links
+- The first configured code is the primary call. Other configured codes
   forward their events without replacing the primary `/status` and `/incall`
   snapshot.
 - Health labels follow the browser theme and are bold, uppercase, and
@@ -98,7 +98,7 @@ WhatsApp event messages are prefix-free and look like:
 - Side panel shows content offline: keep the primary configured Meet tab open,
   enabled, and active enough to produce observations. A tab becomes stale
   after `45s`.
-- Toolbar button is disabled on a Meet tab: add its full Meet link in options,
+- Open Monitor reports an unconfigured meeting: add its Meet code in options,
   save, and refresh that tab.
 - Side panel shows API error or `/status` shows monitor offline: confirm the
   bot is running, the URL still ends exactly in `/v1/meet-events`, the token is

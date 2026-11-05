@@ -5,7 +5,7 @@ Promise.all([
     webhook: '',
     botAPIURL: '',
     consentBanner: true,
-    monitoredMeetLinks: MMMeetPolicy.DEFAULT_MEET_LINKS
+    monitoredMeetLinks: MMMeetPolicy.DEFAULT_MEET_CODES
   }),
   chrome.storage.local.get({ botAPIConfig: null })
 ]).then(([sync, local]) => {
@@ -13,7 +13,13 @@ Promise.all([
   $('#botAPIURL').value = local.botAPIConfig?.url || sync.botAPIURL;
   $('#botAPIToken').value = local.botAPIConfig?.token || '';
   $('#consentBanner').checked = sync.consentBanner;
-  $('#monitoredMeetLinks').value = sync.monitoredMeetLinks.join(',\n');
+  let monitoredMeetCodes;
+  try {
+    monitoredMeetCodes = MMMeetPolicy.normalizeMeetCodes(sync.monitoredMeetLinks);
+  } catch {
+    monitoredMeetCodes = MMMeetPolicy.DEFAULT_MEET_CODES;
+  }
+  $('#monitoredMeetLinks').value = monitoredMeetCodes.join(',\n');
 });
 
 $('#save').onclick = async () => {
@@ -23,7 +29,7 @@ $('#save').onclick = async () => {
   const botAPIToken = $('#botAPIToken').value.trim();
   let monitoredMeetLinks;
   try {
-    monitoredMeetLinks = MMMeetPolicy.normalizeMeetLinks(
+    monitoredMeetLinks = MMMeetPolicy.normalizeMeetCodes(
       $('#monitoredMeetLinks').value
     );
   } catch (error) {

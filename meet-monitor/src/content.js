@@ -191,7 +191,7 @@
 
   chrome.storage.sync.get({
     consentBanner: true,
-    monitoredMeetLinks: meetPolicy?.DEFAULT_MEET_LINKS || []
+    monitoredMeetLinks: meetPolicy?.DEFAULT_MEET_CODES || []
   }).then(({ consentBanner, monitoredMeetLinks }) => {
     if (stopped) return;
     if (meetPolicy &&

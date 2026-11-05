@@ -12,10 +12,11 @@ test('toolbar action restores the Meet Monitor popup', () => {
   assert.ok(manifest.permissions.includes('tabs'));
 });
 
-test('options page exposes comma-separated monitored Meet links', () => {
+test('options page exposes comma-separated monitored Meet codes', () => {
   const html = fs.readFileSync(path.join(ROOT, 'src', 'options.html'), 'utf8');
   assert.match(html, /id="monitoredMeetLinks"/);
-  assert.match(html, /comma-separated/i);
+  assert.match(html, /comma-separated Google Meet codes/i);
+  assert.match(html, /placeholder="jpy-ymgz-tdo"/);
 });
 
 test('side panel controls per-tab monitoring, reload, and identity probing', () => {

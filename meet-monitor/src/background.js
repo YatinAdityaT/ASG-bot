@@ -46,13 +46,21 @@ chrome.runtime.onInstalled.addListener(async () => {
   await storageProtection;
   const existing = await chrome.storage.sync.get(DEFAULTS);
   const policy = await chrome.storage.sync.get({
-    monitoredMeetLinks: MMMeetPolicy.DEFAULT_MEET_LINKS
+    monitoredMeetLinks: MMMeetPolicy.DEFAULT_MEET_CODES
   });
+  let monitoredMeetCodes;
+  try {
+    monitoredMeetCodes = MMMeetPolicy.normalizeMeetCodes(
+      policy.monitoredMeetLinks
+    );
+  } catch {
+    monitoredMeetCodes = MMMeetPolicy.DEFAULT_MEET_CODES;
+  }
   await chrome.storage.sync.set({
     ...DEFAULTS,
     ...existing,
     sendingEnabled: true,
-    monitoredMeetLinks: policy.monitoredMeetLinks
+    monitoredMeetLinks: monitoredMeetCodes
   });
   createHeartbeatAlarm();
   createUpdateAlarm();
@@ -453,12 +461,12 @@ async function botAPIConfig() {
 
 async function monitoredMeetLinks() {
   const stored = await chrome.storage.sync.get({
-    monitoredMeetLinks: MMMeetPolicy.DEFAULT_MEET_LINKS
+    monitoredMeetLinks: MMMeetPolicy.DEFAULT_MEET_CODES
   });
   try {
-    return MMMeetPolicy.normalizeMeetLinks(stored.monitoredMeetLinks);
+    return MMMeetPolicy.normalizeMeetCodes(stored.monitoredMeetLinks);
   } catch {
-    return MMMeetPolicy.DEFAULT_MEET_LINKS;
+    return MMMeetPolicy.DEFAULT_MEET_CODES;
   }
 }
 
