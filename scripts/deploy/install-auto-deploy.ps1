@@ -77,7 +77,7 @@ $deployScript = Join-Path $DeployRoot "scripts\deploy\auto-deploy.ps1"
 if (-not (Test-Path -LiteralPath $deployScript)) {
     throw "Deployment script is missing from master: $deployScript"
 }
-$taskArguments = "-NoProfile -ExecutionPolicy Bypass -File `"$deployScript`" -DeployRoot `"$DeployRoot`""
+$taskArguments = "-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$deployScript`" -DeployRoot `"$DeployRoot`""
 $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $taskArguments
 $trigger = New-ScheduledTaskTrigger `
     -Once `

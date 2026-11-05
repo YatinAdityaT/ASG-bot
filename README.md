@@ -145,7 +145,8 @@ This creates a dedicated checkout at
 `%LOCALAPPDATA%\ASGBotDeploy`, validates `origin/master` every minute, and
 restarts the bot only after Go tests, extension tests, and a new build pass.
 The current bot stays online during validation. Failures are recorded without
-replacing the running release.
+replacing the running release. Scheduled checks and the managed bot run hidden
+without opening terminal windows.
 
 Remove the previously loaded unpacked Meet Monitor once, then load it from:
 
