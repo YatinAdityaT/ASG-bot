@@ -17,6 +17,7 @@ func TestMeetEventsAreFormattedAndQueued(t *testing.T) {
 	}{
 		{"join", meetEvent("join", ""), "🎥 Alex joined the call."},
 		{"leave", meetEvent("leave", ""), "🚪 Alex left the call."},
+		{"manual message", meetEvent("chat_message", "Hello"), "💬 Alex said: Hello"},
 	}
 
 	for _, test := range tests {
@@ -66,13 +67,12 @@ func TestMeetEventReplayIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestMeetNonPresenceEventsAreAcceptedWithoutQueueing(t *testing.T) {
+func TestMeetMediaEventsAreAcceptedWithoutQueueing(t *testing.T) {
 	for _, event := range []map[string]any{
 		meetEvent("mic_muted", ""),
 		meetEvent("mic_unmuted", ""),
 		meetEvent("cam_on", ""),
 		meetEvent("cam_off", ""),
-		meetEvent("chat_message", "Hello"),
 	} {
 		server, store := newFixture(t, func() time.Time { return fixedNow })
 		response := submitMeet(t, server.Handler(), event)

@@ -62,7 +62,7 @@ func (server *Server) submitMeetEvent(writer http.ResponseWriter, request *http.
 		writeError(writer, http.StatusBadRequest, "invalid_request", "invalid request")
 		return
 	}
-	if event.Type != "join" && event.Type != "leave" {
+	if event.Type != "join" && event.Type != "leave" && event.Type != "chat_message" {
 		writer.WriteHeader(http.StatusNoContent)
 		return
 	}
