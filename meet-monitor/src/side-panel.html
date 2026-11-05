@@ -18,6 +18,10 @@
     .health { text-align: center; padding: 8px 3px; border-radius: 6px;
       background: color-mix(in srgb, CanvasText 7%, transparent); }
     .health strong { display: block; }
+    .health strong[data-state="online"],
+    .health strong[data-state="connected"] { color: #16a34a; }
+    .health strong[data-state="offline"],
+    .health strong[data-state="disconnected"] { color: #dc2626; }
     ul { list-style: none; margin: 0; padding: 0; }
     li { padding: 7px 2px; border-bottom: 1px solid color-mix(in srgb, CanvasText 12%, transparent); }
     li:last-child { border: 0; }
@@ -52,7 +56,7 @@
 
   <h2>Controls</h2>
   <section class="card">
-    <label><input id="forwarding" type="checkbox"> Forwarding</label>
+    <label><input id="forwarding" type="checkbox"> Monitoring this tab</label>
     <label><input id="debug" type="checkbox"> Debug raw observations + chat reflection
       (<span id="debug-count">0</span>)</label>
   </section>
@@ -78,6 +82,7 @@
   <div class="actions">
     <button id="clear-history" type="button">Clear history</button>
     <button id="export-csv" type="button">Export CSV</button>
+    <button id="reload-extension" type="button">Reload extension</button>
   </div>
 
   <script src="side-panel.js"></script>

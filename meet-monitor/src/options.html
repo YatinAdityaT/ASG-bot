@@ -5,7 +5,7 @@
   <style>
     body { font: 14px system-ui; max-width: 540px; margin: 24px auto; padding: 0 16px; }
     label { display: block; margin: 16px 0 4px; font-weight: 600; }
-    input[type=url], input[type=password] { width: 100%; padding: 6px; font: inherit; box-sizing: border-box; }
+    input[type=url], input[type=password], textarea { width: 100%; padding: 6px; font: inherit; box-sizing: border-box; }
     .hint { font-size: 12px; color: #666; margin-top: 4px; }
     #saved { color: #0b8043; margin-left: 8px; }
     code { background: #f2f2f2; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
@@ -13,6 +13,12 @@
 </head>
 <body>
   <h2>Meet Monitor</h2>
+
+  <label for="monitoredMeetLinks">Meet monitoring links</label>
+  <textarea id="monitoredMeetLinks" rows="4"
+    placeholder="https://meet.google.com/jpy-ymgz-tdo"></textarea>
+  <div class="hint">Enter comma-separated Google Meet links. The extension is
+    available only on these meetings; the first link is the primary call.</div>
 
   <label>Webhook URL (optional)</label>
   <input type="url" id="webhook" placeholder="https://script.google.com/macros/s/.../exec">
@@ -34,6 +40,7 @@
   <p class="hint">Events: <code>join</code>, <code>leave</code>, <code>cam_on</code>, <code>cam_off</code>,
   <code>mic_muted</code>, <code>mic_unmuted</code>, <code>chat_message</code>.</p>
 
+  <script src="meet-policy.js"></script>
   <script src="delivery.js"></script>
   <script src="options.js"></script>
 </body>

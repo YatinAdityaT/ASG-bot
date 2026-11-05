@@ -1,13 +1,19 @@
 const $ = s => document.querySelector(s);
 
 Promise.all([
-  chrome.storage.sync.get({ webhook: '', botAPIURL: '', consentBanner: true }),
+  chrome.storage.sync.get({
+    webhook: '',
+    botAPIURL: '',
+    consentBanner: true,
+    monitoredMeetLinks: MMMeetPolicy.DEFAULT_MEET_LINKS
+  }),
   chrome.storage.local.get({ botAPIConfig: null })
 ]).then(([sync, local]) => {
   $('#webhook').value = sync.webhook;
   $('#botAPIURL').value = local.botAPIConfig?.url || sync.botAPIURL;
   $('#botAPIToken').value = local.botAPIConfig?.token || '';
   $('#consentBanner').checked = sync.consentBanner;
+  $('#monitoredMeetLinks').value = sync.monitoredMeetLinks.join(',\n');
 });
 
 $('#save').onclick = async () => {
@@ -15,6 +21,15 @@ $('#save').onclick = async () => {
   const webhook = $('#webhook').value.trim();
   const botAPIURL = $('#botAPIURL').value.trim();
   const botAPIToken = $('#botAPIToken').value.trim();
+  let monitoredMeetLinks;
+  try {
+    monitoredMeetLinks = MMMeetPolicy.normalizeMeetLinks(
+      $('#monitoredMeetLinks').value
+    );
+  } catch (error) {
+    $('#saved').textContent = error.message;
+    return;
+  }
   if (!!botAPIURL !== !!botAPIToken) {
     $('#saved').textContent = 'Bot API URL and token are both required';
     return;
@@ -64,7 +79,8 @@ $('#save').onclick = async () => {
   await chrome.storage.sync.set({
     webhook,
     botAPIURL,
-    consentBanner: $('#consentBanner').checked
+    consentBanner: $('#consentBanner').checked,
+    monitoredMeetLinks
   });
 
   const previousOrigins = new Set(

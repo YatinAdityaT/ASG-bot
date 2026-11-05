@@ -698,6 +698,47 @@ test('monitor controls require a trusted extension view and clear history', asyn
   ));
 });
 
+test('monitoring can be disabled for one allowed tab without disabling another', async () => {
+  const harness = await createHarness([202], null, {
+    tabs: {
+      7: { id: 7, url: 'https://meet.google.com/jpy-ymgz-tdo' },
+      8: { id: 8, url: 'https://meet.google.com/abc-defg-hij' },
+      9: { id: 9, url: 'https://meet.google.com/not-allow-listed' }
+    },
+    syncData: {
+      monitoredMeetLinks: [
+        'https://meet.google.com/jpy-ymgz-tdo',
+        'https://meet.google.com/abc-defg-hij'
+      ]
+    }
+  });
+  await settle();
+  assert.deepEqual(harness.sidePanelBehaviors, [{
+    openPanelOnActionClick: true
+  }]);
+  assert.deepEqual(harness.actionEnabled, [7, 8]);
+  assert.deepEqual(harness.actionDisabled, [9]);
+
+  const saved = await harness.sendViewMessage({
+    kind: 'setTabMonitoring',
+    tabId: 7,
+    enabled: false
+  });
+  const disabled = await harness.sendEvent({
+    ...meetEvent('disabled-tab'),
+    meeting: 'jpy-ymgz-tdo'
+  }, 7);
+  const enabled = await harness.sendEvent({
+    ...meetEvent('enabled-tab'),
+    meeting: 'abc-defg-hij'
+  }, 8);
+
+  assert.equal(saved.saved, true);
+  assert.equal(disabled.queued, false);
+  assert.equal(enabled.queued, true);
+  assert.equal(JSON.parse(harness.eventRequests()[0].options.body).id, 'enabled-tab');
+});
+
 test('elected Meet tab receives a pending command and then acknowledges it', async () => {
   const harness = await createHarness([200], null, {
     meetCommands: [{ id: 'message-1', text: 'Hello from WhatsApp' }]
@@ -809,6 +850,12 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
   const broadcasts = [];
   const commandTabMessages = [];
   const meetCommands = [...(initial.meetCommands || [])];
+  const tabs = initial.tabs || {
+    1: { id: 1, url: 'https://meet.google.com/jpy-ymgz-tdo' }
+  };
+  const sidePanelBehaviors = [];
+  const actionEnabled = [];
+  const actionDisabled = [];
   let uuid = 0;
 
   const clone = value => JSON.parse(JSON.stringify(value));
@@ -848,6 +895,9 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
     importScripts(...scripts) {
       if (scripts.includes('delivery.js')) {
         sandbox.MMDelivery = require('../src/delivery.js');
+      }
+      if (scripts.includes('meet-policy.js')) {
+        sandbox.MMMeetPolicy = require('../src/meet-policy.js');
       }
       if (scripts.includes('snapshot.js')) {
         sandbox.MMSnapshot = require('../src/snapshot.js');
@@ -914,10 +964,26 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
         }
       },
       tabs: {
+        async get(tabId) {
+          if (!tabs[tabId]) throw new Error('tab not found');
+          return clone(tabs[tabId]);
+        },
+        async query() {
+          return Object.values(tabs).map(clone);
+        },
         async sendMessage(tabId, message) {
           commandTabMessages.push({ tabId, message: clone(message) });
           return { sent: true };
         }
+      },
+      sidePanel: {
+        async setPanelBehavior(options) {
+          sidePanelBehaviors.push(clone(options));
+        }
+      },
+      action: {
+        async enable(tabId) { actionEnabled.push(tabId); },
+        async disable(tabId) { actionDisabled.push(tabId); }
       }
     }
   };
@@ -940,6 +1006,9 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
     broadcasts,
     commandTabMessages,
     meetCommands,
+    sidePanelBehaviors,
+    actionEnabled,
+    actionDisabled,
     syncData,
     alarmCreates,
     advance(milliseconds) { now += milliseconds; },

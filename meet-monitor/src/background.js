@@ -1,4 +1,4 @@
-importScripts('delivery.js', 'snapshot.js');
+importScripts('meet-policy.js', 'delivery.js', 'snapshot.js');
 
 const DEFAULTS = {
   webhook: '',
@@ -26,6 +26,7 @@ const HISTORY_KEY = 'monitorHistory';
 const DEBUG_HISTORY_KEY = 'monitorDebugHistory';
 const DEBUG_ENABLED_KEY = 'monitorDebugEnabled';
 const POSTED_COMMANDS_KEY = 'postedMeetCommandIds';
+const TAB_MONITORING_KEY = 'tabMonitoringEnabled';
 const MAX_HISTORY_SIZE = 1_000;
 const MAX_DEBUG_HISTORY_SIZE = 250;
 const MAX_SNAPSHOT_ATTEMPTS = 10;
@@ -41,11 +42,32 @@ const recentlyForwarded = new Map();
 chrome.runtime.onInstalled.addListener(async () => {
   await storageProtection;
   const existing = await chrome.storage.sync.get(DEFAULTS);
-  await chrome.storage.sync.set({ ...DEFAULTS, ...existing });
+  const policy = await chrome.storage.sync.get({
+    monitoredMeetLinks: MMMeetPolicy.DEFAULT_MEET_LINKS
+  });
+  await chrome.storage.sync.set({
+    ...DEFAULTS,
+    ...existing,
+    monitoredMeetLinks: policy.monitoredMeetLinks
+  });
+  await chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true });
   createHeartbeatAlarm();
 });
 
+Promise.resolve(
+  chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true })
+).catch(() => {});
 createHeartbeatAlarm();
+refreshMeetActions().catch(() => {});
+
+chrome.tabs.onUpdated?.addListener((tabId, change, tab) => {
+  if (change.url || change.status === 'complete') {
+    updateMeetAction(tabId, tab?.url || change.url).catch(() => {});
+  }
+});
+chrome.tabs.onActivated?.addListener(({ tabId }) => {
+  updateMeetAction(tabId).catch(() => {});
+});
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.kind === 'getMonitorModel') {
@@ -53,7 +75,18 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       sendResponse(null);
       return false;
     }
-    getMonitorModel().then(sendResponse).catch(() => sendResponse(null));
+    getMonitorModel(msg.tabId).then(sendResponse).catch(() => sendResponse(null));
+    return true;
+  }
+
+  if (msg?.kind === 'setTabMonitoring') {
+    if (!isTrustedExtensionView(_sender) || !Number.isInteger(msg.tabId)) {
+      sendResponse({ saved: false });
+      return false;
+    }
+    setTabMonitoring(msg.tabId, msg.enabled === true)
+      .then(saved => sendResponse({ saved }))
+      .catch(() => sendResponse({ saved: false }));
     return true;
   }
 
@@ -157,6 +190,9 @@ chrome.runtime.onStartup.addListener(() => {
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === 'sync' && changes.monitoredMeetLinks) {
+    refreshMeetActions().catch(() => {});
+  }
   if (areaName === 'sync' && changes.sendingEnabled) {
     withStateLock(() => queueCurrentSnapshot(true)).catch(() => {
       console.warn('Meet state forwarding update failed');
@@ -170,7 +206,31 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   }
 });
 
-async function getMonitorModel() {
+async function updateMeetAction(tabId, knownURL) {
+  let url = knownURL;
+  if (!url) {
+    try {
+      url = (await chrome.tabs.get(tabId)).url;
+    } catch {
+      return;
+    }
+  }
+  const links = await monitoredMeetLinks();
+  if (MMMeetPolicy.isMonitoredMeetURL(url, links)) {
+    await chrome.action.enable(tabId);
+  } else {
+    await chrome.action.disable(tabId);
+  }
+}
+
+async function refreshMeetActions() {
+  const tabs = await chrome.tabs.query({});
+  await Promise.all(tabs.map(tab =>
+    Number.isInteger(tab.id) ? updateMeetAction(tab.id, tab.url) : null
+  ));
+}
+
+async function getMonitorModel(tabId) {
   const [sessionStored, localStored, policy] = await Promise.all([
     chrome.storage.session.get({
       [SESSION_KEY]: null,
@@ -181,19 +241,36 @@ async function getMonitorModel() {
     chrome.storage.sync.get({ sendingEnabled: true })
   ]);
   const session = sessionStored[SESSION_KEY];
+  let tabState = null;
+  if (Number.isInteger(tabId)) {
+    try {
+      tabState = await chrome.tabs.sendMessage(tabId, { kind: 'getState' });
+    } catch {
+      tabState = null;
+    }
+  }
+  const selectedMeeting = tabState?.meeting || session?.meeting || ALLOWED_MEETING;
   const result = safeServerResult(session?.lastServerResult);
   const error = safeServerError(session?.lastServerError);
+  const tabEnabled = Number.isInteger(tabId)
+    ? await isTabMonitoringEnabled(tabId)
+    : true;
   return {
-    meeting: session?.meeting || ALLOWED_MEETING,
+    meeting: selectedMeeting,
     extensionVersion: chrome.runtime.getManifest().version,
-    forwardingEnabled: policy.sendingEnabled,
+    forwardingEnabled: tabEnabled,
     debugEnabled: sessionStored[DEBUG_ENABLED_KEY] === true,
     content: {
-      online: isFreshSession(session),
-      lastObservedAt: session?.lastObservedAt || null,
-      sourceTabId: Number.isInteger(session?.sourceTabId)
-        ? session.sourceTabId
-        : null
+      online: Boolean(tabState) ||
+        (session?.meeting === selectedMeeting && isFreshSession(session)),
+      lastObservedAt: tabState
+        ? Date.now()
+        : session?.lastObservedAt || null,
+      sourceTabId: Number.isInteger(tabId)
+        ? tabId
+        : Number.isInteger(session?.sourceTabId)
+          ? session.sourceTabId
+          : null
     },
     api: {
       online: Boolean(session?.lastServerSuccessAt) &&
@@ -204,8 +281,11 @@ async function getMonitorModel() {
       error
     },
     whatsAppConnected: Boolean(result?.whatsAppConnected),
-    roster: session?.roster || {},
-    history: boundedArray(localStored[HISTORY_KEY], MAX_HISTORY_SIZE),
+    roster: tabState?.roster || (
+      session?.meeting === selectedMeeting ? session?.roster : {}
+    ) || {},
+    history: boundedArray(localStored[HISTORY_KEY], MAX_HISTORY_SIZE)
+      .filter(entry => entry?.meeting === selectedMeeting),
     debugHistory: sessionStored[DEBUG_ENABLED_KEY] === true
       ? boundedArray(sessionStored[DEBUG_HISTORY_KEY], MAX_DEBUG_HISTORY_SIZE)
       : []
@@ -265,6 +345,7 @@ async function recordAndForwardEvent(rec, sender) {
   }
   if (!await electedEventAllowed(rec, sender)) return false;
   const isChat = rec?.type === 'chat_message';
+  const directSecondaryEvent = !isChat && !await isPrimaryMeeting(rec?.meeting);
   if (isChat) {
     const whatsAppText = meetWhatsAppText(rec.text);
     if (whatsAppText !== null) {
@@ -275,10 +356,10 @@ async function recordAndForwardEvent(rec, sender) {
       return false;
     }
   }
-  const historyId = isChat
+  const historyId = isChat || directSecondaryEvent
     ? await appendHistory(rec, null, 'pending')
     : null;
-  const queued = await forwardEvent(rec);
+  const queued = await forwardEvent(rec, directSecondaryEvent);
   if (historyId) {
     await updateHistoryDelivery(
       [historyId],
@@ -301,7 +382,7 @@ async function debugReflectionEnabled() {
   return stored[DEBUG_ENABLED_KEY] === true;
 }
 
-async function forwardEvent(rec) {
+async function forwardEvent(rec, directNonChat = false) {
   const now = Date.now();
   for (const [key, seenAt] of recentlyForwarded) {
     if (now - seenAt >= FORWARD_DEDUPE_MS) recentlyForwarded.delete(key);
@@ -311,7 +392,7 @@ async function forwardEvent(rec) {
   recentlyForwarded.set(key, now);
 
   forwardWebhook(rec).catch(() => {});
-  if (rec?.type !== 'chat_message') return false;
+  if (rec?.type !== 'chat_message' && !directNonChat) return false;
   const queued = await enqueueBotAPI(rec);
   if (queued) await flushBotAPIOutbox();
   return queued;
@@ -336,6 +417,53 @@ async function botAPIConfig() {
     botAPIToken: botAPIConfig?.token || '',
     generation: botAPIConfig?.generation || ''
   };
+}
+
+async function monitoredMeetLinks() {
+  const stored = await chrome.storage.sync.get({
+    monitoredMeetLinks: MMMeetPolicy.DEFAULT_MEET_LINKS
+  });
+  try {
+    return MMMeetPolicy.normalizeMeetLinks(stored.monitoredMeetLinks);
+  } catch {
+    return MMMeetPolicy.DEFAULT_MEET_LINKS;
+  }
+}
+
+async function isAllowedMeeting(meeting) {
+  const links = await monitoredMeetLinks();
+  return links.some(link => MMMeetPolicy.meetingCode(link) === meeting);
+}
+
+async function isPrimaryMeeting(meeting) {
+  const links = await monitoredMeetLinks();
+  return MMMeetPolicy.meetingCode(links[0]) === meeting;
+}
+
+async function isTabMonitoringEnabled(tabId) {
+  const stored = await chrome.storage.session.get({
+    [TAB_MONITORING_KEY]: {}
+  });
+  return stored[TAB_MONITORING_KEY]?.[String(tabId)] !== false;
+}
+
+async function setTabMonitoring(tabId, enabled) {
+  const tab = await chrome.tabs.get(tabId);
+  const links = await monitoredMeetLinks();
+  if (!MMMeetPolicy.isMonitoredMeetURL(tab.url, links)) return false;
+  const stored = await chrome.storage.session.get({
+    [TAB_MONITORING_KEY]: {}
+  });
+  const states = stored[TAB_MONITORING_KEY] || {};
+  states[String(tabId)] = enabled;
+  await chrome.storage.session.set({ [TAB_MONITORING_KEY]: states });
+  return true;
+}
+
+async function tabCanMonitor(sender, meeting) {
+  const tabId = sender?.tab?.id;
+  if (!Number.isInteger(tabId) || !await isAllowedMeeting(meeting)) return false;
+  return isTabMonitoringEnabled(tabId);
 }
 
 function enqueueBotAPI(rec) {
@@ -363,17 +491,21 @@ async function outboundAllowed(rec) {
   const { sendingEnabled } = await chrome.storage.sync.get({
     sendingEnabled: true
   });
-  return sendingEnabled && rec?.meeting === ALLOWED_MEETING;
+  return sendingEnabled && await isAllowedMeeting(rec?.meeting);
 }
 
 function flushBotAPIOutbox() {
   return withOutboxLock(async () => {
     const stored = await chrome.storage.local.get({ [OUTBOX_KEY]: [] });
     const outbox = stored[OUTBOX_KEY];
-    const allowedOutbox = outbox.filter(
-      entry => entry.rec?.meeting === ALLOWED_MEETING &&
-        entry.rec?.type === 'chat_message'
-    );
+    const allowedOutbox = [];
+    for (const entry of outbox) {
+      const primary = await isPrimaryMeeting(entry.rec?.meeting);
+      if (await isAllowedMeeting(entry.rec?.meeting) &&
+          (entry.rec?.type === 'chat_message' || !primary)) {
+        allowedOutbox.push(entry);
+      }
+    }
     if (allowedOutbox.length !== outbox.length) {
       outbox.splice(0, outbox.length, ...allowedOutbox);
       await chrome.storage.local.set({ [OUTBOX_KEY]: outbox });
@@ -500,11 +632,17 @@ function withStateLock(operation) {
 async function receiveObservation(message, sender) {
   const tabId = sender?.tab?.id;
   if (!Number.isInteger(tabId) ||
-      message?.meeting !== ALLOWED_MEETING ||
       !message.roster ||
       typeof message.roster !== 'object' ||
       Array.isArray(message.roster)) {
     return { elected: false };
+  }
+  if (!await tabCanMonitor(sender, message.meeting)) {
+    return { elected: false };
+  }
+  if (!await isPrimaryMeeting(message.meeting)) {
+    await recordRawObservation(message, tabId, Date.now());
+    return { elected: true };
   }
 
   const now = Date.now();
@@ -665,7 +803,7 @@ function newMonitorSession(sourceTabId, message, now) {
     sessionId: crypto.randomUUID(),
     sourceTabId,
     sequence: 0,
-    meeting: ALLOWED_MEETING,
+    meeting: message.meeting,
     lastObservedAt: now,
     roster: message.roster,
     self: message.self || {},
@@ -680,7 +818,8 @@ function newMonitorSession(sourceTabId, message, now) {
 async function queueCurrentSnapshot(force) {
   const stored = await chrome.storage.session.get({ [SESSION_KEY]: null });
   const session = stored[SESSION_KEY];
-  if (!isFreshSession(session)) return false;
+  if (!isFreshSession(session) ||
+      !await isTabMonitoringEnabled(session.sourceTabId)) return false;
   return queueSnapshotForSession(session, force);
 }
 
@@ -697,13 +836,14 @@ async function queueSnapshotForSession(session, force, heartbeat = false) {
   }
 
   const sequence = session.sequence + 1;
+  const tabEnabled = await isTabMonitoringEnabled(session.sourceTabId);
   const body = MMSnapshot.build({
-    meeting: ALLOWED_MEETING,
+    meeting: session.meeting,
     sessionId: session.sessionId,
     sequence,
     capturedAt: new Date(Date.now()).toISOString(),
     extensionVersion: chrome.runtime.getManifest().version,
-    forwardingEnabled: policy.sendingEnabled,
+    forwardingEnabled: policy.sendingEnabled && tabEnabled,
     roster: session.roster
   });
   const stateKey = MMSnapshot.stateKey(body);
@@ -746,7 +886,8 @@ async function sendHeartbeat() {
     [PENDING_SNAPSHOT_KEY]: null
   });
   const session = stored[SESSION_KEY];
-  if (!isFreshSession(session)) return false;
+  if (!isFreshSession(session) ||
+      !await isTabMonitoringEnabled(session.sourceTabId)) return false;
   if (stored[PENDING_SNAPSHOT_KEY]?.sessionId === session.sessionId) {
     return flushPendingSnapshot(session, stored[PENDING_SNAPSHOT_KEY]);
   }
@@ -874,13 +1015,14 @@ function isRetryableStateStatus(status) {
 }
 
 function isFreshSession(session) {
-  return session?.meeting === ALLOWED_MEETING &&
+  return Boolean(session?.meeting) &&
     Date.now() - session.lastObservedAt <= SOURCE_STALE_MS;
 }
 
 async function electedEventAllowed(rec, sender) {
   if (!await outboundAllowed(rec)) return false;
-  if (!Number.isInteger(sender?.tab?.id)) return false;
+  if (!await tabCanMonitor(sender, rec?.meeting)) return false;
+  if (!await isPrimaryMeeting(rec?.meeting)) return true;
   const stored = await chrome.storage.session.get({ [SESSION_KEY]: null });
   const session = stored[SESSION_KEY];
   return isFreshSession(session) && session.sourceTabId === sender.tab.id;
@@ -893,10 +1035,14 @@ async function clearPendingSnapshot() {
 async function sanitizeOutbox() {
   return withOutboxLock(async () => {
     const stored = await chrome.storage.local.get({ [OUTBOX_KEY]: [] });
-    const filtered = stored[OUTBOX_KEY].filter(entry =>
-      entry.rec?.meeting === ALLOWED_MEETING &&
-      entry.rec?.type === 'chat_message'
-    );
+    const filtered = [];
+    for (const entry of stored[OUTBOX_KEY]) {
+      const primary = await isPrimaryMeeting(entry.rec?.meeting);
+      if (await isAllowedMeeting(entry.rec?.meeting) &&
+          (entry.rec?.type === 'chat_message' || !primary)) {
+        filtered.push(entry);
+      }
+    }
     if (filtered.length !== stored[OUTBOX_KEY].length) {
       await chrome.storage.local.set({ [OUTBOX_KEY]: filtered });
     }

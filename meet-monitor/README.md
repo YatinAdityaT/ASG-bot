@@ -1,19 +1,21 @@
 # Meet Monitor Chrome Extension
 
-Meet Monitor `v1.6.0` is an unpacked Chrome extension for Google Meet. It
+Meet Monitor `v1.7.0` is an unpacked Chrome extension for Google Meet. It
 tracks participant joins and leaves, camera and microphone changes, and chat
-messages for the locked meeting code `jpy-ymgz-tdo`.
+messages for configured Google Meet links.
 
 ## Operator setup
 
 1. Run the bot with `ASG_BOT_MEET_CODE=jpy-ymgz-tdo`.
 2. In Chrome, open `chrome://extensions`, enable **Developer mode**, and load
    the `meet-monitor` folder as an unpacked extension.
-3. Open extension options from the popup or the extension details page.
-4. Set the Bot API URL to the server endpoint ending in `/v1/meet-events`.
+3. Open extension options from the extension details page.
+4. Add the comma-separated Google Meet links that may be monitored. The first
+   link is the primary call used by `/status`, `/call`, and `/meet`.
+5. Set the Bot API URL to the server endpoint ending in `/v1/meet-events`.
    Meet Monitor stays configured against `/v1/meet-events` and derives
    `/v1/meet-state` and `/v1/meet-command` automatically on the same origin.
-5. Paste the bot bearer token, save, approve the exact origin permission
+6. Paste the bot bearer token, save, approve the exact origin permission
    request, then reload the unpacked extension and refresh every open Meet tab.
 
 Chrome does not hot-reload unpacked extensions. After every code or settings
@@ -22,14 +24,18 @@ refresh all open Meet tabs.
 
 ## Daily use
 
-- Use the popup for the quick roster view, recent event feed, CSV export, and
-  the **Sending ON/OFF** toggle.
-- Use **Open Monitor** in the popup to open the side panel for continuous
-  health, roster, and timeline monitoring.
-- The sending toggle controls webhook and WhatsApp event delivery only. Even
-  with **Sending OFF**, the extension continues to send Meet state heartbeats
-  so bot `/status` remains current.
-- The extension only forwards outbound traffic for meeting `jpy-ymgz-tdo`.
+- Click the Meet Monitor toolbar button to open its side panel.
+- The toolbar button is available only on configured Meet links.
+- Use **Monitoring this tab** to enable or disable each Meet tab independently.
+  Enabled configured tabs can monitor simultaneously.
+- The first configured link is the primary call. Other configured links
+  forward their events without replacing the primary `/status` and `/call`
+  snapshot.
+- Health labels are color-coded: green is online and red is
+  offline/disconnected.
+- Use **Reload extension** after installing updated extension files, then
+  refresh each open Meet tab. Reloading clears extension runtime state but
+  preserves saved options.
 
 ## Health timing and reconnect behavior
 
@@ -72,8 +78,11 @@ WhatsApp event messages are prefix-free and look like:
 
 - No live data after an update: reload the unpacked extension, then refresh all
   open Meet tabs.
-- Side panel shows content offline: keep one `jpy-ymgz-tdo` Meet tab open and
-  active enough to produce observations. A tab becomes stale after `45s`.
+- Side panel shows content offline: keep the primary configured Meet tab open,
+  enabled, and active enough to produce observations. A tab becomes stale
+  after `45s`.
+- Toolbar button is disabled on a Meet tab: add its full Meet link in options,
+  save, and refresh that tab.
 - Side panel shows API error or `/status` shows monitor offline: confirm the
   bot is running, the URL still ends exactly in `/v1/meet-events`, the token is
   correct, and the server can accept `/v1/meet-state`.
@@ -91,7 +100,7 @@ For continuous monitoring and `/status` freshness, keep all of these running:
 
 - the bot process
 - Chrome with the unpacked extension loaded
-- at least one refreshed `jpy-ymgz-tdo` Meet tab
+- at least one refreshed primary Meet tab
 
 Closing Chrome, disabling the extension, or leaving only stale Meet tabs stops
 fresh observations. Restarted components recover from a silent baseline rather

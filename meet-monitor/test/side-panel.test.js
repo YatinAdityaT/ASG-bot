@@ -11,7 +11,8 @@ test('side panel exposes health, roster, filters, controls, and actions', () => 
   for (const id of [
     'meeting', 'version', 'content-health', 'api-health', 'whatsapp-health',
     'roster', 'timeline', 'event-filter', 'forwarding', 'debug',
-    'clear-history', 'export-csv', 'open-options', 'permanent-error'
+    'clear-history', 'export-csv', 'open-options', 'reload-extension',
+    'permanent-error'
   ]) {
     assert.match(html, new RegExp(`id="${id}"`));
   }
@@ -91,6 +92,9 @@ test('side panel rendering uses text nodes for participant and chat content', ()
   assert.equal(document.nodes.roster.innerHTMLWrites, 0);
   assert.equal(document.nodes.timeline.innerHTMLWrites, 0);
   assert.match(document.nodes['permanent-error'].textContent, /unauthorized/);
+  assert.equal(document.nodes['content-health'].dataset.state, 'online');
+  assert.equal(document.nodes['api-health'].dataset.state, 'offline');
+  assert.equal(document.nodes['whatsapp-health'].dataset.state, 'disconnected');
 });
 
 function fakeDocument() {
@@ -101,6 +105,7 @@ function fakeDocument() {
       this._text = '';
       this.innerHTMLWrites = 0;
       this.checked = false;
+      this.dataset = {};
     }
     set textContent(value) {
       this._text = String(value ?? '');

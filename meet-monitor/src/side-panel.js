@@ -8,6 +8,7 @@
 
   let currentModel = null;
   let currentFilter = 'all';
+  let activeTabId = null;
 
   function filterHistory(history, filter) {
     const records = Array.isArray(history) ? history : [];
@@ -50,25 +51,35 @@
     if (node) node.textContent = value == null ? '' : String(value);
   }
 
+  function setHealth(document, id, label, state) {
+    const node = document.getElementById(id);
+    if (!node) return;
+    node.textContent = label;
+    node.dataset.state = state;
+  }
+
   function renderModel(document, model, filter = 'all') {
     currentModel = model || {};
     currentFilter = filter;
     setText(document, 'meeting', currentModel.meeting || '—');
     setText(document, 'version', currentModel.extensionVersion || '—');
-    setText(
+    setHealth(
       document,
       'content-health',
-      currentModel.content?.online ? 'Online' : 'Offline'
+      currentModel.content?.online ? 'Online' : 'Offline',
+      currentModel.content?.online ? 'online' : 'offline'
     );
-    setText(
+    setHealth(
       document,
       'api-health',
-      currentModel.api?.online ? 'Online' : 'Offline'
+      currentModel.api?.online ? 'Online' : 'Offline',
+      currentModel.api?.online ? 'online' : 'offline'
     );
-    setText(
+    setHealth(
       document,
       'whatsapp-health',
-      currentModel.whatsAppConnected ? 'Connected' : 'Disconnected'
+      currentModel.whatsAppConnected ? 'Connected' : 'Disconnected',
+      currentModel.whatsAppConnected ? 'connected' : 'disconnected'
     );
     setText(
       document,
@@ -185,6 +196,16 @@
   }
 
   async function start(document, chrome) {
+    async function loadActiveModel() {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      activeTabId = Number.isInteger(tab?.id) ? tab.id : null;
+      const model = await chrome.runtime.sendMessage({
+        kind: 'getMonitorModel',
+        tabId: activeTabId
+      });
+      renderModel(document, model, currentFilter);
+    }
+
     const filter = document.getElementById('event-filter');
     filter?.addEventListener('change', () => {
       currentFilter = filter.value;
@@ -192,7 +213,8 @@
     });
     document.getElementById('forwarding')?.addEventListener('change', event => {
       chrome.runtime.sendMessage({
-        kind: 'setForwarding',
+        kind: 'setTabMonitoring',
+        tabId: activeTabId,
         enabled: event.currentTarget.checked
       });
     });
@@ -208,17 +230,21 @@
     document.getElementById('export-csv')?.addEventListener('click', () => {
       downloadHistory(document, currentModel);
     });
+    document.getElementById('reload-extension')?.addEventListener(
+      'click',
+      () => chrome.runtime.reload()
+    );
     document.getElementById('open-options')?.addEventListener(
       'click',
       () => chrome.runtime.openOptionsPage()
     );
     chrome.runtime.onMessage.addListener(message => {
-      if (message?.kind === 'monitorModelChanged' && message.model) {
-        renderModel(document, message.model, currentFilter);
+      if (message?.kind === 'monitorModelChanged') {
+        loadActiveModel();
       }
     });
-    const model = await chrome.runtime.sendMessage({ kind: 'getMonitorModel' });
-    renderModel(document, model, currentFilter);
+    chrome.tabs.onActivated?.addListener(() => loadActiveModel());
+    await loadActiveModel();
   }
 
   return {
