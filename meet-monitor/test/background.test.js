@@ -745,6 +745,20 @@ test('monitoring can be disabled for one allowed tab without disabling another',
   assert.equal(JSON.parse(harness.eventRequests()[0].options.body).id, 'enabled-tab');
 });
 
+test('a side panel configuration error does not disable the toolbar popup', async () => {
+  const harness = await createHarness([], null, {
+    sidePanelSetOptionsError: new Error('side panel unavailable'),
+    tabs: {
+      7: { id: 7, url: 'https://meet.google.com/jpy-ymgz-tdo' }
+    }
+  });
+
+  await settle();
+
+  assert.deepEqual(harness.actionEnabled, [7]);
+  assert.deepEqual(harness.actionDisabled, []);
+});
+
 test('monitor health remains unknown without fresh API evidence', async () => {
   const harness = await createHarness([]);
 
@@ -1097,6 +1111,9 @@ async function createHarness(fetchStatuses, fetchOverride, initial = {}) {
           sidePanelBehaviors.push(clone(options));
         },
         async setOptions(options) {
+          if (initial.sidePanelSetOptionsError) {
+            throw initial.sidePanelSetOptionsError;
+          }
           sidePanelOptions.push(clone(options));
         }
       },

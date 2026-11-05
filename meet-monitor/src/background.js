@@ -228,15 +228,20 @@ async function updateMeetAction(tabId, knownURL) {
   }
   const links = await monitoredMeetLinks();
   const allowed = MMMeetPolicy.isMonitoredMeetURL(url, links);
-  await chrome.sidePanel?.setOptions?.({
-    tabId,
-    path: 'src/side-panel.html',
-    enabled: allowed
-  });
   if (allowed) {
     await chrome.action.enable(tabId);
   } else {
     await chrome.action.disable(tabId);
+  }
+  try {
+    await chrome.sidePanel?.setOptions?.({
+      tabId,
+      path: 'src/side-panel.html',
+      enabled: allowed
+    });
+  } catch {
+    // Keep the toolbar popup usable even if this Chrome build rejects
+    // per-tab side panel configuration.
   }
 }
 
