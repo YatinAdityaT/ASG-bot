@@ -881,19 +881,31 @@ func TestCallCommandListsCurrentParticipantsAlphabetically(t *testing.T) {
 				{ID: "2", Name: "Yatin T", Cam: true, Mic: "unmuted"},
 				{ID: "1", Name: "ADHD SUPPORT GROUP", Cam: false, Mic: "muted", Self: true},
 				{ID: "3", Name: "Yatin T", Cam: false, Mic: "muted"},
+				{ID: "4", Name: "Alex", Cam: true, Mic: "muted"},
+				{ID: "5", Name: "Disha", Cam: false, Mic: "muted"},
 			},
 		}}),
 	)
 
-	if err := manager.RouteMessage(nil, context.Background(), messageEvent("/call")); err != nil {
+	if err := manager.RouteMessage(nil, context.Background(), messageEvent("/incall")); err != nil {
 		t.Fatal(err)
 	}
 	want := strings.Join([]string{
-		"In the call (1):",
-		"• Yatin T — Camera on · Mic unmuted",
+		"In the call (3) (cam on, mic off):",
+		"• Alex",
+		"• Disha — cam off",
+		"• Yatin T — mic on",
 	}, "\n")
 	if got := sentText(t, sender); got != want {
 		t.Fatalf("reply = %q, want %q", got, want)
+	}
+
+	sender.messages = nil
+	if err := manager.RouteMessage(nil, context.Background(), messageEvent("/call")); err != nil {
+		t.Fatal(err)
+	}
+	if len(sender.messages) != 0 {
+		t.Fatal("old /call alias unexpectedly handled")
 	}
 }
 
@@ -909,7 +921,7 @@ func TestCallCommandRefusesToShowStaleRoster(t *testing.T) {
 		}}),
 	)
 
-	if err := manager.RouteMessage(nil, context.Background(), messageEvent("/call")); err != nil {
+	if err := manager.RouteMessage(nil, context.Background(), messageEvent("/incall")); err != nil {
 		t.Fatal(err)
 	}
 	if got := sentText(t, sender); got != "Meet monitor is offline, so I can't verify who is in the call." {

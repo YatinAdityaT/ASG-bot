@@ -15,7 +15,7 @@ For operators, keep the bot configured with
 `/v1/meet-events`, and let the extension derive `/v1/meet-state` and
 `/v1/meet-command` on the same origin. After any code or settings change, reload the unpacked extension and
 refresh every open Meet tab. Click the extension button to open the side panel,
-use `/status` to verify monitor state, `/call` to list participants,
+use `/status` to verify monitor state, `/incall` to list participants,
 `/pingcall` to mention the WhatsApp group with the current roster, and
 `/meet <message>` to post into Meet
 chat. See
@@ -58,7 +58,7 @@ stable group IDs live in the ignored local file. Copy `config.example.json` to
 | `ASG_BOT_API_ENABLED` | No | Case-insensitive literal `true` or `false`; no other aliases are accepted. Defaults to `false`. |
 | `ASG_BOT_API_ADDR` | No | Listen address used when the API is enabled. Defaults to `127.0.0.1:8080`. Keep the loopback host when using a local tunnel. |
 | `ASG_BOT_API_TOKEN` | When API enabled | Bearer token containing at least 32 characters. Generate a random secret; never commit or expose it in extension source. |
-| `ASG_BOT_API_TARGET_GROUP` | When API enabled | The one destination group JID. It must also be present in `ASG_BOT_ALLOWED_GROUPS`. Clients cannot override it. |
+| `ASG_BOT_API_TARGET_GROUP` | When API enabled without an Accountability group | The destination group JID. When `ASG_BOT_ACCOUNTABILITY_GROUP` is set, it becomes the API and Meet-event destination automatically. |
 | `ASG_BOT_API_ALLOWED_ORIGINS` | No | Comma-separated exact `chrome-extension://<extension-id>` origins. Empty denies browser cross-origin requests while allowing clients that send no `Origin`, such as curl. |
 
 Whitespace around comma-separated entries is removed, but empty entries are
@@ -139,7 +139,8 @@ Send these exact commands in an allowed group:
 - `/echo <text>` repeats the supplied text.
 - `/help` lists non-admin commands.
 - `/status` shows bot, WhatsApp, and Meet monitor health.
-- `/call` lists the current Meet roster and media state.
+- `/incall` lists the current Meet roster. Its header defines `cam on, mic off`
+  as the default and rows show only `cam off` or `mic on` exceptions.
 - `/pingcall` mentions every member of the current WhatsApp group and includes
   the current Meet roster.
 - `/meet <message>` posts a message to the monitored Meet chat.

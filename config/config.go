@@ -158,6 +158,9 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 
 	cfg.APITargetGroup = strings.TrimSpace(value("ASG_BOT_API_TARGET_GROUP", fileValues.APITargetGroup))
+	if accountabilityGroup != "" {
+		cfg.APITargetGroup = accountabilityGroup
+	}
 	if !groupJIDPattern.MatchString(cfg.APITargetGroup) {
 		return Config{}, fmt.Errorf("ASG_BOT_API_TARGET_GROUP must be a group JID")
 	}

@@ -11,7 +11,7 @@ messages for configured Google Meet links.
    the `meet-monitor` folder as an unpacked extension.
 3. Open extension options from the extension details page.
 4. Add the comma-separated Google Meet links that may be monitored. The first
-   link is the primary call used by `/status`, `/call`, and `/meet`.
+   link is the primary call used by `/status`, `/incall`, and `/meet`.
 5. Set the Bot API URL to the server endpoint ending in `/v1/meet-events`.
    Meet Monitor stays configured against `/v1/meet-events` and derives
    `/v1/meet-state` and `/v1/meet-command` automatically on the same origin.
@@ -29,7 +29,7 @@ refresh all open Meet tabs.
 - Use **Monitoring this tab** to enable or disable each Meet tab independently.
   Enabled configured tabs can monitor simultaneously.
 - The first configured link is the primary call. Other configured links
-  forward their events without replacing the primary `/status` and `/call`
+  forward their events without replacing the primary `/status` and `/incall`
   snapshot.
 - Health labels are color-coded: green is online and red is
   offline/disconnected.
@@ -58,8 +58,8 @@ monitor health. The reply includes bot online state, WhatsApp connected state,
 monitor online or offline state, last heartbeat age, meeting code, participant
 count, forwarding ON or OFF, and extension version.
 
-Use `/call` to list everyone currently detected in the call with their camera
-and microphone state. Use `/pingcall` to mention every member of the current
+Use `/incall` to list everyone currently detected in the call, showing only
+camera-off and microphone-on exceptions. Use `/pingcall` to mention every member of the current
 WhatsApp group and include the current call roster. Use
 `/meet <message>` to post a message into the Google Meet chat through the
 monitor extension. Meet receives it as `"WhatsApp name" said "message"`, and

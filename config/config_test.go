@@ -309,7 +309,7 @@ func TestLoadReadsJSONConfigAndEnvironmentOverridesIt(t *testing.T) {
 		t.Fatalf("environment/file precedence failed: %#v", cfg)
 	}
 	if !cfg.APIEnabled || cfg.APIAddr != "127.0.0.1:9090" ||
-		cfg.APITargetGroup != "123@g.us" ||
+		cfg.APITargetGroup != "456@g.us" ||
 		!reflect.DeepEqual(cfg.APIAllowedOrigins, []string{"chrome-extension://abcdefghijklmnop"}) {
 		t.Fatalf("API config not loaded from file: %#v", cfg)
 	}

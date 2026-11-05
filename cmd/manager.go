@@ -135,9 +135,9 @@ func NewCommandManager(client utils.MessageSender, admins []string, shutdown con
 
 	if cm.callProvider != nil {
 		cm.RegisterCommand(Command{
-			Name:           "/call",
+			Name:           "/incall",
 			Description:    "Lists everyone currently in the monitored Google Meet call.",
-			Regex:          regexp.MustCompile(`^/call$`),
+			Regex:          regexp.MustCompile(`^/incall$`),
 			Callback:       NoDB(cm.handleCall),
 			IsAdminCommand: false,
 		})

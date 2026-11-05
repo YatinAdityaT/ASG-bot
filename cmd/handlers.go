@@ -121,16 +121,20 @@ func (cm *CommandManager) handleCall(ctx context.Context, client utils.MessageSe
 	}
 
 	var reply strings.Builder
-	fmt.Fprintf(&reply, "In the call (%d):", len(names))
+	fmt.Fprintf(&reply, "In the call (%d) (cam on, mic off):", len(names))
 	for _, name := range names {
 		media := unique[name]
-		fmt.Fprintf(
-			&reply,
-			"\n• %s — Camera %s · Mic %s",
-			name,
-			boolString(media.cam, "on", "off"),
-			boolString(media.unmuted, "unmuted", "muted"),
-		)
+		fmt.Fprintf(&reply, "\n• %s", name)
+		var exceptions []string
+		if !media.cam {
+			exceptions = append(exceptions, "cam off")
+		}
+		if media.unmuted {
+			exceptions = append(exceptions, "mic on")
+		}
+		if len(exceptions) > 0 {
+			fmt.Fprintf(&reply, " — %s", strings.Join(exceptions, " · "))
+		}
 	}
 	return utils.ReplyToMessage(ctx, client, info.Chat, reply.String(), info.ID, info.Sender)
 }
