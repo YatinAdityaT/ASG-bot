@@ -123,7 +123,7 @@ func (server *Server) processMeetReminder(
 		MeetingCode:    event.Meeting,
 		SenderMeetName: event.Name,
 		Text:           text,
-		WhatsAppChatID: server.config.AccountabilityGroup,
+		WhatsAppChatID: server.config.APITargetGroup,
 	})
 
 	var acknowledgement string
@@ -140,9 +140,13 @@ func (server *Server) processMeetReminder(
 		return err
 	default:
 		location := server.now().Location()
+		targetLabel := "@" + result.Reminder.Target.Username
+		if result.Reminder.Target.ID == result.Reminder.Requester.ID {
+			targetLabel = "you"
+		}
 		acknowledgement = fmt.Sprintf(
-			"Reminder set for @%s at %s: %q",
-			result.Reminder.Target.Username,
+			"Reminder set for %s at %s: %q",
+			targetLabel,
 			result.Reminder.RemindAt.In(location).Format("3:04 PM on Jan 2"),
 			result.Reminder.Body,
 		)

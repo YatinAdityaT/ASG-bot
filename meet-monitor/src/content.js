@@ -104,10 +104,8 @@
 
   const scan = () => {
     if (stopped) return;
-    if (!chatOpened &&
-        window.MMMeetCall?.isInCall(document) &&
-        window.MMMeetChat?.openChat(document)) {
-      chatOpened = true;
+    if (window.MMMeetCall?.isInCall(document)) {
+      chatOpened = window.MMMeetChat?.openChat(document) || chatOpened;
     }
     const groups = new Map();
     for (const tile of document.querySelectorAll(S.tileSel)) {
@@ -248,6 +246,7 @@
 
   chrome.runtime.onMessage.addListener((msg, _s, sendResponse) => {
     if (msg.kind === 'monitorPing') {
+      scan();
       sendResponse({ alive: !stopped, meeting });
       return false;
     }

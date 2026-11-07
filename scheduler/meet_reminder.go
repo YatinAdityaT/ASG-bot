@@ -96,16 +96,25 @@ func (t *MeetReminderTask) Run(ctx context.Context, sender utils.MessageSender) 
 		return t.complete(ctx, "skipped_absent")
 	}
 
+	meetText := fmt.Sprintf(
+		`%s — %s asked me to remind you to %q at %s.`,
+		t.reminder.Target.CanonicalName,
+		t.reminder.Requester.CanonicalName,
+		t.reminder.Body,
+		t.reminder.RemindAt.In(time.Local).Format("3:04 PM"),
+	)
+	if t.reminder.Target.ID == t.reminder.Requester.ID {
+		meetText = fmt.Sprintf(
+			`%s — you asked me to remind you to %q at %s.`,
+			t.reminder.Target.CanonicalName,
+			t.reminder.Body,
+			t.reminder.RemindAt.In(time.Local).Format("3:04 PM"),
+		)
+	}
 	_, err = t.monitor.QueueMessageWithID(
 		ctx,
 		fmt.Sprintf("meet-reminder-%d", t.reminder.ID),
-		fmt.Sprintf(
-			`%s — %s asked me to remind you to %q at %s.`,
-			t.reminder.Target.CanonicalName,
-			t.reminder.Requester.CanonicalName,
-			t.reminder.Body,
-			t.reminder.RemindAt.In(time.Local).Format("3:04 PM"),
-		),
+		meetText,
 	)
 	if err != nil {
 		return fmt.Errorf("queue Meet reminder %d: %w", t.reminder.ID, err)
@@ -130,6 +139,14 @@ func (t *MeetReminderTask) sendWhatsApp(ctx context.Context, sender utils.Messag
 		t.reminder.Body,
 		t.reminder.RemindAt.In(time.Local).Format("3:04 PM"),
 	)
+	if t.reminder.Target.ID == t.reminder.Requester.ID {
+		message = fmt.Sprintf(
+			`@%s you asked me to remind you to %q at %s`,
+			targetJID.User,
+			t.reminder.Body,
+			t.reminder.RemindAt.In(time.Local).Format("3:04 PM"),
+		)
+	}
 	_, err = sender.SendMessage(
 		ctx,
 		chatID,
