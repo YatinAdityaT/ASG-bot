@@ -29,6 +29,34 @@ func (cm *CommandManager) handlePing(ctx context.Context, client utils.MessageSe
 	return utils.ReplyToMessage(ctx, client, info.Chat, "Pong!", info.ID, info.Sender)
 }
 
+func (cm *CommandManager) handleWhoAmI(
+	_ *sql.DB,
+	ctx context.Context,
+	client utils.MessageSender,
+	commandCtx CommandContext,
+	_ []string,
+) error {
+	info := commandCtx.Info
+	lines := []string{
+		"Canonical identity: " + commandCtx.SenderIdentity.String(),
+		"Sender identity: " + info.Sender.ToNonAD().String(),
+	}
+	if alternative := info.SenderAlt.ToNonAD(); !alternative.IsEmpty() {
+		lines = append(lines, "Alternative identity: "+alternative.String())
+	}
+	if pushName := strings.TrimSpace(info.PushName); pushName != "" {
+		lines = append(lines, "Push name: "+pushName)
+	}
+	return utils.ReplyToMessage(
+		ctx,
+		client,
+		info.Chat,
+		strings.Join(lines, "\n"),
+		info.ID,
+		info.Sender,
+	)
+}
+
 func (cm *CommandManager) handleEcho(ctx context.Context, client utils.MessageSender, info types.MessageInfo, args []string) error {
 	response := args[0]
 	return utils.ReplyToMessage(ctx, client, info.Chat, response, info.ID, info.Sender)
