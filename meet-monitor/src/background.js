@@ -540,6 +540,8 @@ async function recordAndForwardEvent(rec, sender) {
     const whatsAppText = meetWhatsAppText(rec.text);
     if (whatsAppText !== null) {
       rec = { ...rec, text: whatsAppText };
+    } else if (isMeetReminderText(rec.text)) {
+      // Keep the full command so the bot can resolve identities and schedule it.
     } else if (!await debugReflectionEnabled()) {
       await appendHistory(rec, null, 'silent');
       await broadcastMonitorModel();
@@ -563,6 +565,10 @@ async function recordAndForwardEvent(rec, sender) {
 function meetWhatsAppText(text) {
   const match = String(text || '').match(/^\/w\s+([\s\S]*\S)\s*$/i);
   return match ? match[1] : null;
+}
+
+function isMeetReminderText(text) {
+  return /^\/remind(?:\s|$)/i.test(String(text || '').trim());
 }
 
 async function debugReflectionEnabled() {
