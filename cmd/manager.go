@@ -243,6 +243,14 @@ func NewCommandManager(client utils.MessageSender, admins []string, shutdown con
 	})
 
 	cm.RegisterCommand(Command{
+		Name:           "/admins",
+		Description:    "[Admin only] Lists configured bot administrators.",
+		Regex:          regexp.MustCompile(`^/admins$`),
+		Callback:       cm.handleAdmins,
+		IsAdminCommand: true,
+	})
+
+	cm.RegisterCommand(Command{
 		Name:           "/die",
 		Description:    "[Admin only command] Bot shuts down",
 		Regex:          regexp.MustCompile(`^/die$`),

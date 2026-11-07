@@ -57,6 +57,45 @@ func (cm *CommandManager) handleWhoAmI(
 	)
 }
 
+func (cm *CommandManager) handleAdmins(
+	db *sql.DB,
+	ctx context.Context,
+	client utils.MessageSender,
+	commandCtx CommandContext,
+	_ []string,
+) error {
+	info := commandCtx.Info
+	numbers := make([]string, 0, len(cm.admins))
+	for number := range cm.admins {
+		numbers = append(numbers, number)
+	}
+	sort.Strings(numbers)
+
+	lines := []string{fmt.Sprintf("Configured admins (%d):", len(numbers))}
+	identities := identity.NewStore(db)
+	for _, number := range numbers {
+		label := "+" + number
+		person, err := identities.GetByWhatsAppJID(
+			ctx,
+			types.NewJID(number, types.DefaultUserServer).String(),
+		)
+		if err == nil {
+			label = fmt.Sprintf("%s (+%s)", person.CanonicalName, number)
+		} else if !errors.Is(err, identity.ErrNotFound) {
+			return fmt.Errorf("resolve configured admin: %w", err)
+		}
+		lines = append(lines, "• "+label)
+	}
+	return utils.ReplyToMessage(
+		ctx,
+		client,
+		info.Chat,
+		strings.Join(lines, "\n"),
+		info.ID,
+		info.Sender,
+	)
+}
+
 func (cm *CommandManager) handleEcho(ctx context.Context, client utils.MessageSender, info types.MessageInfo, args []string) error {
 	response := args[0]
 	return utils.ReplyToMessage(ctx, client, info.Chat, response, info.ID, info.Sender)
