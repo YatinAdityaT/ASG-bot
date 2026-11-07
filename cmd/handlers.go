@@ -532,14 +532,21 @@ func (cm *CommandManager) handleReminder(db *sql.DB, ctx context.Context, client
 }
 
 func reminderDeliveryMessage(request utils.ReminderRequest) string {
+	reminderTime := request.RemindAt.Format("3:04 PM")
 	if request.Target == request.Requester {
-		return fmt.Sprintf(`@%s you asked me to remind you to %q`, request.Target.User, request.Body)
+		return fmt.Sprintf(
+			`@%s you asked me to remind you to %q at %s`,
+			request.Target.User,
+			request.Body,
+			reminderTime,
+		)
 	}
 	return fmt.Sprintf(
-		`@%s %s asked me to remind you to %q`,
+		`@%s %s asked me to remind you to %q at %s`,
 		request.Target.User,
 		request.RequesterName,
 		request.Body,
+		reminderTime,
 	)
 }
 
