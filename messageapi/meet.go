@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"mime"
 	"net/http"
 	"strconv"
@@ -14,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"whatsappBot/meetmonitor"
+	"whatsappBot/meetreminder"
 	"whatsappBot/outbound"
 )
 
@@ -67,6 +69,20 @@ func (server *Server) submitMeetEvent(writer http.ResponseWriter, request *http.
 		writeError(writer, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
+	text := ""
+	if event.Text != nil {
+		text = *event.Text
+	}
+	if isMeetReminderCommand(text) {
+		if server.meet == nil || server.reminders == nil {
+			writeError(writer, http.StatusServiceUnavailable, "service_unavailable", "Meet reminders unavailable")
+			return
+		}
+		if err := server.processMeetReminder(request, event, key, text); err != nil {
+			writeError(writer, http.StatusInternalServerError, "internal_error", "internal server error")
+			return
+		}
+	}
 
 	var jobs meetmonitor.JobCreator = server.store
 	if event.Type == "join" || event.Type == "leave" {
@@ -89,6 +105,55 @@ func (server *Server) submitMeetEvent(writer http.ResponseWriter, request *http.
 		Status: job.Status,
 		SendAt: job.SendAt.Format(time.RFC3339),
 	})
+}
+
+func isMeetReminderCommand(text string) bool {
+	fields := strings.Fields(text)
+	return len(fields) > 0 && strings.EqualFold(fields[0], "/remind")
+}
+
+func (server *Server) processMeetReminder(
+	request *http.Request,
+	event meetEvent,
+	sourceKey string,
+	text string,
+) error {
+	result, err := server.reminders.CreateFromMeet(request.Context(), meetreminder.CommandRequest{
+		SourceKey:      "meet-reminder-" + strings.TrimPrefix(sourceKey, "meet-"),
+		MeetingCode:    event.Meeting,
+		SenderMeetName: event.Name,
+		Text:           text,
+		WhatsAppChatID: server.config.AccountabilityGroup,
+	})
+
+	var acknowledgement string
+	switch {
+	case errors.Is(err, meetreminder.ErrUnknownSender):
+		acknowledgement = "I couldn't identify your Meet name. Ask an admin to add your Meet mapping."
+	case errors.Is(err, meetreminder.ErrUnknownTarget):
+		acknowledgement = "I couldn't find that username. Ask an admin to add its identity mapping."
+	case errors.Is(err, meetreminder.ErrInvalidCommand):
+		acknowledgement = `I couldn't understand that reminder. Try /remind disha to join in 30 minutes.`
+	case errors.Is(err, meetreminder.ErrServiceDisabled):
+		acknowledgement = "Meet reminders are not configured."
+	case err != nil:
+		return err
+	default:
+		location := server.now().Location()
+		acknowledgement = fmt.Sprintf(
+			"Reminder set for @%s at %s: %q",
+			result.Reminder.Target.Username,
+			result.Reminder.RemindAt.In(location).Format("3:04 PM on Jan 2"),
+			result.Reminder.Body,
+		)
+	}
+
+	_, queueErr := server.meet.QueueMessageWithID(
+		request.Context(),
+		"meet-reminder-ack-"+strings.TrimPrefix(sourceKey, "meet-"),
+		acknowledgement,
+	)
+	return queueErr
 }
 
 func writeMeetDecodeError(writer http.ResponseWriter, err error) {

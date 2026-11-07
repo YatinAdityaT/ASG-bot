@@ -16,6 +16,7 @@ import (
 
 	"whatsappBot/config"
 	"whatsappBot/meetmonitor"
+	"whatsappBot/meetreminder"
 	"whatsappBot/outbound"
 )
 
@@ -31,6 +32,7 @@ type Server struct {
 	store        *outbound.Store
 	presenceJobs meetmonitor.JobCreator
 	meet         *meetmonitor.Service
+	reminders    *meetreminder.Service
 	now          func() time.Time
 	limiter      *fixedWindowLimiter
 }
@@ -43,6 +45,12 @@ func WithMeetService(service *meetmonitor.Service) Option {
 		if service != nil {
 			server.presenceJobs = service.NotificationJobs()
 		}
+	}
+}
+
+func WithMeetReminders(service *meetreminder.Service) Option {
+	return func(server *Server) {
+		server.reminders = service
 	}
 }
 

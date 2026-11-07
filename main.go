@@ -14,7 +14,9 @@ import (
 	"whatsappBot/cmd"
 	"whatsappBot/config"
 	"whatsappBot/db"
+	"whatsappBot/identity"
 	"whatsappBot/meetmonitor"
+	"whatsappBot/meetreminder"
 	"whatsappBot/messageapi"
 	"whatsappBot/outbound"
 	"whatsappBot/scheduler"
@@ -100,7 +102,7 @@ type runtimeDependencies struct {
 	newToneManager   func(utils.MessageSender) (toneResponder, error)
 	newOutboundStore func(*sql.DB, string) *outbound.Store
 	recoverSending   func(context.Context, *outbound.Store) (int64, error)
-	startAPI         func(context.Context, config.Config, *outbound.Store, *meetmonitor.Service) <-chan error
+	startAPI         func(context.Context, config.Config, *outbound.Store, *meetmonitor.Service, *meetreminder.Service) <-chan error
 	startScheduler   func(context.Context, *sql.DB, utils.MessageSender, *outbound.Store) <-chan struct{}
 	renderQR         func(string)
 }
@@ -168,8 +170,14 @@ func defaultRuntimeDependencies() runtimeDependencies {
 		recoverSending: func(ctx context.Context, store *outbound.Store) (int64, error) {
 			return store.RecoverSending(ctx)
 		},
-		startAPI: func(ctx context.Context, cfg config.Config, store *outbound.Store, service *meetmonitor.Service) <-chan error {
-			return messageapi.New(cfg, store, time.Now, messageapi.WithMeetService(service)).Start(ctx)
+		startAPI: func(ctx context.Context, cfg config.Config, store *outbound.Store, service *meetmonitor.Service, reminders *meetreminder.Service) <-chan error {
+			return messageapi.New(
+				cfg,
+				store,
+				time.Now,
+				messageapi.WithMeetService(service),
+				messageapi.WithMeetReminders(reminders),
+			).Start(ctx)
 		},
 		startScheduler: func(ctx context.Context, database *sql.DB, sender utils.MessageSender, outboundStore *outbound.Store) <-chan struct{} {
 			registry := scheduler.NewRegistry(database, outboundStore)
@@ -209,6 +217,7 @@ func runWithDependencies(ctx context.Context, cfg config.Config, deps runtimeDep
 	defer client.Disconnect()
 
 	var monitorService *meetmonitor.Service
+	var meetReminderService *meetreminder.Service
 	if cfg.APIEnabled {
 		notificationStore := outboundStore
 		if cfg.MeetNotificationGroup != "" &&
@@ -220,6 +229,11 @@ func runWithDependencies(ctx context.Context, cfg config.Config, deps runtimeDep
 			notificationStore,
 			cfg.MeetCode,
 			client.IsConnected,
+			time.Now,
+		)
+		meetReminderService = meetreminder.NewService(
+			meetreminder.NewStore(database, time.Now),
+			identity.NewStore(database),
 			time.Now,
 		)
 	}
@@ -264,7 +278,7 @@ func runWithDependencies(ctx context.Context, cfg config.Config, deps runtimeDep
 		var apiCtx context.Context
 		apiCtx, apiCancel = context.WithCancel(context.WithoutCancel(ctx))
 		defer apiCancel()
-		apiDone = deps.startAPI(apiCtx, cfg, outboundStore, monitorService)
+		apiDone = deps.startAPI(apiCtx, cfg, outboundStore, monitorService, meetReminderService)
 		select {
 		case err, ok := <-apiDone:
 			apiCancel()
