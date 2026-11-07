@@ -15,6 +15,7 @@ import (
 	"whatsappBot/config"
 	appdb "whatsappBot/db"
 	"whatsappBot/meetmonitor"
+	"whatsappBot/meetreminder"
 	"whatsappBot/outbound"
 	"whatsappBot/scheduler"
 	"whatsappBot/utils"
@@ -146,7 +147,7 @@ func TestRunWaitsForActiveSchedulerWorkBeforeCleanup(t *testing.T) {
 		newToneManager: func(utils.MessageSender) (toneResponder, error) {
 			return &fakeToneResponder{}, nil
 		},
-		startScheduler: func(ctx context.Context, database *sql.DB, sender utils.MessageSender, _ *outbound.Store) <-chan struct{} {
+		startScheduler: func(ctx context.Context, database *sql.DB, sender utils.MessageSender, _ *outbound.Store, _ *meetreminder.Store, _ *meetmonitor.Service) <-chan struct{} {
 			if !client.IsConnected() {
 				t.Error("scheduler started before client connected")
 			}
@@ -223,7 +224,7 @@ func TestRunReturnsToneLoadingErrorBeforeConnecting(t *testing.T) {
 		newToneManager: func(utils.MessageSender) (toneResponder, error) {
 			return nil, want
 		},
-		startScheduler: func(context.Context, *sql.DB, utils.MessageSender, *outbound.Store) <-chan struct{} {
+		startScheduler: func(context.Context, *sql.DB, utils.MessageSender, *outbound.Store, *meetreminder.Store, *meetmonitor.Service) <-chan struct{} {
 			t.Error("scheduler started after tone loading failure")
 			return nil
 		},
@@ -264,11 +265,11 @@ func TestRunWithAPIDisabledPreservesReminderOnlyStartup(t *testing.T) {
 			t.Error("outbound store created while API disabled")
 			return nil
 		},
-		startAPI: func(context.Context, config.Config, *outbound.Store, *meetmonitor.Service) <-chan error {
+		startAPI: func(context.Context, config.Config, *outbound.Store, *meetmonitor.Service, *meetreminder.Service) <-chan error {
 			t.Error("API started while disabled")
 			return nil
 		},
-		startScheduler: func(ctx context.Context, _ *sql.DB, _ utils.MessageSender, outboundStore *outbound.Store) <-chan struct{} {
+		startScheduler: func(ctx context.Context, _ *sql.DB, _ utils.MessageSender, outboundStore *outbound.Store, _ *meetreminder.Store, _ *meetmonitor.Service) <-chan struct{} {
 			if outboundStore != nil {
 				t.Error("disabled scheduler received outbound store")
 			}
@@ -321,7 +322,7 @@ func TestRunEnabledAPIStartsAfterAuthenticationAndRecovery(t *testing.T) {
 			events <- "recover"
 			return 1, nil
 		},
-		startAPI: func(ctx context.Context, _ config.Config, _ *outbound.Store, service *meetmonitor.Service) <-chan error {
+		startAPI: func(ctx context.Context, _ config.Config, _ *outbound.Store, service *meetmonitor.Service, _ *meetreminder.Service) <-chan error {
 			if !client.IsConnected() {
 				t.Error("API started before WhatsApp authentication")
 			}
@@ -347,7 +348,7 @@ func TestRunEnabledAPIStartsAfterAuthenticationAndRecovery(t *testing.T) {
 			events <- "api"
 			return apiDone
 		},
-		startScheduler: func(context.Context, *sql.DB, utils.MessageSender, *outbound.Store) <-chan struct{} {
+		startScheduler: func(context.Context, *sql.DB, utils.MessageSender, *outbound.Store, *meetreminder.Store, *meetmonitor.Service) <-chan struct{} {
 			events <- "scheduler"
 			return schedulerDone
 		},

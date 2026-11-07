@@ -45,6 +45,12 @@ func NewRegistry(dbConn *sql.DB, outboundStores ...*outbound.Store) *Registry {
 	return &Registry{Providers: providers}
 }
 
+func (r *Registry) AddProvider(provider TaskProvider) {
+	if provider != nil {
+		r.Providers = append(r.Providers, provider)
+	}
+}
+
 func (r *Registry) GetAllDueTasks(ctx context.Context, now time.Time) ([]ScheduledTask, error) {
 	var all []ScheduledTask
 	for _, provider := range r.Providers {

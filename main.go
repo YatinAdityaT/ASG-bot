@@ -103,7 +103,7 @@ type runtimeDependencies struct {
 	newOutboundStore func(*sql.DB, string) *outbound.Store
 	recoverSending   func(context.Context, *outbound.Store) (int64, error)
 	startAPI         func(context.Context, config.Config, *outbound.Store, *meetmonitor.Service, *meetreminder.Service) <-chan error
-	startScheduler   func(context.Context, *sql.DB, utils.MessageSender, *outbound.Store) <-chan struct{}
+	startScheduler   func(context.Context, *sql.DB, utils.MessageSender, *outbound.Store, *meetreminder.Store, *meetmonitor.Service) <-chan struct{}
 	renderQR         func(string)
 }
 
@@ -179,8 +179,11 @@ func defaultRuntimeDependencies() runtimeDependencies {
 				messageapi.WithMeetReminders(reminders),
 			).Start(ctx)
 		},
-		startScheduler: func(ctx context.Context, database *sql.DB, sender utils.MessageSender, outboundStore *outbound.Store) <-chan struct{} {
+		startScheduler: func(ctx context.Context, database *sql.DB, sender utils.MessageSender, outboundStore *outbound.Store, reminderStore *meetreminder.Store, monitor *meetmonitor.Service) <-chan struct{} {
 			registry := scheduler.NewRegistry(database, outboundStore)
+			if reminderStore != nil && monitor != nil {
+				registry.AddProvider(scheduler.NewMeetReminderProvider(reminderStore, monitor))
+			}
 			return scheduler.NewScheduler(registry, sender, time.Second).Start(ctx)
 		},
 		renderQR: func(code string) {
@@ -218,6 +221,7 @@ func runWithDependencies(ctx context.Context, cfg config.Config, deps runtimeDep
 
 	var monitorService *meetmonitor.Service
 	var meetReminderService *meetreminder.Service
+	var meetReminderStore *meetreminder.Store
 	if cfg.APIEnabled {
 		notificationStore := outboundStore
 		if cfg.MeetNotificationGroup != "" &&
@@ -231,8 +235,9 @@ func runWithDependencies(ctx context.Context, cfg config.Config, deps runtimeDep
 			client.IsConnected,
 			time.Now,
 		)
+		meetReminderStore = meetreminder.NewStore(database, time.Now)
 		meetReminderService = meetreminder.NewService(
-			meetreminder.NewStore(database, time.Now),
+			meetReminderStore,
 			identity.NewStore(database),
 			time.Now,
 		)
@@ -294,7 +299,14 @@ func runWithDependencies(ctx context.Context, cfg config.Config, deps runtimeDep
 	}
 
 	schedulerCtx, schedulerCancel := context.WithCancel(context.WithoutCancel(ctx))
-	schedulerDone := deps.startScheduler(schedulerCtx, database, client, outboundStore)
+	schedulerDone := deps.startScheduler(
+		schedulerCtx,
+		database,
+		client,
+		outboundStore,
+		meetReminderStore,
+		monitorService,
+	)
 	fmt.Println("Bot is running. Press Ctrl+C to exit.")
 
 	var apiErr error
