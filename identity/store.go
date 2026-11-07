@@ -193,6 +193,42 @@ func (s *Store) GetByWhatsAppJID(ctx context.Context, whatsappJID string) (Perso
 	return person, nil
 }
 
+func (s *Store) GetByMeetAlias(ctx context.Context, alias string) (Person, error) {
+	var person Person
+	err := s.db.QueryRowContext(ctx, `
+		SELECT person.id, person.username, person.canonical_name, person.whatsapp_jid
+		FROM people AS person
+		JOIN meet_aliases AS meet_alias ON meet_alias.person_id = person.id
+		WHERE meet_alias.normalized_alias = ?
+	`, normalizeAlias(alias)).Scan(
+		&person.ID,
+		&person.Username,
+		&person.CanonicalName,
+		&person.WhatsAppJID,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Person{}, ErrNotFound
+	}
+	if err != nil {
+		return Person{}, fmt.Errorf("get person mapping by Meet alias: %w", err)
+	}
+	person.MeetAliases, err = aliases(ctx, s.db, person.ID)
+	if err != nil {
+		return Person{}, err
+	}
+	return person, nil
+}
+
+func MatchesMeetAlias(person Person, name string) bool {
+	normalized := normalizeAlias(name)
+	for _, alias := range person.MeetAliases {
+		if normalizeAlias(alias) == normalized {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Store) List(ctx context.Context) ([]Person, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, username, canonical_name, whatsapp_jid

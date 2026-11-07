@@ -86,6 +86,28 @@ var createIdentityTables = `
 	CREATE INDEX IF NOT EXISTS idx_meet_aliases_person
 		ON meet_aliases(person_id);`
 
+var createMeetRemindersTable = `
+	CREATE TABLE IF NOT EXISTS meet_reminders (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		source_key TEXT NOT NULL UNIQUE,
+		meeting_code TEXT NOT NULL,
+		requester_person_id INTEGER NOT NULL,
+		target_person_id INTEGER NOT NULL,
+		whatsapp_chat_id TEXT NOT NULL,
+		body TEXT NOT NULL,
+		remind_at INTEGER NOT NULL,
+		whatsapp_delivered_at INTEGER,
+		meet_status TEXT NOT NULL DEFAULT 'pending'
+			CHECK (meet_status IN ('pending', 'queued', 'skipped_absent', 'skipped_offline')),
+		completed_at INTEGER,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL,
+		FOREIGN KEY (requester_person_id) REFERENCES people(id) ON DELETE RESTRICT,
+		FOREIGN KEY (target_person_id) REFERENCES people(id) ON DELETE RESTRICT
+	);
+	CREATE INDEX IF NOT EXISTS idx_meet_reminders_due
+		ON meet_reminders(completed_at, remind_at);`
+
 func SetupDB(ctx context.Context, path string) (*sqlstore.Container, *sql.DB, error) {
 	database, err := sql.Open("sqlite", "file:"+path+"?_foreign_keys=on")
 	if err != nil {
@@ -133,6 +155,12 @@ func SetupDB(ctx context.Context, path string) (*sqlstore.Container, *sql.DB, er
 	if err != nil {
 		database.Close()
 		return nil, nil, fmt.Errorf("create identity schema: %w", err)
+	}
+
+	_, err = database.ExecContext(ctx, createMeetRemindersTable)
+	if err != nil {
+		database.Close()
+		return nil, nil, fmt.Errorf("create Meet reminders schema: %w", err)
 	}
 
 	return container, database, nil
