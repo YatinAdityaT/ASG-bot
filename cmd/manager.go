@@ -110,22 +110,6 @@ func NewCommandManager(client utils.MessageSender, admins []string, shutdown con
 	})
 
 	cm.RegisterCommand(Command{
-		Name:           "/whoami",
-		Description:    "Shows the WhatsApp identity the bot sees for your messages.",
-		Regex:          regexp.MustCompile(`^/whoami$`),
-		Callback:       cm.handleWhoAmI,
-		IsAdminCommand: false,
-	})
-
-	cm.RegisterCommand(Command{
-		Name:           "/echo",
-		Description:    "Repeats the message you send after the command.",
-		Regex:          regexp.MustCompile(`^/echo (.*)$`),
-		Callback:       NoDB(cm.handleEcho),
-		IsAdminCommand: false,
-	})
-
-	cm.RegisterCommand(Command{
 		Name:           "/help",
 		Description:    "Displays a list of all available commands.",
 		Regex:          regexp.MustCompile(`^/help$`),

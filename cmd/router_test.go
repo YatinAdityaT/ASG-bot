@@ -30,26 +30,17 @@ func (f *fakeSender) SendMessage(
 	return whatsmeow.SendResponse{}, f.err
 }
 
-func TestRouteMessageRepliesToEchoWithCapturedText(t *testing.T) {
+func TestRouteMessageIgnoresDisabledCommands(t *testing.T) {
 	sender := &fakeSender{}
 	manager := NewCommandManager(sender, nil, func() {})
 
-	manager.RouteMessage(nil, context.Background(), messageEvent("/echo hello"))
-
-	if got := sentText(t, sender); got != "hello" {
-		t.Fatalf("echo reply = %q, want %q", got, "hello")
+	for _, text := range []string{"/echo hello", "/whoami"} {
+		if err := manager.RouteMessage(nil, context.Background(), messageEvent(text)); err != nil {
+			t.Fatalf("RouteMessage(%q) error = %v", text, err)
+		}
 	}
-}
-
-func TestRouteMessageMatchesCommandCaseInsensitivelyAndPreservesCapture(t *testing.T) {
-	sender := &fakeSender{}
-	manager := NewCommandManager(sender, nil, func() {})
-
-	if err := manager.RouteMessage(nil, context.Background(), messageEvent("/EcHo Review CUDA Docs")); err != nil {
-		t.Fatalf("RouteMessage() error = %v", err)
-	}
-	if got := sentText(t, sender); got != "Review CUDA Docs" {
-		t.Fatalf("echo reply = %q, want preserved capture", got)
+	if len(sender.messages) != 0 {
+		t.Fatalf("disabled commands sent %d replies, want none", len(sender.messages))
 	}
 }
 
@@ -98,18 +89,6 @@ func TestRouteMessageReturnsPingSendError(t *testing.T) {
 	}
 }
 
-func TestRouteMessageReturnsEchoSendError(t *testing.T) {
-	sendErr := errors.New("echo send failed")
-	sender := &fakeSender{err: sendErr}
-	manager := NewCommandManager(sender, nil, func() {})
-
-	err := manager.RouteMessage(nil, context.Background(), messageEvent("/echo hello"))
-
-	if !errors.Is(err, sendErr) {
-		t.Fatalf("RouteMessage() error = %v, want %v", err, sendErr)
-	}
-}
-
 func TestRouteMessageReturnsUnauthorizedReplySendError(t *testing.T) {
 	sendErr := errors.New("denial send failed")
 	sender := &fakeSender{err: sendErr}
@@ -131,9 +110,14 @@ func TestRouteMessageHelpPreservesNonAdminCommands(t *testing.T) {
 	}
 
 	reply := sentText(t, sender)
-	for _, command := range []string{"/ping", "/echo", "/help", "/remind", "/rlist", "/rupdate <key>", "/rdelete <key>"} {
+	for _, command := range []string{"/ping", "/help", "/remind", "/rlist", "/rupdate <key>", "/rdelete <key>"} {
 		if !strings.Contains(reply, "`"+command+"`") {
 			t.Errorf("help reply missing %q", command)
+		}
+	}
+	for _, disabled := range []string{"/echo", "/whoami"} {
+		if strings.Contains(reply, "`"+disabled+"`") {
+			t.Errorf("help reply contains disabled command %q", disabled)
 		}
 	}
 	if strings.Contains(reply, "`/die`") {

@@ -1010,7 +1010,7 @@ func TestPingCallMentionsGroupAndListsCurrentRoster(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := sentText(t, &sender.fakeSender); got !=
-		"📣 @111 @222\nThese people are in the call (1): Yatin T" {
+		"📣 @all\nThese people are in the call (1): Yatin T" {
 		t.Fatalf("reply = %q", got)
 	}
 	gotMentions := sender.messages[0].GetExtendedTextMessage().

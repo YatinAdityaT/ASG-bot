@@ -30,34 +30,6 @@ func (cm *CommandManager) handlePing(ctx context.Context, client utils.MessageSe
 	return utils.ReplyToMessage(ctx, client, info.Chat, "Pong!", info.ID, info.Sender)
 }
 
-func (cm *CommandManager) handleWhoAmI(
-	_ *sql.DB,
-	ctx context.Context,
-	client utils.MessageSender,
-	commandCtx CommandContext,
-	_ []string,
-) error {
-	info := commandCtx.Info
-	lines := []string{
-		"Canonical identity: " + commandCtx.SenderIdentity.String(),
-		"Sender identity: " + info.Sender.ToNonAD().String(),
-	}
-	if alternative := info.SenderAlt.ToNonAD(); !alternative.IsEmpty() {
-		lines = append(lines, "Alternative identity: "+alternative.String())
-	}
-	if pushName := strings.TrimSpace(info.PushName); pushName != "" {
-		lines = append(lines, "Push name: "+pushName)
-	}
-	return utils.ReplyToMessage(
-		ctx,
-		client,
-		info.Chat,
-		strings.Join(lines, "\n"),
-		info.ID,
-		info.Sender,
-	)
-}
-
 func (cm *CommandManager) handleAdmins(
 	db *sql.DB,
 	ctx context.Context,
@@ -95,11 +67,6 @@ func (cm *CommandManager) handleAdmins(
 		info.ID,
 		info.Sender,
 	)
-}
-
-func (cm *CommandManager) handleEcho(ctx context.Context, client utils.MessageSender, info types.MessageInfo, args []string) error {
-	response := args[0]
-	return utils.ReplyToMessage(ctx, client, info.Chat, response, info.ID, info.Sender)
 }
 
 func (cm *CommandManager) handleHelp(ctx context.Context, client utils.MessageSender, info types.MessageInfo, args []string) error {
@@ -442,7 +409,6 @@ func (cm *CommandManager) handlePingCall(
 	}
 
 	mentioned := make([]string, 0, len(group.Participants))
-	labels := make([]string, 0, len(group.Participants))
 	seen := make(map[string]struct{}, len(group.Participants))
 	for _, participant := range group.Participants {
 		mentionJID := participant.JID
@@ -459,11 +425,6 @@ func (cm *CommandManager) handlePingCall(
 		}
 		seen[key] = struct{}{}
 		mentioned = append(mentioned, key)
-		labelJID := participant.PhoneNumber
-		if labelJID.User == "" {
-			labelJID = mentionJID
-		}
-		labels = append(labels, "@"+labelJID.User)
 	}
 	if len(mentioned) == 0 {
 		return utils.ReplyToMessage(
@@ -472,8 +433,7 @@ func (cm *CommandManager) handlePingCall(
 	}
 
 	text := fmt.Sprintf(
-		"📣 %s\nThese people are in the call (%d): %s",
-		strings.Join(labels, " "),
+		"📣 @all\nThese people are in the call (%d): %s",
 		len(names),
 		strings.Join(names, ", "),
 	)
