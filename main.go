@@ -26,12 +26,17 @@ import (
 	"github.com/mdp/qrterminal"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
+	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
 )
 
 type messageRouter interface {
 	RouteMessage(*sql.DB, context.Context, *events.Message) error
+}
+
+type directMessageAuthorizer interface {
+	IsAdminSource(types.MessageSource) bool
 }
 
 type toneResponder interface {
@@ -117,11 +122,20 @@ func eventHandler(
 	return func(evt interface{}) {
 		switch v := evt.(type) {
 		case *events.Message:
-			if _, ok := allowedGroups[v.Info.Chat.String()]; !ok {
-				return
+			_, allowedGroup := allowedGroups[v.Info.Chat.String()]
+			if !allowedGroup {
+				authorizer, supportsDirectMessages := commandManager.(directMessageAuthorizer)
+				if !supportsDirectMessages ||
+					!isDirectMessageChat(v.Info.Chat) ||
+					!authorizer.IsAdminSource(v.Info.MessageSource) {
+					return
+				}
 			}
 			if err := commandManager.RouteMessage(database, ctx, v); err != nil {
 				fmt.Fprintf(os.Stderr, "Command handling error: %v\n", err)
+			}
+			if !allowedGroup {
+				return
 			}
 			if err := toneManager.MatchAndAutoRespond(ctx, v); err != nil {
 				fmt.Fprintf(os.Stderr, "Tone response error: %v\n", err)
@@ -133,6 +147,15 @@ func eventHandler(
 		case *events.PairSuccess:
 			fmt.Println("Successfully paired with WhatsApp!")
 		}
+	}
+}
+
+func isDirectMessageChat(chat types.JID) bool {
+	switch chat.Server {
+	case types.DefaultUserServer, types.HiddenUserServer, types.HostedLIDServer:
+		return true
+	default:
+		return false
 	}
 }
 

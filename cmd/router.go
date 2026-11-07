@@ -76,6 +76,10 @@ func (cm *CommandManager) isAdmin(jid types.JID) bool {
 	return ok
 }
 
+func (cm *CommandManager) IsAdminSource(source types.MessageSource) bool {
+	return cm.isAdminSource(source)
+}
+
 func (cm *CommandManager) isAdminSource(source types.MessageSource) bool {
 	candidates := []types.JID{
 		canonicalSenderIdentity(source),

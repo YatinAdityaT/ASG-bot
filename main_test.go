@@ -31,6 +31,7 @@ import (
 type fakeMessageRouter struct {
 	mu     sync.Mutex
 	routed int
+	admins map[string]struct{}
 }
 
 func (f *fakeMessageRouter) RouteMessage(*sql.DB, context.Context, *events.Message) error {
@@ -44,6 +45,15 @@ func (f *fakeMessageRouter) count() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.routed
+}
+
+func (f *fakeMessageRouter) IsAdminSource(source types.MessageSource) bool {
+	for _, jid := range []types.JID{source.Sender, source.SenderAlt} {
+		if _, ok := f.admins[jid.ToNonAD().User]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 type fakeToneResponder struct {
@@ -78,6 +88,33 @@ func TestEventHandlerRoutesOnlyAllowedGroups(t *testing.T) {
 	handler(groupMessage("123@g.us"))
 	if router.count() != 1 || responder.count() != 1 {
 		t.Fatalf("allowed group calls = router %d, tone %d; want 1 each", router.count(), responder.count())
+	}
+}
+
+func TestEventHandlerRoutesAdminDirectMessagesWithoutToneResponses(t *testing.T) {
+	router := &fakeMessageRouter{admins: map[string]struct{}{"456": {}}}
+	responder := &fakeToneResponder{}
+	handler := eventHandler(nil, context.Background(), router, responder, nil)
+
+	handler(directMessage("456"))
+
+	if router.count() != 1 {
+		t.Fatalf("admin DM routed %d times, want 1", router.count())
+	}
+	if responder.count() != 0 {
+		t.Fatalf("admin DM tone responses = %d, want 0", responder.count())
+	}
+}
+
+func TestEventHandlerIgnoresNonAdminDirectMessages(t *testing.T) {
+	router := &fakeMessageRouter{admins: map[string]struct{}{"456": {}}}
+	responder := &fakeToneResponder{}
+	handler := eventHandler(nil, context.Background(), router, responder, nil)
+
+	handler(directMessage("789"))
+
+	if router.count() != 0 || responder.count() != 0 {
+		t.Fatal("non-admin DM was processed")
 	}
 }
 
@@ -851,6 +888,21 @@ func groupMessage(jid string) *events.Message {
 		Info: types.MessageInfo{
 			MessageSource: types.MessageSource{Chat: chat},
 		},
+	}
+}
+
+func directMessage(sender string) *events.Message {
+	jid := types.NewJID(sender, types.DefaultUserServer)
+	text := "/ping"
+	return &events.Message{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:   jid,
+				Sender: jid,
+			},
+			ID: "direct-message-id",
+		},
+		Message: &waProto.Message{Conversation: &text},
 	}
 }
 
