@@ -409,6 +409,7 @@ func (cm *CommandManager) handlePingCall(
 	}
 
 	mentioned := make([]string, 0, len(group.Participants))
+	labels := make([]string, 0, len(group.Participants))
 	seen := make(map[string]struct{}, len(group.Participants))
 	for _, participant := range group.Participants {
 		mentionJID := participant.JID
@@ -425,6 +426,11 @@ func (cm *CommandManager) handlePingCall(
 		}
 		seen[key] = struct{}{}
 		mentioned = append(mentioned, key)
+		labelJID := participant.PhoneNumber
+		if labelJID.User == "" {
+			labelJID = mentionJID
+		}
+		labels = append(labels, "@"+labelJID.User)
 	}
 	if len(mentioned) == 0 {
 		return utils.ReplyToMessage(
@@ -433,7 +439,8 @@ func (cm *CommandManager) handlePingCall(
 	}
 
 	text := fmt.Sprintf(
-		"📣 @all\nThese people are in the call (%d): %s",
+		"📣 %s\nThese people are in the call (%d): %s",
+		strings.Join(labels, " "),
 		len(names),
 		strings.Join(names, ", "),
 	)
