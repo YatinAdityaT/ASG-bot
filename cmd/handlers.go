@@ -20,6 +20,7 @@ import (
 const reminderUsage = `Sorry, I couldn't understand that reminder. Try /remind @Alex "submit the form" tomorrow at 3pm or /remind me to stretch in 30 minutes.`
 const identityMapUsage = `Identity mapping commands:
 /map add @person username | Canonical Name | Meet Name
+/map self username | Canonical Name | Meet Name
 /map alias username | Another Meet Name
 /map show username
 /map list
@@ -218,6 +219,27 @@ func (cm *CommandManager) handleIdentityMap(
 		}
 		return reply(fmt.Sprintf(
 			"Mapped @%s to %s with Meet name %q.",
+			person.Username,
+			person.CanonicalName,
+			person.MeetAliases[0],
+		))
+	case strings.HasPrefix(strings.ToLower(raw), "self "):
+		parts := splitMapFields(raw[len("self "):], 3)
+		if parts == nil {
+			return reply(identityMapUsage)
+		}
+		person, err := store.Add(
+			ctx,
+			parts[0],
+			parts[1],
+			commandCtx.SenderIdentity.String(),
+			parts[2],
+		)
+		if err != nil {
+			return reply(identityMapError(err))
+		}
+		return reply(fmt.Sprintf(
+			"Mapped yourself as @%s to %s with Meet name %q.",
 			person.Username,
 			person.CanonicalName,
 			person.MeetAliases[0],
