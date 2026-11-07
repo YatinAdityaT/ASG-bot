@@ -225,6 +225,14 @@ func NewCommandManager(client utils.MessageSender, admins []string, shutdown con
 
 	// Admin-only commands
 	cm.RegisterCommand(Command{
+		Name:           "/map",
+		Description:    "[Admin only] Manages WhatsApp-to-Meet identity mappings.",
+		Regex:          regexp.MustCompile(`^/map(?:\s+(.+))?$`),
+		Callback:       cm.handleIdentityMap,
+		IsAdminCommand: true,
+	})
+
+	cm.RegisterCommand(Command{
 		Name:           "/die",
 		Description:    "[Admin only command] Bot shuts down",
 		Regex:          regexp.MustCompile(`^/die$`),

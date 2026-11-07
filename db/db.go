@@ -66,6 +66,26 @@ var createMeetMonitorStateTable = `
 		updated_at INTEGER NOT NULL
 	);`
 
+var createIdentityTables = `
+	CREATE TABLE IF NOT EXISTS people (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+		canonical_name TEXT NOT NULL,
+		whatsapp_jid TEXT NOT NULL UNIQUE,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
+	);
+	CREATE TABLE IF NOT EXISTS meet_aliases (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		person_id INTEGER NOT NULL,
+		alias TEXT NOT NULL,
+		normalized_alias TEXT NOT NULL UNIQUE,
+		created_at INTEGER NOT NULL,
+		FOREIGN KEY (person_id) REFERENCES people(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_meet_aliases_person
+		ON meet_aliases(person_id);`
+
 func SetupDB(ctx context.Context, path string) (*sqlstore.Container, *sql.DB, error) {
 	database, err := sql.Open("sqlite", "file:"+path+"?_foreign_keys=on")
 	if err != nil {
@@ -107,6 +127,12 @@ func SetupDB(ctx context.Context, path string) (*sqlstore.Container, *sql.DB, er
 	if err != nil {
 		database.Close()
 		return nil, nil, fmt.Errorf("create meet monitor state schema: %w", err)
+	}
+
+	_, err = database.ExecContext(ctx, createIdentityTables)
+	if err != nil {
+		database.Close()
+		return nil, nil, fmt.Errorf("create identity schema: %w", err)
 	}
 
 	return container, database, nil

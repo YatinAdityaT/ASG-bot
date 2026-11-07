@@ -5,7 +5,7 @@ only in explicitly allowed groups, provides commands and reminders, explains
 recognized tone indicators, and can optionally accept queued messages through
 an authenticated HTTP API. Ordinary group messages are not stored. The SQLite
 database stores the linked-device session, WhatsApp client state, reminders,
-and outbound API jobs.
+identity mappings, and outbound API jobs.
 
 ## Meet Monitor browser extension
 
@@ -224,6 +224,11 @@ Send these exact commands in an allowed group:
 - `/rupdate <id> <new request>` updates one owned reminder, for example
   `/rupdate 3 tomorrow at 4 pm call Mom`.
 - `/rdelete <id>` deletes one owned reminder.
+- `/map` shows admin-only identity mapping help.
+- `/map add @person username | Canonical Name | Meet Name` creates a mapping.
+- `/map alias username | Another Meet Name` adds another Meet alias.
+- `/map show username`, `/map list`, and `/map remove username` inspect and
+  manage mappings. Usernames and Meet aliases are unique.
 - `/die` replies and shuts down the bot, but only when sent by a number in
   `ASG_BOT_ADMIN_NUMBERS`.
 

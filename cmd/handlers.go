@@ -3,11 +3,13 @@ package cmd
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+	"whatsappBot/identity"
 	"whatsappBot/meetmonitor"
 	"whatsappBot/utils"
 
@@ -16,6 +18,12 @@ import (
 )
 
 const reminderUsage = `Sorry, I couldn't understand that reminder. Try /remind @Alex "submit the form" tomorrow at 3pm or /remind me to stretch in 30 minutes.`
+const identityMapUsage = `Identity mapping commands:
+/map add @person username | Canonical Name | Meet Name
+/map alias username | Another Meet Name
+/map show username
+/map list
+/map remove username`
 
 func (cm *CommandManager) handlePing(ctx context.Context, client utils.MessageSender, info types.MessageInfo, args []string) error {
 	return utils.ReplyToMessage(ctx, client, info.Chat, "Pong!", info.ID, info.Sender)
@@ -76,6 +84,144 @@ func (cm *CommandManager) handleMeetMessage(
 		return fmt.Errorf("queue Meet message: %w", err)
 	}
 	return utils.ReplyToMessage(ctx, client, info.Chat, "Queued for Google Meet.", info.ID, info.Sender)
+}
+
+func (cm *CommandManager) handleIdentityMap(
+	db *sql.DB,
+	ctx context.Context,
+	client utils.MessageSender,
+	commandCtx CommandContext,
+	args []string,
+) error {
+	info := commandCtx.Info
+	raw := ""
+	if len(args) > 0 {
+		raw = strings.TrimSpace(args[0])
+	}
+	store := identity.NewStore(db)
+	reply := func(text string) error {
+		return utils.ReplyToMessage(ctx, client, info.Chat, text, info.ID, info.Sender)
+	}
+
+	switch {
+	case raw == "":
+		return reply(identityMapUsage)
+	case strings.EqualFold(raw, "list"):
+		people, err := store.List(ctx)
+		if err != nil {
+			return fmt.Errorf("list identity mappings: %w", err)
+		}
+		if len(people) == 0 {
+			return reply("No identity mappings yet.")
+		}
+		lines := []string{fmt.Sprintf("Identity mappings (%d):", len(people))}
+		for _, person := range people {
+			lines = append(lines, fmt.Sprintf(
+				"• @%s — %s — Meet: %s",
+				person.Username,
+				person.CanonicalName,
+				strings.Join(person.MeetAliases, ", "),
+			))
+		}
+		return reply(strings.Join(lines, "\n"))
+	case strings.HasPrefix(strings.ToLower(raw), "add "):
+		if commandCtx.MentionError != nil || len(commandCtx.Mentions) != 1 {
+			return reply("Mention exactly one WhatsApp member.\n" + identityMapUsage)
+		}
+		parts := splitMapFields(raw[len("add "):], 3)
+		if parts == nil {
+			return reply(identityMapUsage)
+		}
+		firstFields := strings.Fields(parts[0])
+		if len(firstFields) == 0 {
+			return reply(identityMapUsage)
+		}
+		username := firstFields[len(firstFields)-1]
+		person, err := store.Add(
+			ctx,
+			username,
+			parts[1],
+			commandCtx.Mentions[0].ToNonAD().String(),
+			parts[2],
+		)
+		if err != nil {
+			return reply(identityMapError(err))
+		}
+		return reply(fmt.Sprintf(
+			"Mapped @%s to %s with Meet name %q.",
+			person.Username,
+			person.CanonicalName,
+			person.MeetAliases[0],
+		))
+	case strings.HasPrefix(strings.ToLower(raw), "alias "):
+		parts := splitMapFields(raw[len("alias "):], 2)
+		if parts == nil {
+			return reply(identityMapUsage)
+		}
+		if err := store.AddAlias(ctx, parts[0], parts[1]); err != nil {
+			return reply(identityMapError(err))
+		}
+		return reply(fmt.Sprintf("Added Meet name %q to @%s.", parts[1], parts[0]))
+	case strings.HasPrefix(strings.ToLower(raw), "show "):
+		username := strings.TrimSpace(raw[len("show "):])
+		person, err := store.Get(ctx, username)
+		if err != nil {
+			return reply(identityMapError(err))
+		}
+		return reply(fmt.Sprintf(
+			"@%s\nName: %s\nWhatsApp: %s\nMeet: %s",
+			person.Username,
+			person.CanonicalName,
+			person.WhatsAppJID,
+			strings.Join(person.MeetAliases, ", "),
+		))
+	case strings.HasPrefix(strings.ToLower(raw), "remove "):
+		username := strings.TrimSpace(raw[len("remove "):])
+		if err := store.Delete(ctx, username); err != nil {
+			return reply(identityMapError(err))
+		}
+		return reply("Removed @" + username + ".")
+	default:
+		return reply(identityMapUsage)
+	}
+}
+
+func splitMapFields(value string, count int) []string {
+	raw := strings.Split(value, "|")
+	if len(raw) != count {
+		return nil
+	}
+	result := make([]string, count)
+	for index := range raw {
+		result[index] = strings.TrimSpace(raw[index])
+		if result[index] == "" {
+			return nil
+		}
+	}
+	return result
+}
+
+func identityMapError(err error) string {
+	switch {
+	case errors.Is(err, identity.ErrInvalidUsername):
+		return "Username must be 2–32 lowercase letters, numbers, or underscores."
+	case errors.Is(err, identity.ErrInvalidName):
+		return "Canonical name is invalid."
+	case errors.Is(err, identity.ErrInvalidJID):
+		return "WhatsApp identity is invalid."
+	case errors.Is(err, identity.ErrInvalidAlias):
+		return "Meet name is invalid."
+	case errors.Is(err, identity.ErrUsernameTaken):
+		return "That username is already assigned."
+	case errors.Is(err, identity.ErrWhatsAppTaken):
+		return "That WhatsApp member already has a mapping."
+	case errors.Is(err, identity.ErrAliasTaken):
+		return "That Meet name is already assigned."
+	case errors.Is(err, identity.ErrNotFound):
+		return "No mapping exists for that username."
+	default:
+		return "The identity mapping could not be updated."
+	}
 }
 
 func (cm *CommandManager) handleCall(ctx context.Context, client utils.MessageSender, info types.MessageInfo, args []string) error {

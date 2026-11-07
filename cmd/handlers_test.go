@@ -73,6 +73,37 @@ func openTestDB(t *testing.T) *sql.DB {
 	return conn
 }
 
+func TestIdentityMapAdminAddsMentionedMember(t *testing.T) {
+	conn := openTestDB(t)
+	sender := &fakeSender{}
+	manager := NewCommandManager(sender, []string{"456"}, nil)
+	recipient := types.NewJID("789", types.DefaultUserServer)
+	event := withMentions(
+		messageEvent(`/map add @Aditi aditi | Aditi Sharma | Aditi`),
+		"Yatin",
+		recipient.String(),
+	)
+
+	if err := manager.RouteMessage(conn, context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	var username, name, jid, alias string
+	if err := conn.QueryRow(`
+		SELECT p.username, p.canonical_name, p.whatsapp_jid, a.alias
+		FROM people p
+		JOIN meet_aliases a ON a.person_id = p.id
+	`).Scan(&username, &name, &jid, &alias); err != nil {
+		t.Fatal(err)
+	}
+	if username != "aditi" || name != "Aditi Sharma" ||
+		jid != recipient.String() || alias != "Aditi" {
+		t.Fatalf("mapping = %q, %q, %q, %q", username, name, jid, alias)
+	}
+	if got := sentText(t, sender); !strings.Contains(got, "Mapped @aditi") {
+		t.Fatalf("reply = %q", got)
+	}
+}
+
 func TestReminderCreateForMentionedRecipientStoresRequesterAndAttribution(t *testing.T) {
 	conn := openTestDB(t)
 	sender := &fakeSender{}
