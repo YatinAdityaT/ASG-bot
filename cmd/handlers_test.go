@@ -870,6 +870,16 @@ func TestDieShutsDownAfterGoodbyeIsSent(t *testing.T) {
 }
 
 func TestMeetCommandQueuesMessageAndRepliesToAdmin(t *testing.T) {
+	conn := openTestDB(t)
+	if _, err := identity.NewStore(conn).Add(
+		context.Background(),
+		"yatin",
+		"Yatin",
+		"456@s.whatsapp.net",
+		"Yatin T",
+	); err != nil {
+		t.Fatal(err)
+	}
 	sender := &fakeSender{}
 	messenger := &fakeMeetMessenger{}
 	manager := NewCommandManager(
@@ -879,9 +889,9 @@ func TestMeetCommandQueuesMessageAndRepliesToAdmin(t *testing.T) {
 		WithMeetMessenger(messenger),
 	)
 	event := messageEvent("/meet Hello everyone")
-	event.Info.PushName = "Yatin"
+	event.Info.PushName = "Y"
 
-	if err := manager.RouteMessage(nil, context.Background(), event); err != nil {
+	if err := manager.RouteMessage(conn, context.Background(), event); err != nil {
 		t.Fatalf("RouteMessage() error = %v", err)
 	}
 

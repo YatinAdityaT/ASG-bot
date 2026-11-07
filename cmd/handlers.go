@@ -118,7 +118,7 @@ func (cm *CommandManager) handleStatus(ctx context.Context, client utils.Message
 }
 
 func (cm *CommandManager) handleMeetMessage(
-	_ *sql.DB,
+	db *sql.DB,
 	ctx context.Context,
 	client utils.MessageSender,
 	commandCtx CommandContext,
@@ -128,6 +128,17 @@ func (cm *CommandManager) handleMeetMessage(
 	name := strings.TrimSpace(info.PushName)
 	if name == "" {
 		name = commandCtx.SenderIdentity.User
+	}
+	if db != nil {
+		person, err := identity.NewStore(db).GetByWhatsAppJID(
+			ctx,
+			commandCtx.SenderIdentity.String(),
+		)
+		if err == nil {
+			name = person.CanonicalName
+		} else if !errors.Is(err, identity.ErrNotFound) {
+			return fmt.Errorf("resolve Meet message sender: %w", err)
+		}
 	}
 	message := fmt.Sprintf("%q said %q", name, args[0])
 	if _, err := cm.meetMessenger.QueueMessage(ctx, message); err != nil {
