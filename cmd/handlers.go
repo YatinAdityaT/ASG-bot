@@ -199,14 +199,9 @@ func (cm *CommandManager) handleIdentityMap(
 		}
 		lines := []string{fmt.Sprintf("Identity mappings (%d):", len(people))}
 		for _, person := range people {
-			lines = append(lines, fmt.Sprintf(
-				"• @%s — %s — Meet: %s",
-				person.Username,
-				person.CanonicalName,
-				strings.Join(person.MeetAliases, ", "),
-			))
+			lines = append(lines, formatIdentityMapping(person))
 		}
-		return reply(strings.Join(lines, "\n"))
+		return reply(strings.Join(lines, "\n\n"))
 	case strings.HasPrefix(strings.ToLower(raw), "add "):
 		if commandCtx.MentionError != nil || len(commandCtx.Mentions) != 1 {
 			return reply("Mention exactly one WhatsApp member.\n" + identityMapUsage)
@@ -272,13 +267,7 @@ func (cm *CommandManager) handleIdentityMap(
 		if err != nil {
 			return reply(identityMapError(err))
 		}
-		return reply(fmt.Sprintf(
-			"@%s\nName: %s\nWhatsApp: %s\nMeet: %s",
-			person.Username,
-			person.CanonicalName,
-			person.WhatsAppJID,
-			strings.Join(person.MeetAliases, ", "),
-		))
+		return reply(formatIdentityMapping(person))
 	case strings.HasPrefix(strings.ToLower(raw), "remove "):
 		username := strings.TrimSpace(raw[len("remove "):])
 		if err := store.Delete(ctx, username); err != nil {
@@ -288,6 +277,16 @@ func (cm *CommandManager) handleIdentityMap(
 	default:
 		return reply(identityMapUsage)
 	}
+}
+
+func formatIdentityMapping(person identity.Person) string {
+	return fmt.Sprintf(
+		"@%s\nName: %s\nWhatsApp: %s\nMeet: %s",
+		person.Username,
+		person.CanonicalName,
+		person.WhatsAppJID,
+		strings.Join(person.MeetAliases, ", "),
+	)
 }
 
 func splitMapFields(value string, count int) []string {

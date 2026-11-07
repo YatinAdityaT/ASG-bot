@@ -10,6 +10,7 @@ import (
 	"time"
 
 	appdb "whatsappBot/db"
+	"whatsappBot/identity"
 	"whatsappBot/meetmonitor"
 
 	waProto "go.mau.fi/whatsmeow/proto/waE2E"
@@ -101,6 +102,30 @@ func TestIdentityMapAdminAddsMentionedMember(t *testing.T) {
 	}
 	if got := sentText(t, sender); !strings.Contains(got, "Mapped @aditi") {
 		t.Fatalf("reply = %q", got)
+	}
+}
+
+func TestIdentityMapListShowsDetailedMappings(t *testing.T) {
+	conn := openTestDB(t)
+	if _, err := identity.NewStore(conn).Add(
+		context.Background(),
+		"aarti",
+		"Aarti",
+		"919945335823@s.whatsapp.net",
+		"Aarti Iyer",
+	); err != nil {
+		t.Fatal(err)
+	}
+	sender := &fakeSender{}
+	manager := NewCommandManager(sender, []string{"456"}, nil)
+
+	if err := manager.RouteMessage(conn, context.Background(), messageEvent("/map list")); err != nil {
+		t.Fatal(err)
+	}
+
+	want := "Identity mappings (1):\n\n@aarti\nName: Aarti\nWhatsApp: 919945335823@s.whatsapp.net\nMeet: Aarti Iyer"
+	if got := sentText(t, sender); got != want {
+		t.Fatalf("reply = %q, want %q", got, want)
 	}
 }
 
