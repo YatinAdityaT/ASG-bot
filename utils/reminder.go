@@ -164,7 +164,9 @@ func visibleMentionRanges(text string) [][2]int {
 		end := index + 1
 		for end < len(text) {
 			current, size := utf8.DecodeRuneInString(text[end:])
-			if current == '@' || unicode.IsSpace(current) || unicode.IsPunct(current) || unicode.IsSymbol(current) {
+			if current == '@' || unicode.IsSpace(current) ||
+				(current != '_' && unicode.IsPunct(current)) ||
+				unicode.IsSymbol(current) {
 				break
 			}
 			end += size
