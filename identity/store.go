@@ -168,6 +168,31 @@ func (s *Store) Get(ctx context.Context, username string) (Person, error) {
 	return person, nil
 }
 
+func (s *Store) GetByWhatsAppJID(ctx context.Context, whatsappJID string) (Person, error) {
+	var person Person
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, username, canonical_name, whatsapp_jid
+		FROM people
+		WHERE whatsapp_jid = ?
+	`, strings.TrimSpace(whatsappJID)).Scan(
+		&person.ID,
+		&person.Username,
+		&person.CanonicalName,
+		&person.WhatsAppJID,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Person{}, ErrNotFound
+	}
+	if err != nil {
+		return Person{}, fmt.Errorf("get person mapping by WhatsApp identity: %w", err)
+	}
+	person.MeetAliases, err = aliases(ctx, s.db, person.ID)
+	if err != nil {
+		return Person{}, err
+	}
+	return person, nil
+}
+
 func (s *Store) List(ctx context.Context) ([]Person, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, username, canonical_name, whatsapp_jid

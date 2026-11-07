@@ -49,9 +49,10 @@ type CommandManager struct {
 	meetMessenger  MeetMessenger
 	callProvider   CallProvider
 	//logger *log.Logger
-	client   utils.MessageSender
-	shutdown context.CancelFunc
-	now      func() time.Time
+	client    utils.MessageSender
+	shutdown  context.CancelFunc
+	now       func() time.Time
+	startedAt time.Time
 }
 
 func WithStatusProvider(provider StatusProvider) ManagerOption {
@@ -97,6 +98,7 @@ func NewCommandManager(client utils.MessageSender, admins []string, shutdown con
 	for _, option := range options {
 		option(cm)
 	}
+	cm.startedAt = cm.now()
 
 	// Regular user commands
 	cm.RegisterCommand(Command{

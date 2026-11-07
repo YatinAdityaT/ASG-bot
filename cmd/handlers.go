@@ -56,6 +56,8 @@ func (cm *CommandManager) handleStatus(ctx context.Context, client utils.Message
 
 	lines := []string{
 		"Bot: " + boolString(status.BotOnline, "online", "offline"),
+		"Started: " + cm.startedAt.Format("2 Jan 2006, 3:04 PM MST"),
+		"Uptime: " + uptimeString(cm.now().Sub(cm.startedAt)),
 		"WhatsApp: " + boolString(status.WhatsAppConnected, "connected", "disconnected"),
 		"Monitor: " + monitorStateString(status.MonitorState),
 		"Last heartbeat: " + heartbeatAgeString(cm.now(), status.MonitorState, status.LastHeartbeatAt),
@@ -432,6 +434,25 @@ func extensionVersionString(version string) string {
 	return version
 }
 
+func uptimeString(uptime time.Duration) string {
+	if uptime < 0 {
+		uptime = 0
+	}
+	days := int(uptime / (24 * time.Hour))
+	hours := int(uptime/time.Hour) % 24
+	minutes := int(uptime/time.Minute) % 60
+	if days > 0 {
+		return fmt.Sprintf("%dd %dh %dm", days, hours, minutes)
+	}
+	if hours > 0 {
+		return fmt.Sprintf("%dh %dm", hours, minutes)
+	}
+	if minutes > 0 {
+		return fmt.Sprintf("%dm", minutes)
+	}
+	return fmt.Sprintf("%ds", int(uptime/time.Second))
+}
+
 func (cm *CommandManager) handleDie(ctx context.Context, client utils.MessageSender, info types.MessageInfo, args []string) error {
 	response := "Goodbye cruel world!"
 	if err := utils.ReplyToMessage(ctx, client, info.Chat, response, info.ID, info.Sender); err != nil {
@@ -451,11 +472,20 @@ func (cm *CommandManager) handleReminder(db *sql.DB, ctx context.Context, client
 
 	rawReminder := strings.TrimSpace(args[0])
 	mentions := commandCtx.Mentions
+	identityStore := identity.NewStore(db)
+	requesterName := info.PushName
+	requester, err := identityStore.GetByWhatsAppJID(ctx, commandCtx.SenderIdentity.String())
+	if err == nil {
+		requesterName = requester.CanonicalName
+	} else if !errors.Is(err, identity.ErrNotFound) {
+		return fmt.Errorf("resolve reminder requester: %w", err)
+	}
+
 	fields := strings.Fields(rawReminder)
 	if len(mentions) == 0 && len(fields) >= 3 &&
 		!strings.EqualFold(fields[0], "me") &&
 		(strings.EqualFold(fields[1], "to") || strings.EqualFold(fields[1], "about")) {
-		person, err := identity.NewStore(db).Get(ctx, strings.ToLower(fields[0]))
+		person, err := identityStore.Get(ctx, strings.ToLower(fields[0]))
 		if errors.Is(err, identity.ErrNotFound) {
 			return utils.ReplyToMessage(
 				ctx, client, info.Chat,
@@ -478,7 +508,7 @@ func (cm *CommandManager) handleReminder(db *sql.DB, ctx context.Context, client
 		"/remind "+rawReminder,
 		mentions,
 		commandCtx.SenderIdentity,
-		info.PushName,
+		requesterName,
 		time.Now(),
 	)
 	if err != nil {
