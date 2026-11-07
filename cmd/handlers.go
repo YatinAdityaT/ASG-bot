@@ -449,9 +449,34 @@ func (cm *CommandManager) handleReminder(db *sql.DB, ctx context.Context, client
 		return utils.ReplyToMessage(ctx, client, info.Chat, reminderUsage, info.ID, info.Sender)
 	}
 
+	rawReminder := strings.TrimSpace(args[0])
+	mentions := commandCtx.Mentions
+	fields := strings.Fields(rawReminder)
+	if len(mentions) == 0 && len(fields) >= 3 &&
+		!strings.EqualFold(fields[0], "me") &&
+		(strings.EqualFold(fields[1], "to") || strings.EqualFold(fields[1], "about")) {
+		person, err := identity.NewStore(db).Get(ctx, strings.ToLower(fields[0]))
+		if errors.Is(err, identity.ErrNotFound) {
+			return utils.ReplyToMessage(
+				ctx, client, info.Chat,
+				"No mapping exists for @"+strings.ToLower(fields[0])+".",
+				info.ID, info.Sender,
+			)
+		}
+		if err != nil {
+			return fmt.Errorf("resolve reminder username: %w", err)
+		}
+		target, err := types.ParseJID(person.WhatsAppJID)
+		if err != nil {
+			return fmt.Errorf("parse mapped reminder target: %w", err)
+		}
+		mentions = []types.JID{target.ToNonAD()}
+		rawReminder = "@" + person.Username + rawReminder[len(fields[0]):]
+	}
+
 	request, err := utils.ParseReminder(
-		"/remind "+args[0],
-		commandCtx.Mentions,
+		"/remind "+rawReminder,
+		mentions,
 		commandCtx.SenderIdentity,
 		info.PushName,
 		time.Now(),

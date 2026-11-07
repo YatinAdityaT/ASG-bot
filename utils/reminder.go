@@ -25,6 +25,7 @@ type ReminderRequest struct {
 var reminderClauseBoundaryPattern = regexp.MustCompile(`(?i)\band\b`)
 var relativeTimeStartPattern = regexp.MustCompile(`(?i)\bin\s+(?:an?|one|\d+)\b`)
 var mentionBodyBoundaryPattern = regexp.MustCompile(`(?i)\s+(?:to|about)\s+`)
+var dottedClockPattern = regexp.MustCompile(`(?i)\b((?:[01]?\d)|(?:2[0-3]))\.([0-5]\d)(\s*(?:a\.?m\.?|p\.?m\.?))?\b`)
 
 // ParseReminder parses reminder text using trusted WhatsApp mention metadata.
 func ParseReminder(
@@ -45,6 +46,7 @@ func ParseReminder(
 	if commandText == "" {
 		return request, fmt.Errorf("reminder is missing time and body")
 	}
+	commandText = dottedClockPattern.ReplaceAllString(commandText, `$1:$2${3}`)
 
 	if len(mentions) > 1 {
 		return request, fmt.Errorf("reminders support one mentioned participant")
@@ -127,6 +129,7 @@ func ParseReminder(
 	}
 
 	body = trimLeadingReminderFillers(body)
+	body = trimTrailingReminderFillers(body)
 	if body == "" {
 		return ReminderRequest{}, fmt.Errorf("reminder is missing a body")
 	}
@@ -144,7 +147,7 @@ func extendMentionRange(text string, mention [2]int, parsedTime *when.Result) [2
 		candidates = append(candidates, mention[1]+boundary[0])
 	}
 	for _, candidate := range candidates {
-		if candidate > mention[1] && (end == mention[1] || candidate < end) {
+		if candidate >= mention[1] && (end == mention[1] || candidate < end) {
 			end = candidate
 		}
 	}
@@ -181,6 +184,23 @@ func trimLeadingReminderFillers(body string) string {
 		switch strings.ToLower(fields[0]) {
 		case "me", "to", "about":
 			body = strings.TrimSpace(strings.TrimPrefix(body, fields[0]))
+		default:
+			return body
+		}
+	}
+}
+
+func trimTrailingReminderFillers(body string) string {
+	body = strings.TrimSpace(body)
+	for {
+		fields := strings.Fields(body)
+		if len(fields) == 0 {
+			return ""
+		}
+		last := fields[len(fields)-1]
+		switch strings.ToLower(last) {
+		case "at", "on":
+			body = strings.TrimSpace(strings.TrimSuffix(body, last))
 		default:
 			return body
 		}
