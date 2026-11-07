@@ -116,6 +116,19 @@ func (cm *CommandManager) handleHelp(ctx context.Context, client utils.MessageSe
 	return utils.ReplyToMessage(ctx, client, info.Chat, b.String(), info.ID, info.Sender)
 }
 
+func (cm *CommandManager) handleAdminHelp(ctx context.Context, client utils.MessageSender, info types.MessageInfo, _ []string) error {
+	var b strings.Builder
+	b.WriteString("Administrator commands:\n\n")
+
+	for _, command := range cm.orderedList {
+		if command.IsAdminCommand {
+			fmt.Fprintf(&b, "`%s` - %s\n", command.Name, command.Description)
+		}
+	}
+
+	return utils.ReplyToMessage(ctx, client, info.Chat, b.String(), info.ID, info.Sender)
+}
+
 func (cm *CommandManager) handleStatus(ctx context.Context, client utils.MessageSender, info types.MessageInfo, args []string) error {
 	status, err := cm.statusProvider.Status(ctx)
 	if err != nil {

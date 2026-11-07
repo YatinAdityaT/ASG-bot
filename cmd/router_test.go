@@ -141,6 +141,25 @@ func TestRouteMessageHelpPreservesNonAdminCommands(t *testing.T) {
 	}
 }
 
+func TestRouteMessageAdminHelpListsOnlyAdminCommands(t *testing.T) {
+	sender := &fakeSender{}
+	manager := NewCommandManager(sender, []string{"456"}, func() {})
+
+	if err := manager.RouteMessage(nil, context.Background(), messageEvent("/adminhelp")); err != nil {
+		t.Fatalf("RouteMessage() error = %v", err)
+	}
+
+	reply := sentText(t, sender)
+	for _, command := range []string{"/adminhelp", "/map", "/admins", "/die"} {
+		if !strings.Contains(reply, "`"+command+"`") {
+			t.Errorf("admin help reply missing %q", command)
+		}
+	}
+	if strings.Contains(reply, "`/ping`") {
+		t.Error("admin help reply contains regular /ping command")
+	}
+}
+
 func TestRouteMessageIgnoresNonCommandText(t *testing.T) {
 	sender := &fakeSender{}
 	manager := NewCommandManager(sender, nil, func() {})
