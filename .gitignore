@@ -4,3 +4,5 @@ config.local.json
 meet-monitor/src/local-config.json
 .superpowers/
 .worktrees/
+.group-exporter/
+focused-accountability-subscribers.csv
