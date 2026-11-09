@@ -11,7 +11,6 @@
   nameSel: 'div[jsname="giiMnc"]',
   selfMicSel: 'button[jsname="hw0c9"]',
   selfCamSel: 'button[jsname="psRWwc"]',
-  muteIconPathSel: 'path[d^="M19 11h"]', // The exact SVG path for the muted mic
 
   // --- CHAT SELECTORS ---
   chatGroupSel: '.eWHPEf',                   // Container for a person's consecutive messages
@@ -48,19 +47,31 @@
       .some(video => video.readyState >= 2 && video.videoWidth > 0);
   },
 
-  micOf(tiles) {
+  micOf(tiles, participantName = null) {
     let muted = false;
     let unmuted = false;
+    const normalizedName = String(participantName || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
     for (const tile of tiles) {
       for (const element of tile.querySelectorAll('[aria-label]')) {
         const label = element.getAttribute('aria-label') || '';
         if (/can['’]t unmute/i.test(label)) muted = true;
-        else if (/can['’]t mute/i.test(label)) unmuted = true;
+        else {
+          const match = label.match(
+            /can['’]t mute\s+(.+?)['’]s microphone remotely/i
+          );
+          const labelName = String(match?.[1] || '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .toLowerCase();
+          if (normalizedName && labelName === normalizedName) unmuted = true;
+        }
       }
     }
     if (unmuted) return 'unmuted';
     if (muted) return 'muted';
-    if (tiles.some(t => t.querySelector(this.muteIconPathSel))) return 'muted';
     return null;
   },
 

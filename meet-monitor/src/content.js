@@ -118,10 +118,11 @@
     const now = new Map();
     for (const [id, tiles] of groups) {
       const previous = roster.get(id);
+      const name = S.pickName(tiles);
       now.set(id, {
-        name: S.pickName(tiles),
+        name,
         cam: tiles.some(t => S.camOf(t)),
-        mic: S.micOf(tiles) ?? previous?.mic ?? 'muted',
+        mic: S.micOf(tiles, name) ?? previous?.mic ?? 'muted',
         self: tiles.some(t => S.detectSelf(t)),
         host: tiles.some(t => S.detectHost(t))
       });

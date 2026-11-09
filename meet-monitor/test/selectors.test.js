@@ -61,11 +61,23 @@ test('detects a muted microphone from the current Meet control label', () => {
 test('detects an unmuted microphone from the current Meet control label', () => {
   assert.equal(selectors.micOf([
     mediaTile({ labels: ["You can't mute Yatin T's microphone remotely"] })
-  ]), 'unmuted');
+  ], 'Yatin T'), 'unmuted');
+});
+
+test('ignores an unmuted control label belonging to another participant', () => {
+  assert.equal(selectors.micOf([
+    mediaTile({ labels: ["You can't mute Shivani's microphone remotely"] })
+  ], 'Jothika huh'), null);
 });
 
 test('returns unknown when Meet exposes no reliable microphone indicator', () => {
   assert.equal(selectors.micOf([mediaTile({})]), null);
+});
+
+test('ignores generic SVG microphone icons during tile re-layout', () => {
+  assert.equal(selectors.micOf([
+    mediaTile({ mutedIcon: true })
+  ], 'Jothika huh'), null);
 });
 
 test('detects an active camera when a later video element is playing', () => {
