@@ -329,7 +329,12 @@ func diffParticipants(previous, current []Participant) []participantChange {
 	for id, oldParticipant := range oldByID {
 		newParticipant, exists := newByID[id]
 		if !exists {
-			changes = append(changes, participantChange{id, "leave", oldParticipant.Name})
+			if !suppressParticipantEvents(oldParticipant) {
+				changes = append(changes, participantChange{id, "leave", oldParticipant.Name})
+			}
+			continue
+		}
+		if suppressParticipantEvents(oldParticipant) || suppressParticipantEvents(newParticipant) {
 			continue
 		}
 		if oldParticipant.Cam != newParticipant.Cam {
@@ -348,7 +353,7 @@ func diffParticipants(previous, current []Participant) []participantChange {
 		}
 	}
 	for id, participant := range newByID {
-		if _, exists := oldByID[id]; !exists {
+		if _, exists := oldByID[id]; !exists && !suppressParticipantEvents(participant) {
 			changes = append(changes, participantChange{id, "join", participant.Name})
 		}
 	}
@@ -359,6 +364,11 @@ func diffParticipants(previous, current []Participant) []participantChange {
 		return changeTypeOrder[changes[i].changeType] < changeTypeOrder[changes[j].changeType]
 	})
 	return changes
+}
+
+func suppressParticipantEvents(participant Participant) bool {
+	return participant.Self ||
+		strings.EqualFold(strings.TrimSpace(participant.Name), "ADHD SUPPORT GROUP")
 }
 
 func jobIdempotencyKey(meeting, session string, sequence int64, participantID, changeType string) string {

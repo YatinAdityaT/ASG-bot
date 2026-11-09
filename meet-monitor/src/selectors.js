@@ -60,7 +60,8 @@
     }
     if (unmuted) return 'unmuted';
     if (muted) return 'muted';
-    return tiles.some(t => t.querySelector(this.muteIconPathSel)) ? 'muted' : 'unmuted';
+    if (tiles.some(t => t.querySelector(this.muteIconPathSel))) return 'muted';
+    return null;
   },
 
   detectSelf(tile) { return /\(You\)/.test(tile.innerText || ''); },

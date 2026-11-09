@@ -64,6 +64,10 @@ test('detects an unmuted microphone from the current Meet control label', () => 
   ]), 'unmuted');
 });
 
+test('returns unknown when Meet exposes no reliable microphone indicator', () => {
+  assert.equal(selectors.micOf([mediaTile({})]), null);
+});
+
 test('detects an active camera when a later video element is playing', () => {
   assert.equal(selectors.camOf(mediaTile({
     videos: [

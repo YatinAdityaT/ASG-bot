@@ -224,6 +224,66 @@ func TestServiceQueuesDeterministicOrderedChanges(t *testing.T) {
 	}
 }
 
+func TestServiceSuppressesSelfAndMonitorParticipantEvents(t *testing.T) {
+	now := time.Date(2026, 11, 9, 10, 0, 0, 0, time.UTC)
+	env := newServiceEnvironment(t, now)
+	baseline := validSnapshot(now)
+	baseline.Participants = []meetmonitor.Participant{
+		{ID: "bot-self", Name: "Bot account", Mic: "muted", Self: true},
+		{ID: "bot-name", Name: "ADHD SUPPORT GROUP", Mic: "muted"},
+		{ID: "alice", Name: "Alice", Mic: "muted"},
+	}
+	if _, err := env.service.Process(context.Background(), baseline); err != nil {
+		t.Fatal(err)
+	}
+
+	env.now = now.Add(time.Second)
+	changed := cloneSnapshot(baseline)
+	changed.Sequence = 2
+	changed.CapturedAt = env.now
+	changed.Participants[0].Mic = "unmuted"
+	changed.Participants[0].Cam = true
+	changed.Participants[1].Mic = "unmuted"
+	changed.Participants[1].Cam = true
+	changed.Participants[2].Mic = "unmuted"
+	result, err := env.service.Process(context.Background(), changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.QueuedChanges != 1 {
+		t.Fatalf("queued changes = %d, want only Alice's event", result.QueuedChanges)
+	}
+	jobs := loadJobIdentityAndText(t, env.database)
+	if len(jobs) != 1 || jobs[0].text != "🎙️ Alice unmuted their mic." {
+		t.Fatalf("jobs = %#v, want only Alice's mic event", jobs)
+	}
+
+	env.now = env.now.Add(time.Second)
+	withoutMonitors := cloneSnapshot(changed)
+	withoutMonitors.Sequence = 3
+	withoutMonitors.CapturedAt = env.now
+	withoutMonitors.Participants = withoutMonitors.Participants[2:]
+	result, err = env.service.Process(context.Background(), withoutMonitors)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.QueuedChanges != 0 || countJobs(t, env.database) != 1 {
+		t.Fatalf("monitor leaves queued events: result=%#v jobs=%d", result, countJobs(t, env.database))
+	}
+
+	env.now = env.now.Add(time.Second)
+	rejoined := cloneSnapshot(changed)
+	rejoined.Sequence = 4
+	rejoined.CapturedAt = env.now
+	result, err = env.service.Process(context.Background(), rejoined)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.QueuedChanges != 0 || countJobs(t, env.database) != 1 {
+		t.Fatalf("monitor joins queued events: result=%#v jobs=%d", result, countJobs(t, env.database))
+	}
+}
+
 func TestServiceMetadataOnlyUpdatePersistsWithoutJob(t *testing.T) {
 	now := time.Date(2026, 11, 3, 10, 0, 0, 0, time.UTC)
 	env := newServiceEnvironment(t, now)
