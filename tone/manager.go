@@ -2,6 +2,8 @@ package tone
 
 import (
 	"regexp"
+	"sort"
+	"strings"
 
 	"whatsappBot/utils"
 )
@@ -51,4 +53,24 @@ func newToneIManager(client utils.MessageSender, path string) (*ToneIManager, er
 
 func (tim *ToneIManager) RegisterToneI(ti toneIndicator) {
 	tim.toneIndicators[ti.Name] = ti
+}
+
+func (tim *ToneIManager) ToneList() []string {
+	lines := make([]string, 0, len(tim.toneIndicators))
+	for _, indicator := range tim.toneIndicators {
+		lines = append(lines, indicator.Name+" — "+toneDescription(indicator))
+	}
+	sort.Strings(lines)
+	return lines
+}
+
+func toneDescription(indicator toneIndicator) string {
+	description := strings.TrimPrefix(
+		indicator.Description,
+		"`"+indicator.Name+"` - ",
+	)
+	if index := strings.IndexByte(description, '\n'); index >= 0 {
+		description = description[:index]
+	}
+	return description
 }

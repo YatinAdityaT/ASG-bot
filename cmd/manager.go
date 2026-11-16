@@ -12,10 +12,11 @@ import (
 )
 
 type CommandContext struct {
-	Info           types.MessageInfo
-	SenderIdentity types.JID
-	Mentions       []types.JID
-	MentionError   error
+	Info            types.MessageInfo
+	SenderIdentity  types.JID
+	Mentions        []types.JID
+	MentionError    error
+	QuotedMessageID string
 }
 
 type CommandHandlerFunc func(db *sql.DB, ctx context.Context, client utils.MessageSender, commandCtx CommandContext, args []string) error
@@ -39,6 +40,10 @@ type CallProvider interface {
 	CallRoster(context.Context) (meetmonitor.CallRoster, error)
 }
 
+type ToneCatalog interface {
+	ToneList() []string
+}
+
 type ManagerOption func(*CommandManager)
 
 type CommandManager struct {
@@ -48,6 +53,7 @@ type CommandManager struct {
 	statusProvider StatusProvider
 	meetMessenger  MeetMessenger
 	callProvider   CallProvider
+	toneCatalog    ToneCatalog
 	//logger *log.Logger
 	client    utils.MessageSender
 	shutdown  context.CancelFunc
@@ -70,6 +76,12 @@ func WithMeetMessenger(messenger MeetMessenger) ManagerOption {
 func WithCallProvider(provider CallProvider) ManagerOption {
 	return func(manager *CommandManager) {
 		manager.callProvider = provider
+	}
+}
+
+func WithToneCatalog(catalog ToneCatalog) ManagerOption {
+	return func(manager *CommandManager) {
+		manager.toneCatalog = catalog
 	}
 }
 
@@ -154,6 +166,16 @@ func NewCommandManager(client utils.MessageSender, admins []string, shutdown con
 		})
 	}
 
+	if cm.toneCatalog != nil {
+		cm.RegisterCommand(Command{
+			Name:           "/tonelist",
+			Description:    "Lists the supported tone indicators.",
+			Regex:          regexp.MustCompile(`^/tonelist$`),
+			Callback:       NoDB(cm.handleToneList),
+			IsAdminCommand: false,
+		})
+	}
+
 	cm.RegisterCommand(Command{
 		Name: "/remind",
 		Description: `Creates a reminder for you or one mentioned recipient. Examples:
@@ -174,6 +196,22 @@ func NewCommandManager(client utils.MessageSender, admins []string, shutdown con
 		Description:    `Shows you your reminder list`,
 		Regex:          regexp.MustCompile(`^/rlist$`),
 		Callback:       cm.handleRemindList,
+		IsAdminCommand: false,
+	})
+
+	cm.RegisterCommand(Command{
+		Name:           "/snooze <duration>",
+		Description:    "Reply to a fired reminder to delay it, for example /snooze 30 minutes.",
+		Regex:          regexp.MustCompile(`^/snooze\s+(.+)$`),
+		Callback:       cm.handleSnooze,
+		IsAdminCommand: false,
+	})
+
+	cm.RegisterCommand(Command{
+		Name:           "/reschedule <time>",
+		Description:    "Reply to a fired reminder to move it, for example /reschedule tomorrow at 3pm.",
+		Regex:          regexp.MustCompile(`^/reschedule\s+(.+)$`),
+		Callback:       cm.handleReschedule,
 		IsAdminCommand: false,
 	})
 

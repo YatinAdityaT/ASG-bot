@@ -20,6 +20,7 @@ type ReminderRequest struct {
 	RequesterName string
 	Body          string
 	RemindAt      time.Time
+	Recurrence    Recurrence
 }
 
 var reminderClauseBoundaryPattern = regexp.MustCompile(`(?i)\band\b`)
@@ -47,6 +48,11 @@ func ParseReminder(
 		return request, fmt.Errorf("reminder is missing time and body")
 	}
 	commandText = dottedClockPattern.ReplaceAllString(commandText, `$1:$2${3}`)
+	var err error
+	commandText, request.Recurrence, err = extractRecurrenceClause(commandText)
+	if err != nil {
+		return ReminderRequest{}, err
+	}
 
 	if len(mentions) > 1 {
 		return request, fmt.Errorf("reminders support one mentioned participant")
@@ -96,6 +102,9 @@ func ParseReminder(
 		return ReminderRequest{}, fmt.Errorf("reminder is missing a time")
 	}
 	request.RemindAt = result.Time
+	if request.Recurrence.IsRecurring() {
+		request.RemindAt = request.Recurrence.NextAfter(result.Time, now)
+	}
 
 	bodyMentionRanges := visibleMentions
 	if len(visibleMentions) == 1 {
@@ -135,6 +144,56 @@ func ParseReminder(
 	}
 	request.Body = body
 	return request, nil
+}
+
+func FormatReminderDelivery(
+	target, requester types.JID,
+	requesterName, body string,
+	remindAt time.Time,
+) string {
+	reminderTime := remindAt.In(time.Local).Format("3:04 PM")
+	if target.ToNonAD() == requester.ToNonAD() {
+		return fmt.Sprintf(
+			`@%s you asked me to remind you to %q at %s`,
+			target.User,
+			body,
+			reminderTime,
+		)
+	}
+	return fmt.Sprintf(
+		`@%s %s asked me to remind you to %q at %s`,
+		target.User,
+		requesterName,
+		body,
+		reminderTime,
+	)
+}
+
+func ParseFutureTime(input string, now time.Time) (time.Time, error) {
+	input = strings.TrimSpace(dottedClockPattern.ReplaceAllString(input, `$1:$2${3}`))
+	if input == "" {
+		return time.Time{}, fmt.Errorf("time is missing")
+	}
+	parser := when.New(nil)
+	parser.Add(en.All...)
+	if countReminderTimeClauses(parser, input, now) > 1 {
+		return time.Time{}, fmt.Errorf("multiple times are not supported")
+	}
+	result, err := parser.Parse(input, now)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("parse time: %w", err)
+	}
+	if result == nil || result.Time.IsZero() {
+		return time.Time{}, fmt.Errorf("time is missing")
+	}
+	residual := blankReminderRange(input, result.Index, result.Index+len(result.Text))
+	if hasMeaningfulReminderText(residual) {
+		return time.Time{}, fmt.Errorf("unrecognized time text")
+	}
+	if !result.Time.After(now) {
+		return time.Time{}, fmt.Errorf("time must be in the future")
+	}
+	return result.Time, nil
 }
 
 func extendMentionRange(text string, mention [2]int, parsedTime *when.Result) [2]int {

@@ -24,8 +24,10 @@ func TestSetupDBCreatesApplicationSchema(t *testing.T) {
 		"birthday_deliveries",
 		"outbound_jobs",
 		"meet_monitor_state",
+		"reminder_deliveries",
 		"idx_remind_at",
 		"idx_reminders_requester_chat",
+		"idx_reminder_deliveries_source",
 		"idx_birth_date",
 		"idx_outbound_jobs_due",
 		"idx_outbound_jobs_status",
@@ -51,6 +53,23 @@ func TestSetupDBCreatesApplicationSchema(t *testing.T) {
 	if requestedByColumnCount != 1 {
 		t.Fatalf("requested_by column count = %d, want 1", requestedByColumnCount)
 	}
+	for _, column := range []string{
+		"body",
+		"requester_name",
+		"recurrence_kind",
+		"recurrence_weekday",
+		"active",
+		"updated_at",
+	} {
+		assertColumn(t, conn, "reminders", column)
+	}
+	for _, column := range []string{
+		"recurrence_kind",
+		"recurrence_weekday",
+	} {
+		assertColumn(t, conn, "meet_reminders", column)
+	}
+	assertColumn(t, conn, "reminder_deliveries", "acted_at")
 
 	for _, column := range []string{
 		"id",
@@ -121,6 +140,17 @@ func TestSetupDBMigratesAndBackfillsLegacyRemindersIdempotently(t *testing.T) {
 		);
 		INSERT INTO reminders (chat_id, to_id, message, remind_at)
 		VALUES ('123@g.us', '456@s.whatsapp.net', 'legacy', '2030-01-01 12:00:00');
+		CREATE TABLE reminder_deliveries (
+			message_id TEXT PRIMARY KEY,
+			source_type TEXT NOT NULL,
+			reminder_id INTEGER NOT NULL,
+			chat_id TEXT NOT NULL,
+			requester_jid TEXT NOT NULL,
+			target_jid TEXT NOT NULL,
+			scheduled_for INTEGER NOT NULL,
+			delivered_at INTEGER NOT NULL,
+			created_at INTEGER NOT NULL
+		);
 	`); err != nil {
 		legacy.Close()
 		t.Fatal(err)
@@ -142,6 +172,18 @@ func TestSetupDBMigratesAndBackfillsLegacyRemindersIdempotently(t *testing.T) {
 		conn.Close()
 		t.Fatalf("requested_by = %q, want legacy to_id", requestedBy)
 	}
+	var recurrenceKind string
+	var active int
+	if err := conn.QueryRow(
+		"SELECT recurrence_kind, active FROM reminders WHERE id = 1",
+	).Scan(&recurrenceKind, &active); err != nil {
+		conn.Close()
+		t.Fatal(err)
+	}
+	if recurrenceKind != "none" || active != 1 {
+		conn.Close()
+		t.Fatalf("legacy recurrence/active = %q/%d, want none/1", recurrenceKind, active)
+	}
 	if err := conn.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -162,6 +204,22 @@ func TestSetupDBMigratesAndBackfillsLegacyRemindersIdempotently(t *testing.T) {
 	}
 	if requestedByColumnCount != 1 {
 		t.Fatalf("requested_by column count after second migration = %d, want 1", requestedByColumnCount)
+	}
+	assertColumn(t, conn, "reminder_deliveries", "acted_at")
+}
+
+func assertColumn(t *testing.T, database *sql.DB, table, column string) {
+	t.Helper()
+	var count int
+	if err := database.QueryRow(`
+		SELECT COUNT(*)
+		FROM pragma_table_info(?)
+		WHERE name = ?
+	`, table, column).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("%s column %q count = %d, want 1", table, column, count)
 	}
 }
 

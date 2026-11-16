@@ -115,6 +115,7 @@ func (s *Service) CreateFromMeet(ctx context.Context, input CommandRequest) (Com
 		WhatsAppChatID:    input.WhatsAppChatID,
 		Body:              parsed.Body,
 		RemindAt:          parsed.RemindAt,
+		Recurrence:        parsed.Recurrence,
 	})
 	if err != nil {
 		return CommandResult{}, err

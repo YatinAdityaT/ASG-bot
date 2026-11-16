@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,18 +15,24 @@ import (
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
+	"whatsappBot/reminderdelivery"
 	"whatsappBot/utils"
 )
 
 // ----------------- Reminder Provider -----------------
 
 type ReminderTask struct {
-	chatID   types.JID
-	message  string
-	schedule time.Time
-	id       string
-	db       *sql.DB
-	to       string
+	chatID        types.JID
+	message       string
+	schedule      time.Time
+	id            string
+	db            *sql.DB
+	to            string
+	requestedBy   string
+	body          string
+	requesterName string
+	recurrence    utils.Recurrence
+	processedAt   time.Time
 }
 
 func (r *ReminderTask) Run(ctx context.Context, sender utils.MessageSender) error {
@@ -40,12 +47,18 @@ func (r *ReminderTask) Run(ctx context.Context, sender utils.MessageSender) erro
 		ExtendedTextMessage: emsg,
 	}
 
-	_, err := sender.SendMessage(ctx, r.chatID, msg)
+	messageID := reminderMessageID(r.id, r.schedule)
+	_, err := sender.SendMessage(
+		ctx,
+		r.chatID,
+		msg,
+		whatsmeow.SendRequestExtra{ID: messageID},
+	)
 	if err != nil {
 		return fmt.Errorf("send reminder %s: %w", r.id, err)
 	}
-	if err := r.CleanUp(ctx); err != nil {
-		return fmt.Errorf("clean up reminder %s: %w", r.id, err)
+	if err := r.recordAndAdvance(ctx, messageID); err != nil {
+		return fmt.Errorf("advance reminder %s: %w", r.id, err)
 	}
 	return nil
 }
@@ -58,16 +71,68 @@ func (r *ReminderTask) ID() string {
 	return r.id
 }
 
-func (r *ReminderTask) CleanUp(ctx context.Context) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM reminders WHERE id = ?`, r.id)
-	return err
+func (r *ReminderTask) recordAndAdvance(ctx context.Context, messageID types.MessageID) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := reminderdelivery.Record(ctx, tx, reminderdelivery.Reference{
+		MessageID:    string(messageID),
+		SourceType:   reminderdelivery.SourceWhatsApp,
+		ReminderID:   mustParseReminderID(r.id),
+		ChatID:       r.chatID.String(),
+		RequesterJID: r.requestedBy,
+		TargetJID:    r.to,
+		ScheduledFor: r.schedule,
+		DeliveredAt:  r.processedAt,
+	}); err != nil {
+		return err
+	}
+
+	if !r.recurrence.IsRecurring() {
+		_, err = tx.ExecContext(ctx, `
+			UPDATE reminders
+			SET active = 0, updated_at = ?
+			WHERE id = ? AND active = 1
+		`, r.processedAt.UTC().UnixNano(), r.id)
+	} else {
+		next := r.recurrence.NextAfter(r.schedule, r.processedAt)
+		target, parseErr := types.ParseJID(r.to)
+		if parseErr != nil {
+			return parseErr
+		}
+		requester, parseErr := types.ParseJID(r.requestedBy)
+		if parseErr != nil {
+			return parseErr
+		}
+		nextMessage := utils.FormatReminderDelivery(
+			target.ToNonAD(),
+			requester.ToNonAD(),
+			r.requesterName,
+			r.body,
+			next,
+		)
+		_, err = tx.ExecContext(ctx, `
+			UPDATE reminders
+			SET remind_at = ?, message = ?, updated_at = ?
+			WHERE id = ? AND active = 1
+		`, next, nextMessage, r.processedAt.UTC().UnixNano(), r.id)
+	}
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (r *ReminderProvider) GetDueTasks(ctx context.Context, now time.Time) ([]ScheduledTask, error) {
 	query := `
-		SELECT id, chat_id, to_id, message, remind_at
+		SELECT id, chat_id, to_id, COALESCE(requested_by, to_id),
+		       message, remind_at, COALESCE(body, ''),
+		       COALESCE(requester_name, ''), recurrence_kind,
+		       recurrence_weekday
 		FROM reminders
-		WHERE remind_at <= ?
+		WHERE active = 1 AND remind_at <= ?
 	`
 	rows, err := r.db.QueryContext(ctx, query, now)
 	if err != nil {
@@ -77,9 +142,21 @@ func (r *ReminderProvider) GetDueTasks(ctx context.Context, now time.Time) ([]Sc
 
 	var tasks []ScheduledTask
 	for rows.Next() {
-		var id, chatID, toID, message string
+		var id, chatID, toID, requestedBy, message, body, requesterName, recurrenceKind string
 		var remindAt time.Time
-		if err := rows.Scan(&id, &chatID, &toID, &message, &remindAt); err != nil {
+		var recurrenceWeekday sql.NullInt64
+		if err := rows.Scan(
+			&id,
+			&chatID,
+			&toID,
+			&requestedBy,
+			&message,
+			&remindAt,
+			&body,
+			&requesterName,
+			&recurrenceKind,
+			&recurrenceWeekday,
+		); err != nil {
 			return nil, err
 		}
 		jid, err := types.ParseJID(chatID)
@@ -91,12 +168,20 @@ func (r *ReminderProvider) GetDueTasks(ctx context.Context, now time.Time) ([]Sc
 			return nil, fmt.Errorf("invalid JID %q: %w", toID, err)
 		}
 		task := &ReminderTask{
-			id:       id,
-			chatID:   jid,
-			message:  message,
-			schedule: remindAt,
-			db:       r.db,
-			to:       toID,
+			id:            id,
+			chatID:        jid,
+			message:       message,
+			schedule:      remindAt,
+			db:            r.db,
+			to:            toID,
+			requestedBy:   requestedBy,
+			body:          body,
+			requesterName: requesterName,
+			recurrence: utils.Recurrence{
+				Kind:    recurrenceKind,
+				Weekday: recurrenceWeekdayValue(recurrenceWeekday),
+			},
+			processedAt: now,
 		}
 		tasks = append(tasks, task)
 	}
@@ -104,6 +189,25 @@ func (r *ReminderProvider) GetDueTasks(ctx context.Context, now time.Time) ([]Sc
 		return nil, fmt.Errorf("iterate reminders: %w", err)
 	}
 	return tasks, nil
+}
+
+func reminderMessageID(id string, scheduledFor time.Time) types.MessageID {
+	sum := sha256.Sum256([]byte(
+		"reminder:" + id + ":" + strconv.FormatInt(scheduledFor.UTC().UnixNano(), 10),
+	))
+	return types.MessageID(strings.ToUpper(hex.EncodeToString(sum[:10])))
+}
+
+func mustParseReminderID(id string) int64 {
+	value, _ := strconv.ParseInt(id, 10, 64)
+	return value
+}
+
+func recurrenceWeekdayValue(value sql.NullInt64) time.Weekday {
+	if value.Valid {
+		return time.Weekday(value.Int64)
+	}
+	return time.Sunday
 }
 
 // ----------------- Birthday Provider -----------------

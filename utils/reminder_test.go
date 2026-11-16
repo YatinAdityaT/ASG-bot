@@ -112,6 +112,83 @@ func TestParseReminderPreservesCapitalizationAndNormalizesJIDs(t *testing.T) {
 	}
 }
 
+func TestParseReminderRecurringSchedules(t *testing.T) {
+	now := time.Date(2026, time.November, 16, 13, 0, 0, 0, time.Local)
+	requester := types.NewJID("456", types.DefaultUserServer)
+	tests := []struct {
+		input     string
+		wantBody  string
+		wantAt    time.Time
+		wantKind  string
+		wantDay   time.Weekday
+		wantLabel string
+	}{
+		{
+			input:     `/remind me to eat every day at 2pm`,
+			wantBody:  "eat",
+			wantAt:    time.Date(2026, time.November, 16, 14, 0, 0, 0, time.Local),
+			wantKind:  RecurrenceDaily,
+			wantLabel: "every day",
+		},
+		{
+			input:     `/remind me to plan weekdays at 9am`,
+			wantBody:  "plan",
+			wantAt:    time.Date(2026, time.November, 17, 9, 0, 0, 0, time.Local),
+			wantKind:  RecurrenceWeekdays,
+			wantLabel: "weekdays",
+		},
+		{
+			input:     `/remind me to check in every Monday at 6pm`,
+			wantBody:  "check in",
+			wantAt:    time.Date(2026, time.November, 16, 18, 0, 0, 0, time.Local),
+			wantKind:  RecurrenceWeekly,
+			wantDay:   time.Monday,
+			wantLabel: "every Monday",
+		},
+	}
+
+	for _, test := range tests {
+		got, err := ParseReminder(test.input, nil, requester, "Yatin", now)
+		if err != nil {
+			t.Fatalf("ParseReminder(%q) error = %v", test.input, err)
+		}
+		if got.Body != test.wantBody || !got.RemindAt.Equal(test.wantAt) ||
+			got.Recurrence.Kind != test.wantKind ||
+			got.Recurrence.Weekday != test.wantDay ||
+			got.Recurrence.Label() != test.wantLabel {
+			t.Fatalf("ParseReminder(%q) = %#v, want body=%q at=%v kind=%q day=%v label=%q",
+				test.input, got, test.wantBody, test.wantAt, test.wantKind, test.wantDay, test.wantLabel)
+		}
+	}
+}
+
+func TestRecurrenceNextAfterSkipsMissedOccurrences(t *testing.T) {
+	scheduled := time.Date(2026, time.November, 13, 9, 0, 0, 0, time.Local)
+	after := time.Date(2026, time.November, 16, 10, 0, 0, 0, time.Local)
+	next := (Recurrence{Kind: RecurrenceWeekdays}).NextAfter(scheduled, after)
+	want := time.Date(2026, time.November, 17, 9, 0, 0, 0, time.Local)
+	if !next.Equal(want) {
+		t.Fatalf("NextAfter() = %v, want %v", next, want)
+	}
+}
+
+func TestParseFutureTimeRejectsPastAndExtraText(t *testing.T) {
+	now := time.Date(2026, time.November, 16, 14, 5, 0, 0, time.Local)
+	got, err := ParseFutureTime("tomorrow at 3pm", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := time.Date(2026, time.November, 17, 15, 0, 0, 0, time.Local)
+	if !got.Equal(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for _, input := range []string{"yesterday at 3pm", "tomorrow at 3pm please dance"} {
+		if _, err := ParseFutureTime(input, now); err == nil {
+			t.Fatalf("ParseFutureTime(%q) unexpectedly succeeded", input)
+		}
+	}
+}
+
 func TestParseReminderRemovesLeadingFiller(t *testing.T) {
 	now := time.Date(2026, time.October, 26, 10, 0, 0, 0, time.Local)
 	requester := types.NewJID("456", types.DefaultUserServer)

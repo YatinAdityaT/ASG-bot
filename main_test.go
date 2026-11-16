@@ -147,8 +147,27 @@ func TestRunWaitsForActiveSchedulerWorkBeforeCleanup(t *testing.T) {
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			chat_id TEXT NOT NULL,
 			to_id TEXT NOT NULL,
+			requested_by TEXT,
 			message TEXT NOT NULL,
-			remind_at DATETIME NOT NULL
+			remind_at DATETIME NOT NULL,
+			body TEXT,
+			requester_name TEXT,
+			recurrence_kind TEXT NOT NULL DEFAULT 'none',
+			recurrence_weekday INTEGER,
+			active INTEGER NOT NULL DEFAULT 1,
+			updated_at INTEGER
+		);
+		CREATE TABLE reminder_deliveries (
+			message_id TEXT PRIMARY KEY,
+			source_type TEXT NOT NULL,
+			reminder_id INTEGER NOT NULL,
+			chat_id TEXT NOT NULL,
+			requester_jid TEXT NOT NULL,
+			target_jid TEXT NOT NULL,
+			scheduled_for INTEGER NOT NULL,
+			delivered_at INTEGER NOT NULL,
+			created_at INTEGER NOT NULL,
+			acted_at INTEGER
 		);
 		CREATE TABLE birthdays (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -430,11 +449,11 @@ func TestRunEnabledAPIUsesSameMonitorServiceForCommands(t *testing.T) {
 	schedulerDone := make(chan struct{})
 
 	deps := enabledRuntimeDependencies(database, &deviceID, client)
-	deps.startAPI = func(_ context.Context, _ config.Config, _ *outbound.Store, service *meetmonitor.Service) <-chan error {
+	deps.startAPI = func(_ context.Context, _ config.Config, _ *outbound.Store, service *meetmonitor.Service, _ *meetreminder.Service) <-chan error {
 		apiStarted <- service
 		return apiDone
 	}
-	deps.startScheduler = func(_ context.Context, _ *sql.DB, _ utils.MessageSender, _ *outbound.Store) <-chan struct{} {
+	deps.startScheduler = func(_ context.Context, _ *sql.DB, _ utils.MessageSender, _ *outbound.Store, _ *meetreminder.Store, _ *meetmonitor.Service) <-chan struct{} {
 		return schedulerDone
 	}
 
@@ -480,13 +499,13 @@ func TestRunRejectsConnectedClientThatIsNotLoggedIn(t *testing.T) {
 	apiStarted := false
 	schedulerStarted := false
 	deps := enabledRuntimeDependencies(database, &deviceID, client)
-	deps.startAPI = func(context.Context, config.Config, *outbound.Store, *meetmonitor.Service) <-chan error {
+	deps.startAPI = func(context.Context, config.Config, *outbound.Store, *meetmonitor.Service, *meetreminder.Service) <-chan error {
 		apiStarted = true
 		done := make(chan error, 1)
 		done <- errors.New("API must not start")
 		return done
 	}
-	deps.startScheduler = func(context.Context, *sql.DB, utils.MessageSender, *outbound.Store) <-chan struct{} {
+	deps.startScheduler = func(context.Context, *sql.DB, utils.MessageSender, *outbound.Store, *meetreminder.Store, *meetmonitor.Service) <-chan struct{} {
 		schedulerStarted = true
 		done := make(chan struct{})
 		close(done)
@@ -518,13 +537,13 @@ func TestRunStartsComponentsAfterLoggedInEvent(t *testing.T) {
 	schedulerDone := make(chan struct{})
 	schedulerStarted := make(chan struct{})
 	deps := enabledRuntimeDependencies(database, &deviceID, client)
-	deps.startAPI = func(context.Context, config.Config, *outbound.Store, *meetmonitor.Service) <-chan error {
+	deps.startAPI = func(context.Context, config.Config, *outbound.Store, *meetmonitor.Service, *meetreminder.Service) <-chan error {
 		if !client.IsLoggedIn() {
 			t.Error("API started before login")
 		}
 		return apiDone
 	}
-	deps.startScheduler = func(context.Context, *sql.DB, utils.MessageSender, *outbound.Store) <-chan struct{} {
+	deps.startScheduler = func(context.Context, *sql.DB, utils.MessageSender, *outbound.Store, *meetreminder.Store, *meetmonitor.Service) <-chan struct{} {
 		if !client.IsLoggedIn() {
 			t.Error("scheduler started before login")
 		}
@@ -563,10 +582,10 @@ func TestRunFreshPairStartsComponentsAfterLoggedInEvent(t *testing.T) {
 	schedulerDone := make(chan struct{})
 	schedulerStarted := make(chan struct{})
 	deps := enabledRuntimeDependencies(database, nil, client)
-	deps.startAPI = func(context.Context, config.Config, *outbound.Store, *meetmonitor.Service) <-chan error {
+	deps.startAPI = func(context.Context, config.Config, *outbound.Store, *meetmonitor.Service, *meetreminder.Service) <-chan error {
 		return apiDone
 	}
-	deps.startScheduler = func(context.Context, *sql.DB, utils.MessageSender, *outbound.Store) <-chan struct{} {
+	deps.startScheduler = func(context.Context, *sql.DB, utils.MessageSender, *outbound.Store, *meetreminder.Store, *meetmonitor.Service) <-chan struct{} {
 		close(schedulerStarted)
 		return schedulerDone
 	}
@@ -601,11 +620,11 @@ func TestRunContextCancellationWhileWaitingForLoginStartsNoComponents(t *testing
 	apiStarted := false
 	schedulerStarted := false
 	deps := enabledRuntimeDependencies(database, &deviceID, client)
-	deps.startAPI = func(context.Context, config.Config, *outbound.Store, *meetmonitor.Service) <-chan error {
+	deps.startAPI = func(context.Context, config.Config, *outbound.Store, *meetmonitor.Service, *meetreminder.Service) <-chan error {
 		apiStarted = true
 		return nil
 	}
-	deps.startScheduler = func(context.Context, *sql.DB, utils.MessageSender, *outbound.Store) <-chan struct{} {
+	deps.startScheduler = func(context.Context, *sql.DB, utils.MessageSender, *outbound.Store, *meetreminder.Store, *meetmonitor.Service) <-chan struct{} {
 		schedulerStarted = true
 		return nil
 	}
@@ -640,7 +659,7 @@ func TestRunCancelsAPIBeforeSchedulerAndCleanup(t *testing.T) {
 	var schedulerCtx context.Context
 
 	deps := enabledRuntimeDependencies(database, &deviceID, client)
-	deps.startAPI = func(apiCtx context.Context, _ config.Config, _ *outbound.Store, _ *meetmonitor.Service) <-chan error {
+	deps.startAPI = func(apiCtx context.Context, _ config.Config, _ *outbound.Store, _ *meetmonitor.Service, _ *meetreminder.Service) <-chan error {
 		done := make(chan error, 1)
 		go func() {
 			<-apiCtx.Done()
@@ -651,7 +670,7 @@ func TestRunCancelsAPIBeforeSchedulerAndCleanup(t *testing.T) {
 		}()
 		return done
 	}
-	deps.startScheduler = func(ctx context.Context, _ *sql.DB, _ utils.MessageSender, _ *outbound.Store) <-chan struct{} {
+	deps.startScheduler = func(ctx context.Context, _ *sql.DB, _ utils.MessageSender, _ *outbound.Store, _ *meetreminder.Store, _ *meetmonitor.Service) <-chan struct{} {
 		schedulerCtx = ctx
 		close(schedulerStarted)
 		done := make(chan struct{})
@@ -698,13 +717,13 @@ func TestRunAPIStartupFailureCleansUpWithoutStartingScheduler(t *testing.T) {
 	client := &fakeLifecycleClient{}
 	want := errors.New("bind failed")
 	deps := enabledRuntimeDependencies(database, &deviceID, client)
-	deps.startAPI = func(context.Context, config.Config, *outbound.Store, *meetmonitor.Service) <-chan error {
+	deps.startAPI = func(context.Context, config.Config, *outbound.Store, *meetmonitor.Service, *meetreminder.Service) <-chan error {
 		done := make(chan error, 1)
 		done <- want
 		close(done)
 		return done
 	}
-	deps.startScheduler = func(context.Context, *sql.DB, utils.MessageSender, *outbound.Store) <-chan struct{} {
+	deps.startScheduler = func(context.Context, *sql.DB, utils.MessageSender, *outbound.Store, *meetreminder.Store, *meetmonitor.Service) <-chan struct{} {
 		t.Error("scheduler started after API startup failure")
 		return nil
 	}

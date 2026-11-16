@@ -29,15 +29,27 @@ func (cm *CommandManager) RouteMessage(db *sql.DB, ctx context.Context, evt *eve
 
 			mentions, mentionErr := extractMentions(evt)
 			commandCtx := CommandContext{
-				Info:           info,
-				SenderIdentity: senderIdentity,
-				Mentions:       mentions,
-				MentionError:   mentionErr,
+				Info:            info,
+				SenderIdentity:  senderIdentity,
+				Mentions:        mentions,
+				MentionError:    mentionErr,
+				QuotedMessageID: quotedMessageID(evt),
 			}
 			return cmd.Callback(db, ctx, cm.client, commandCtx, matches[1:])
 		}
 	}
 	return nil
+}
+
+func quotedMessageID(evt *events.Message) string {
+	if evt == nil || evt.Message == nil {
+		return ""
+	}
+	extended := evt.Message.GetExtendedTextMessage()
+	if extended == nil || extended.GetContextInfo() == nil {
+		return ""
+	}
+	return strings.TrimSpace(extended.GetContextInfo().GetStanzaID())
 }
 
 func canonicalSenderIdentity(source types.MessageSource) types.JID {

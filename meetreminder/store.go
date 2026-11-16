@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"whatsappBot/identity"
+	"whatsappBot/reminderdelivery"
+	"whatsappBot/utils"
 )
 
 var ErrNotFound = errors.New("Meet reminder not found")
@@ -21,6 +23,7 @@ type CreateRequest struct {
 	WhatsAppChatID    string
 	Body              string
 	RemindAt          time.Time
+	Recurrence        utils.Recurrence
 }
 
 type Reminder struct {
@@ -32,6 +35,7 @@ type Reminder struct {
 	WhatsAppChatID      string
 	Body                string
 	RemindAt            time.Time
+	Recurrence          utils.Recurrence
 	WhatsAppDeliveredAt *time.Time
 	MeetStatus          string
 	CompletedAt         *time.Time
@@ -65,12 +69,14 @@ func (s *Store) Create(ctx context.Context, request CreateRequest) (Reminder, bo
 	result, err := s.db.ExecContext(ctx, `
 		INSERT INTO meet_reminders (
 			source_key, meeting_code, requester_person_id, target_person_id,
-			whatsapp_chat_id, body, remind_at, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			whatsapp_chat_id, body, remind_at, recurrence_kind,
+			recurrence_weekday, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(source_key) DO NOTHING
 	`, request.SourceKey, request.MeetingCode, request.RequesterPersonID,
 		request.TargetPersonID, request.WhatsAppChatID, request.Body,
-		request.RemindAt.UTC().UnixNano(), now, now)
+		request.RemindAt.UTC().UnixNano(), recurrenceKind(request.Recurrence),
+		recurrenceWeekday(request.Recurrence), now, now)
 	if err != nil {
 		return Reminder{}, false, fmt.Errorf("create Meet reminder: %w", err)
 	}
@@ -152,6 +158,41 @@ func (s *Store) Complete(ctx context.Context, id int64, meetStatus string, compl
 	return requireChanged(result, "Meet reminder")
 }
 
+func (s *Store) Advance(
+	ctx context.Context,
+	id int64,
+	meetStatus string,
+	next time.Time,
+) error {
+	switch meetStatus {
+	case "queued", "skipped_absent", "skipped_offline":
+	default:
+		return errors.New("invalid Meet reminder outcome")
+	}
+	if next.IsZero() {
+		return errors.New("invalid next Meet reminder occurrence")
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE meet_reminders
+		SET remind_at = ?, whatsapp_delivered_at = NULL,
+			meet_status = 'pending', completed_at = NULL, updated_at = ?
+		WHERE id = ?
+		  AND completed_at IS NULL
+		  AND whatsapp_delivered_at IS NOT NULL
+	`, next.UTC().UnixNano(), s.now().UTC().UnixNano(), id)
+	if err != nil {
+		return fmt.Errorf("advance Meet reminder: %w", err)
+	}
+	return requireChanged(result, "Meet reminder")
+}
+
+func (s *Store) RecordDelivery(
+	ctx context.Context,
+	reference reminderdelivery.Reference,
+) error {
+	return reminderdelivery.Record(ctx, s.db, reference)
+}
+
 const reminderSelect = `
 	SELECT
 		reminder.id,
@@ -175,7 +216,9 @@ const reminderSelect = `
 		reminder.remind_at,
 		reminder.whatsapp_delivered_at,
 		reminder.meet_status,
-		reminder.completed_at
+		reminder.completed_at,
+		reminder.recurrence_kind,
+		reminder.recurrence_weekday
 	FROM meet_reminders AS reminder
 	JOIN people AS requester ON requester.id = reminder.requester_person_id
 	JOIN people AS target ON target.id = reminder.target_person_id
@@ -204,6 +247,7 @@ func scanReminder(row scanner) (Reminder, error) {
 		whatsAppDeliveredAt sql.NullInt64
 		completedAt         sql.NullInt64
 		targetAliases       string
+		recurrenceWeekday   sql.NullInt64
 	)
 	err := row.Scan(
 		&reminder.ID,
@@ -224,6 +268,8 @@ func scanReminder(row scanner) (Reminder, error) {
 		&whatsAppDeliveredAt,
 		&reminder.MeetStatus,
 		&completedAt,
+		&reminder.Recurrence.Kind,
+		&recurrenceWeekday,
 	)
 	if err != nil {
 		return Reminder{}, err
@@ -240,7 +286,24 @@ func scanReminder(row scanner) (Reminder, error) {
 		value := time.Unix(0, completedAt.Int64).UTC()
 		reminder.CompletedAt = &value
 	}
+	if recurrenceWeekday.Valid {
+		reminder.Recurrence.Weekday = time.Weekday(recurrenceWeekday.Int64)
+	}
 	return reminder, nil
+}
+
+func recurrenceKind(recurrence utils.Recurrence) string {
+	if recurrence.IsRecurring() {
+		return recurrence.Kind
+	}
+	return utils.RecurrenceNone
+}
+
+func recurrenceWeekday(recurrence utils.Recurrence) any {
+	if recurrence.Kind == utils.RecurrenceWeekly {
+		return int(recurrence.Weekday)
+	}
+	return nil
 }
 
 func requireChanged(result sql.Result, label string) error {

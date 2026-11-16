@@ -16,7 +16,14 @@ var createRemindersTable = `
 	to_id TEXT NOT NULL,
 	requested_by TEXT,
 	message TEXT NOT NULL,
-	remind_at DATETIME NOT NULL);
+	remind_at DATETIME NOT NULL,
+	body TEXT,
+	requester_name TEXT,
+	recurrence_kind TEXT NOT NULL DEFAULT 'none'
+		CHECK (recurrence_kind IN ('none', 'daily', 'weekdays', 'weekly')),
+	recurrence_weekday INTEGER CHECK (recurrence_weekday BETWEEN 0 AND 6),
+	active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+	updated_at INTEGER);
 	CREATE INDEX IF NOT EXISTS idx_remind_at ON reminders(remind_at);
 	`
 
@@ -102,11 +109,30 @@ var createMeetRemindersTable = `
 		completed_at INTEGER,
 		created_at INTEGER NOT NULL,
 		updated_at INTEGER NOT NULL,
+		recurrence_kind TEXT NOT NULL DEFAULT 'none'
+			CHECK (recurrence_kind IN ('none', 'daily', 'weekdays', 'weekly')),
+		recurrence_weekday INTEGER CHECK (recurrence_weekday BETWEEN 0 AND 6),
 		FOREIGN KEY (requester_person_id) REFERENCES people(id) ON DELETE RESTRICT,
 		FOREIGN KEY (target_person_id) REFERENCES people(id) ON DELETE RESTRICT
 	);
 	CREATE INDEX IF NOT EXISTS idx_meet_reminders_due
 		ON meet_reminders(completed_at, remind_at);`
+
+var createReminderDeliveriesTable = `
+	CREATE TABLE IF NOT EXISTS reminder_deliveries (
+		message_id TEXT PRIMARY KEY,
+		source_type TEXT NOT NULL CHECK (source_type IN ('whatsapp', 'meet')),
+		reminder_id INTEGER NOT NULL,
+		chat_id TEXT NOT NULL,
+		requester_jid TEXT NOT NULL,
+		target_jid TEXT NOT NULL,
+		scheduled_for INTEGER NOT NULL,
+		delivered_at INTEGER NOT NULL,
+		created_at INTEGER NOT NULL,
+		acted_at INTEGER
+	);
+	CREATE INDEX IF NOT EXISTS idx_reminder_deliveries_source
+		ON reminder_deliveries(source_type, reminder_id, delivered_at);`
 
 func SetupDB(ctx context.Context, path string) (*sqlstore.Container, *sql.DB, error) {
 	database, err := sql.Open("sqlite", "file:"+path+"?_foreign_keys=on")
@@ -162,24 +188,41 @@ func SetupDB(ctx context.Context, path string) (*sqlstore.Container, *sql.DB, er
 		database.Close()
 		return nil, nil, fmt.Errorf("create Meet reminders schema: %w", err)
 	}
+	if err := migrateMeetReminderRecurrence(ctx, database); err != nil {
+		database.Close()
+		return nil, nil, err
+	}
+
+	if _, err = database.ExecContext(ctx, createReminderDeliveriesTable); err != nil {
+		database.Close()
+		return nil, nil, fmt.Errorf("create reminder deliveries schema: %w", err)
+	}
+	if err := addColumnIfMissing(
+		ctx, database, "reminder_deliveries", "acted_at", "INTEGER",
+	); err != nil {
+		database.Close()
+		return nil, nil, err
+	}
 
 	return container, database, nil
 }
 
 func migrateReminderRequester(ctx context.Context, database *sql.DB) error {
-	var requestedByColumns int
-	err := database.QueryRowContext(ctx, `
-		SELECT COUNT(*)
-		FROM pragma_table_info('reminders')
-		WHERE name = 'requested_by'
-	`).Scan(&requestedByColumns)
-	if err != nil {
-		return fmt.Errorf("inspect reminders schema: %w", err)
+	columns := []struct {
+		name       string
+		definition string
+	}{
+		{"requested_by", "TEXT"},
+		{"body", "TEXT"},
+		{"requester_name", "TEXT"},
+		{"recurrence_kind", "TEXT NOT NULL DEFAULT 'none' CHECK (recurrence_kind IN ('none', 'daily', 'weekdays', 'weekly'))"},
+		{"recurrence_weekday", "INTEGER CHECK (recurrence_weekday BETWEEN 0 AND 6)"},
+		{"active", "INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1))"},
+		{"updated_at", "INTEGER"},
 	}
-
-	if requestedByColumns == 0 {
-		if _, err := database.ExecContext(ctx, "ALTER TABLE reminders ADD COLUMN requested_by TEXT"); err != nil {
-			return fmt.Errorf("add reminders requested_by: %w", err)
+	for _, column := range columns {
+		if err := addColumnIfMissing(ctx, database, "reminders", column.name, column.definition); err != nil {
+			return err
 		}
 	}
 	if _, err := database.ExecContext(ctx, `
@@ -194,6 +237,46 @@ func migrateReminderRequester(ctx context.Context, database *sql.DB) error {
 		ON reminders(requested_by, chat_id)
 	`); err != nil {
 		return fmt.Errorf("index reminders requester and chat: %w", err)
+	}
+	return nil
+}
+
+func migrateMeetReminderRecurrence(ctx context.Context, database *sql.DB) error {
+	for _, column := range []struct {
+		name       string
+		definition string
+	}{
+		{"recurrence_kind", "TEXT NOT NULL DEFAULT 'none' CHECK (recurrence_kind IN ('none', 'daily', 'weekdays', 'weekly'))"},
+		{"recurrence_weekday", "INTEGER CHECK (recurrence_weekday BETWEEN 0 AND 6)"},
+	} {
+		if err := addColumnIfMissing(ctx, database, "meet_reminders", column.name, column.definition); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func addColumnIfMissing(
+	ctx context.Context,
+	database *sql.DB,
+	table, column, definition string,
+) error {
+	var count int
+	if err := database.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM pragma_table_info(?)
+		WHERE name = ?
+	`, table, column).Scan(&count); err != nil {
+		return fmt.Errorf("inspect %s schema: %w", table, err)
+	}
+	if count != 0 {
+		return nil
+	}
+	if _, err := database.ExecContext(
+		ctx,
+		fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, definition),
+	); err != nil {
+		return fmt.Errorf("add %s.%s: %w", table, column, err)
 	}
 	return nil
 }

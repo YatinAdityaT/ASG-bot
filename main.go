@@ -271,6 +271,9 @@ func runWithDependencies(ctx context.Context, cfg config.Config, deps runtimeDep
 		return fmt.Errorf("load tone indicators: %w", err)
 	}
 	var commandOptions []cmd.ManagerOption
+	if catalog, ok := toneManager.(cmd.ToneCatalog); ok {
+		commandOptions = append(commandOptions, cmd.WithToneCatalog(catalog))
+	}
 	if monitorService != nil {
 		commandOptions = append(
 			commandOptions,

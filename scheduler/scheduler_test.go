@@ -60,8 +60,26 @@ func openSchedulerDB(t *testing.T) *sql.DB {
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			chat_id TEXT NOT NULL,
 			to_id TEXT NOT NULL,
+			requested_by TEXT,
 			message TEXT NOT NULL,
-			remind_at DATETIME NOT NULL
+			remind_at DATETIME NOT NULL,
+			body TEXT,
+			requester_name TEXT,
+			recurrence_kind TEXT NOT NULL DEFAULT 'none',
+			recurrence_weekday INTEGER,
+			active INTEGER NOT NULL DEFAULT 1,
+			updated_at INTEGER
+		);
+		CREATE TABLE reminder_deliveries (
+			message_id TEXT PRIMARY KEY,
+			source_type TEXT NOT NULL,
+			reminder_id INTEGER NOT NULL,
+			chat_id TEXT NOT NULL,
+			requester_jid TEXT NOT NULL,
+			target_jid TEXT NOT NULL,
+			scheduled_for INTEGER NOT NULL,
+			delivered_at INTEGER NOT NULL,
+			created_at INTEGER NOT NULL
 		);
 		CREATE TABLE birthdays (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -112,7 +130,18 @@ func assertReminderCount(t *testing.T, database *sql.DB, want int) {
 	}
 }
 
-func TestRunOnceSendsDueReminderOnceAndDeletesIt(t *testing.T) {
+func assertActiveReminderCount(t *testing.T, database *sql.DB, want int) {
+	t.Helper()
+	var got int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM reminders WHERE active = 1`).Scan(&got); err != nil {
+		t.Fatalf("count active reminders: %v", err)
+	}
+	if got != want {
+		t.Fatalf("active reminder count = %d, want %d", got, want)
+	}
+}
+
+func TestRunOnceSendsDueReminderOnceAndDeactivatesIt(t *testing.T) {
 	database := openSchedulerDB(t)
 	now := time.Now().UTC()
 	insertReminder(t, database, now.Add(-time.Minute))
@@ -129,7 +158,8 @@ func TestRunOnceSendsDueReminderOnceAndDeletesIt(t *testing.T) {
 	if got := sender.count(); got != 1 {
 		t.Fatalf("sent messages = %d, want 1", got)
 	}
-	assertReminderCount(t, database, 0)
+	assertReminderCount(t, database, 1)
+	assertActiveReminderCount(t, database, 0)
 }
 
 func TestNewRegistryRegistersReminderAndBirthdayProviders(t *testing.T) {

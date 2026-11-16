@@ -96,6 +96,15 @@ func (cm *CommandManager) handleAdminHelp(ctx context.Context, client utils.Mess
 	return utils.ReplyToMessage(ctx, client, info.Chat, b.String(), info.ID, info.Sender)
 }
 
+func (cm *CommandManager) handleToneList(ctx context.Context, client utils.MessageSender, info types.MessageInfo, _ []string) error {
+	lines := cm.toneCatalog.ToneList()
+	text := "Tone indicators:"
+	if len(lines) > 0 {
+		text += "\n" + strings.Join(lines, "\n")
+	}
+	return utils.ReplyToMessage(ctx, client, info.Chat, text, info.ID, info.Sender)
+}
+
 func (cm *CommandManager) handleStatus(ctx context.Context, client utils.MessageSender, info types.MessageInfo, args []string) error {
 	status, err := cm.statusProvider.Status(ctx)
 	if err != nil {
@@ -551,19 +560,29 @@ func (cm *CommandManager) handleReminder(db *sql.DB, ctx context.Context, client
 
 	rawReminder := strings.TrimSpace(args[0])
 	mentions := commandCtx.Mentions
-	identityStore := identity.NewStore(db)
 	requesterName := info.PushName
-	requester, err := identityStore.GetByWhatsAppJID(ctx, commandCtx.SenderIdentity.String())
-	if err == nil {
-		requesterName = requester.CanonicalName
-	} else if !errors.Is(err, identity.ErrNotFound) {
-		return fmt.Errorf("resolve reminder requester: %w", err)
+	var identityStore *identity.Store
+	if db != nil {
+		identityStore = identity.NewStore(db)
+		requester, err := identityStore.GetByWhatsAppJID(
+			ctx, commandCtx.SenderIdentity.String(),
+		)
+		if err == nil {
+			requesterName = requester.CanonicalName
+		} else if !errors.Is(err, identity.ErrNotFound) {
+			return fmt.Errorf("resolve reminder requester: %w", err)
+		}
 	}
 
 	fields := strings.Fields(rawReminder)
 	if len(mentions) == 0 && len(fields) >= 3 &&
 		!strings.EqualFold(fields[0], "me") &&
 		(strings.EqualFold(fields[1], "to") || strings.EqualFold(fields[1], "about")) {
+		if identityStore == nil {
+			return utils.ReplyToMessage(
+				ctx, client, info.Chat, reminderUsage, info.ID, info.Sender,
+			)
+		}
 		person, err := identityStore.Get(ctx, strings.ToLower(fields[0]))
 		if errors.Is(err, identity.ErrNotFound) {
 			return utils.ReplyToMessage(
@@ -588,51 +607,70 @@ func (cm *CommandManager) handleReminder(db *sql.DB, ctx context.Context, client
 		mentions,
 		commandCtx.SenderIdentity,
 		requesterName,
-		time.Now(),
+		cm.now(),
 	)
 	if err != nil {
 		return utils.ReplyToMessage(ctx, client, info.Chat, reminderUsage, info.ID, info.Sender)
 	}
 
-	_, err = db.ExecContext(ctx,
-		"INSERT INTO reminders (chat_id, to_id, requested_by, message, remind_at) VALUES (?, ?, ?, ?, ?)",
+	recurrenceKind := utils.RecurrenceNone
+	var recurrenceWeekday any
+	if request.Recurrence.IsRecurring() {
+		recurrenceKind = request.Recurrence.Kind
+		if recurrenceKind == utils.RecurrenceWeekly {
+			recurrenceWeekday = int(request.Recurrence.Weekday)
+		}
+	}
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO reminders (
+			chat_id, to_id, requested_by, message, remind_at, body,
+			requester_name, recurrence_kind, recurrence_weekday, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`,
 		info.Chat.String(),
 		request.Target.String(),
 		request.Requester.String(),
 		reminderDeliveryMessage(request),
 		request.RemindAt,
+		request.Body,
+		request.RequesterName,
+		recurrenceKind,
+		recurrenceWeekday,
+		cm.now().UTC().UnixNano(),
 	)
 	if err != nil {
 		return utils.ReplyToMessage(ctx, client, info.Chat, "Failed to save reminder: "+err.Error(), info.ID, info.Sender)
 	}
 
 	resp := fmt.Sprintf("✅ Reminder set for %s: \"%s\"", request.RemindAt.Format("3:04PM Jan 2"), request.Body)
+	if request.Recurrence.IsRecurring() {
+		resp = fmt.Sprintf(
+			"✅ Repeating reminder set for %s (%s): %q",
+			request.RemindAt.Format("3:04PM Jan 2"),
+			request.Recurrence.Label(),
+			request.Body,
+		)
+	}
 	return utils.ReplyToMessage(ctx, client, info.Chat, resp, info.ID, info.Sender)
 }
 
 func reminderDeliveryMessage(request utils.ReminderRequest) string {
-	reminderTime := request.RemindAt.Format("3:04 PM")
-	if request.Target == request.Requester {
-		return fmt.Sprintf(
-			`@%s you asked me to remind you to %q at %s`,
-			request.Target.User,
-			request.Body,
-			reminderTime,
-		)
-	}
-	return fmt.Sprintf(
-		`@%s %s asked me to remind you to %q at %s`,
-		request.Target.User,
+	return utils.FormatReminderDelivery(
+		request.Target,
+		request.Requester,
 		request.RequesterName,
 		request.Body,
-		reminderTime,
+		request.RemindAt,
 	)
 }
 
 func (cm *CommandManager) handleRemindList(db *sql.DB, ctx context.Context, client utils.MessageSender, commandCtx CommandContext, args []string) error {
 	info := commandCtx.Info
 	rows, err := db.QueryContext(ctx,
-		"SELECT id, message, remind_at FROM reminders WHERE chat_id = ? AND requested_by = ? ORDER BY remind_at ASC",
+		`SELECT id, message, remind_at, recurrence_kind, recurrence_weekday
+		 FROM reminders
+		 WHERE chat_id = ? AND requested_by = ? AND active = 1
+		 ORDER BY remind_at ASC`,
 		info.Chat.String(), commandCtx.SenderIdentity.String(),
 	)
 	if err != nil {
@@ -645,10 +683,25 @@ func (cm *CommandManager) handleRemindList(db *sql.DB, ctx context.Context, clie
 		var id int
 		var msg string
 		var remindAt time.Time
-		if err := rows.Scan(&id, &msg, &remindAt); err != nil {
+		var recurrenceKind string
+		var recurrenceWeekday sql.NullInt64
+		if err := rows.Scan(
+			&id, &msg, &remindAt, &recurrenceKind, &recurrenceWeekday,
+		); err != nil {
 			return utils.ReplyToMessage(ctx, client, info.Chat, "Failed to retrieve reminders", info.ID, info.Sender)
 		}
-		response.WriteString(fmt.Sprintf("[ID: %d]: %s – %s\n", id, remindAt.Format("3:04PM Jan 2"), msg))
+		recurrence := recurrenceFromColumns(recurrenceKind, recurrenceWeekday)
+		label := ""
+		if recurrence.IsRecurring() {
+			label = " (" + recurrence.Label() + ")"
+		}
+		response.WriteString(fmt.Sprintf(
+			"[ID: %d]: %s%s – %s\n",
+			id,
+			remindAt.Format("3:04PM Jan 2"),
+			label,
+			msg,
+		))
 	}
 	if err := rows.Err(); err != nil {
 		return utils.ReplyToMessage(ctx, client, info.Chat, "Failed to retrieve reminders", info.ID, info.Sender)
@@ -673,8 +726,10 @@ func (cm *CommandManager) handleRemindDelete(db *sql.DB, ctx context.Context, cl
 	}
 
 	res, err := db.ExecContext(ctx,
-		"DELETE FROM reminders WHERE id = ? AND chat_id = ? AND requested_by = ?",
-		id, info.Chat.String(), commandCtx.SenderIdentity.String(),
+		`UPDATE reminders SET active = 0, updated_at = ?
+		 WHERE id = ? AND chat_id = ? AND requested_by = ? AND active = 1`,
+		cm.now().UTC().UnixNano(), id, info.Chat.String(),
+		commandCtx.SenderIdentity.String(),
 	)
 	if err != nil {
 		return utils.ReplyToMessage(ctx, client, info.Chat, "Failed to delete reminder.", info.ID, info.Sender)
@@ -708,7 +763,7 @@ func (cm *CommandManager) handleRemindUpdate(db *sql.DB, ctx context.Context, cl
 		nil,
 		commandCtx.SenderIdentity,
 		info.PushName,
-		time.Now(),
+		cm.now(),
 	)
 	if err != nil {
 		return utils.ReplyToMessage(ctx, client, info.Chat, "Failed to parse time or message.", info.ID, info.Sender)
@@ -731,9 +786,24 @@ func (cm *CommandManager) handleRemindUpdate(db *sql.DB, ctx context.Context, cl
 	}
 	request.Target = target.ToNonAD()
 
+	recurrenceKind := utils.RecurrenceNone
+	var recurrenceWeekday any
+	if request.Recurrence.IsRecurring() {
+		recurrenceKind = request.Recurrence.Kind
+		if recurrenceKind == utils.RecurrenceWeekly {
+			recurrenceWeekday = int(request.Recurrence.Weekday)
+		}
+	}
 	res, err := db.ExecContext(ctx,
-		"UPDATE reminders SET message = ?, remind_at = ? WHERE id = ? AND chat_id = ? AND requested_by = ?",
-		reminderDeliveryMessage(request), request.RemindAt, id, info.Chat.String(), commandCtx.SenderIdentity.String(),
+		`UPDATE reminders
+		 SET message = ?, remind_at = ?, body = ?, requester_name = ?,
+		     recurrence_kind = ?, recurrence_weekday = ?, active = 1,
+		     updated_at = ?
+		 WHERE id = ? AND chat_id = ? AND requested_by = ?`,
+		reminderDeliveryMessage(request), request.RemindAt, request.Body,
+		request.RequesterName, recurrenceKind, recurrenceWeekday,
+		cm.now().UTC().UnixNano(), id, info.Chat.String(),
+		commandCtx.SenderIdentity.String(),
 	)
 	if err != nil {
 		return utils.ReplyToMessage(ctx, client, info.Chat, "Failed to update reminder.", info.ID, info.Sender)

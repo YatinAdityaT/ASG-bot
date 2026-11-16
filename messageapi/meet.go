@@ -150,6 +150,15 @@ func (server *Server) processMeetReminder(
 			result.Reminder.RemindAt.In(location).Format("3:04 PM on Jan 2"),
 			result.Reminder.Body,
 		)
+		if result.Reminder.Recurrence.IsRecurring() {
+			acknowledgement = fmt.Sprintf(
+				"Repeating reminder set for %s at %s (%s): %q",
+				targetLabel,
+				result.Reminder.RemindAt.In(location).Format("3:04 PM on Jan 2"),
+				result.Reminder.Recurrence.Label(),
+				result.Reminder.Body,
+			)
+		}
 	}
 
 	_, queueErr := server.meet.QueueMessageWithID(

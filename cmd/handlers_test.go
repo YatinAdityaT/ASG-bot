@@ -29,12 +29,40 @@ type fakeMeetMessenger struct {
 	err      error
 }
 
+type fakeToneCatalog struct {
+	lines []string
+}
+
+func (f fakeToneCatalog) ToneList() []string {
+	return append([]string(nil), f.lines...)
+}
+
 func (f *fakeMeetMessenger) QueueMessage(_ context.Context, text string) (meetmonitor.Message, error) {
 	if f.err != nil {
 		return meetmonitor.Message{}, f.err
 	}
 	f.messages = append(f.messages, text)
 	return meetmonitor.Message{ID: "message-1", Text: text}, nil
+}
+
+func TestToneListUsesLoadedCatalog(t *testing.T) {
+	sender := &fakeSender{}
+	manager := NewCommandManager(
+		sender,
+		nil,
+		nil,
+		WithToneCatalog(fakeToneCatalog{lines: []string{
+			"/a — affectionate",
+			"/j — joking",
+		}}),
+	)
+
+	if err := manager.RouteMessage(nil, context.Background(), messageEvent("/tonelist")); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := sentText(t, sender), "Tone indicators:\n/a — affectionate\n/j — joking"; got != want {
+		t.Fatalf("reply = %q, want %q", got, want)
+	}
 }
 
 type fakeCallProvider struct {
@@ -159,7 +187,7 @@ func TestReminderCreateForMentionedRecipientStoresRequesterAndAttribution(t *tes
 	if requestedBy != "456@s.whatsapp.net" {
 		t.Errorf("requested_by = %q, want requesting sender", requestedBy)
 	}
-	if want := `@789 Yatin asked me to remind you to "Submit the form"`; message != want {
+	if want := `@789 Yatin asked me to remind you to "Submit the form" at 3:00 PM`; message != want {
 		t.Errorf("message = %q, want %q", message, want)
 	}
 	if got := sentText(t, sender); !strings.Contains(got, `Reminder set`) {
@@ -188,8 +216,39 @@ func TestReminderCreateForSelfUsesSelfAttribution(t *testing.T) {
 	if toID != "456@s.whatsapp.net" || requestedBy != "456@s.whatsapp.net" {
 		t.Errorf("to_id/requested_by = %q/%q, want requester JID", toID, requestedBy)
 	}
-	if want := `@456 you asked me to remind you to "Stretch"`; message != want {
-		t.Errorf("message = %q, want %q", message, want)
+	if !strings.HasPrefix(message, `@456 you asked me to remind you to "Stretch" at `) {
+		t.Errorf("message = %q, want reminder delivery time", message)
+	}
+}
+
+func TestReminderCreateStoresRecurringSeries(t *testing.T) {
+	conn := openTestDB(t)
+	sender := &fakeSender{}
+	manager := NewCommandManager(sender, nil, nil)
+
+	if err := manager.RouteMessage(
+		conn,
+		context.Background(),
+		messageEvent(`/remind me to eat every day at 2pm`),
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	var body, kind string
+	var weekday sql.NullInt64
+	var active int
+	if err := conn.QueryRow(`
+		SELECT body, recurrence_kind, recurrence_weekday, active
+		FROM reminders
+	`).Scan(&body, &kind, &weekday, &active); err != nil {
+		t.Fatal(err)
+	}
+	if body != "eat" || kind != "daily" || weekday.Valid || active != 1 {
+		t.Fatalf("series = body %q kind %q weekday %#v active %d", body, kind, weekday, active)
+	}
+	if got := sentText(t, sender); !strings.Contains(got, "Repeating reminder set") ||
+		!strings.Contains(got, "(every day)") {
+		t.Fatalf("confirmation = %q", got)
 	}
 }
 
@@ -214,7 +273,7 @@ func TestReminderCreateFallsBackToRequesterJIDUser(t *testing.T) {
 	if err := conn.QueryRow("SELECT message FROM reminders").Scan(&message); err != nil {
 		t.Fatal(err)
 	}
-	if want := `@789 456 asked me to remind you to "Submit the form"`; message != want {
+	if want := `@789 456 asked me to remind you to "Submit the form" at 3:00 PM`; message != want {
 		t.Fatalf("message = %q, want JID-user fallback %q", message, want)
 	}
 }
@@ -327,7 +386,7 @@ func TestReminderUpdateRequiresRequesterOwnershipAndPreservesTarget(t *testing.T
 				t.Fatalf("reminder count = %d, want %d", count, test.wantRowCount)
 			}
 			if test.wantUpdated {
-				if want := `@789 Yatin asked me to remind you to "updated"`; message != want {
+				if want := `@789 Yatin asked me to remind you to "updated" at 4:00 PM`; message != want {
 					t.Fatalf("updated message = %q, want %q", message, want)
 				}
 			}
@@ -337,12 +396,12 @@ func TestReminderUpdateRequiresRequesterOwnershipAndPreservesTarget(t *testing.T
 
 func TestReminderDeleteRequiresSenderOwnership(t *testing.T) {
 	for _, test := range []struct {
-		name      string
-		sender    string
-		wantCount int
+		name       string
+		sender     string
+		wantActive int
 	}{
-		{name: "owner can delete", sender: "456", wantCount: 0},
-		{name: "other sender cannot delete", sender: "789", wantCount: 1},
+		{name: "owner can delete", sender: "456", wantActive: 0},
+		{name: "other sender cannot delete", sender: "789", wantActive: 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			conn := openTestDB(t)
@@ -359,12 +418,12 @@ func TestReminderDeleteRequiresSenderOwnership(t *testing.T) {
 				t.Fatalf("delete reminder: %v", err)
 			}
 
-			var count int
-			if err := conn.QueryRow("SELECT COUNT(*) FROM reminders").Scan(&count); err != nil {
+			var active int
+			if err := conn.QueryRow("SELECT active FROM reminders").Scan(&active); err != nil {
 				t.Fatal(err)
 			}
-			if count != test.wantCount {
-				t.Fatalf("reminder count = %d, want %d", count, test.wantCount)
+			if active != test.wantActive {
+				t.Fatalf("reminder active = %d, want %d", active, test.wantActive)
 			}
 		})
 	}
@@ -472,6 +531,209 @@ func withMentions(evt *events.Message, pushName string, mentionedJIDs ...string)
 	return evt
 }
 
+func withQuotedMessage(evt *events.Message, stanzaID string) *events.Message {
+	text := evt.Message.GetConversation()
+	evt.Message = &waProto.Message{
+		ExtendedTextMessage: &waProto.ExtendedTextMessage{
+			Text: &text,
+			ContextInfo: &waProto.ContextInfo{
+				StanzaID: &stanzaID,
+			},
+		},
+	}
+	return evt
+}
+
+func TestSnoozeQuotedRecurringReminderShiftsSeriesOnce(t *testing.T) {
+	conn := openTestDB(t)
+	now := time.Date(2026, time.November, 16, 14, 5, 0, 0, time.Local)
+	result, err := conn.Exec(`
+		INSERT INTO reminders (
+			chat_id, to_id, requested_by, message, remind_at, body,
+			requester_name, recurrence_kind
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, "123@g.us", "789@s.whatsapp.net", "456@s.whatsapp.net",
+		"old", now.Add(24*time.Hour), "eat", "Yatin", "daily")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reminderID, _ := result.LastInsertId()
+	if _, err := conn.Exec(`
+		INSERT INTO reminder_deliveries (
+			message_id, source_type, reminder_id, chat_id, requester_jid,
+			target_jid, scheduled_for, delivered_at, created_at
+		) VALUES (?, 'whatsapp', ?, ?, ?, ?, ?, ?, ?)
+	`, "delivery-1", reminderID, "123@g.us", "456@s.whatsapp.net",
+		"789@s.whatsapp.net", now.Add(-5*time.Minute).UTC().UnixNano(),
+		now.UTC().UnixNano(), now.UTC().UnixNano()); err != nil {
+		t.Fatal(err)
+	}
+
+	manager := NewCommandManager(
+		&fakeSender{}, nil, nil, WithClock(func() time.Time { return now }),
+	)
+	sender := &fakeSender{}
+	manager.client = sender
+	event := withQuotedMessage(messageEvent("/snooze 30 minutes"), "delivery-1")
+	if err := manager.RouteMessage(conn, context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	var next time.Time
+	var active int
+	if err := conn.QueryRow(
+		"SELECT remind_at, active FROM reminders WHERE id = ?", reminderID,
+	).Scan(&next, &active); err != nil {
+		t.Fatal(err)
+	}
+	if want := now.Add(30 * time.Minute); !next.Equal(want) || active != 1 {
+		t.Fatalf("next/active = %v/%d, want %v/1", next, active, want)
+	}
+	if got := sentText(t, sender); !strings.Contains(got, "every day") {
+		t.Fatalf("reply = %q", got)
+	}
+
+	sender.messages = nil
+	if err := manager.RouteMessage(conn, context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	if got := sentText(t, sender); !strings.Contains(got, "already been used") {
+		t.Fatalf("second reply = %q", got)
+	}
+}
+
+func TestReminderReplyRejectsUnauthorizedSender(t *testing.T) {
+	conn := openTestDB(t)
+	now := time.Date(2026, time.November, 16, 14, 5, 0, 0, time.Local)
+	result, err := conn.Exec(`
+		INSERT INTO reminders (chat_id, to_id, requested_by, message, remind_at, active)
+		VALUES (?, ?, ?, ?, ?, 0)
+	`, "123@g.us", "789@s.whatsapp.net", "456@s.whatsapp.net",
+		"old", now.Add(-time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reminderID, _ := result.LastInsertId()
+	if _, err := conn.Exec(`
+		INSERT INTO reminder_deliveries (
+			message_id, source_type, reminder_id, chat_id, requester_jid,
+			target_jid, scheduled_for, delivered_at, created_at
+		) VALUES (?, 'whatsapp', ?, ?, ?, ?, ?, ?, ?)
+	`, "delivery-2", reminderID, "123@g.us", "456@s.whatsapp.net",
+		"789@s.whatsapp.net", now.Add(-time.Minute).UTC().UnixNano(),
+		now.UTC().UnixNano(), now.UTC().UnixNano()); err != nil {
+		t.Fatal(err)
+	}
+
+	sender := &fakeSender{}
+	manager := NewCommandManager(
+		sender, nil, nil, WithClock(func() time.Time { return now }),
+	)
+	event := withQuotedMessage(
+		messageEvent("/reschedule tomorrow at 3pm"), "delivery-2",
+	)
+	event.Info.Sender.User = "999"
+	if err := manager.RouteMessage(conn, context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	if got := sentText(t, sender); !strings.Contains(got, "requester or recipient") {
+		t.Fatalf("reply = %q", got)
+	}
+	var actedAt sql.NullInt64
+	if err := conn.QueryRow(
+		"SELECT acted_at FROM reminder_deliveries WHERE message_id = 'delivery-2'",
+	).Scan(&actedAt); err != nil {
+		t.Fatal(err)
+	}
+	if actedAt.Valid {
+		t.Fatal("unauthorized reply consumed delivery reference")
+	}
+}
+
+func TestRescheduleQuotedMeetReminderReactivatesSeries(t *testing.T) {
+	conn := openTestDB(t)
+	ctx := context.Background()
+	now := time.Date(2026, time.November, 16, 14, 5, 0, 0, time.Local)
+	identities := identity.NewStore(conn)
+	requester, err := identities.Add(
+		ctx, "yatin", "Yatin", "456@s.whatsapp.net", "Yatin T",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := identities.Add(
+		ctx, "disha", "Disha", "789@s.whatsapp.net", "Disha",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := conn.Exec(`
+		INSERT INTO meet_reminders (
+			source_key, meeting_code, requester_person_id, target_person_id,
+			whatsapp_chat_id, body, remind_at, whatsapp_delivered_at,
+			meet_status, completed_at, created_at, updated_at,
+			recurrence_kind, recurrence_weekday
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, 'weekly', ?)
+	`, "event-1", "jpy-ymgz-tdo", requester.ID, target.ID, "123@g.us",
+		"check in", now.UTC().UnixNano(), now.UTC().UnixNano(),
+		now.UTC().UnixNano(), now.UTC().UnixNano(), now.UTC().UnixNano(),
+		int(time.Monday))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reminderID, _ := result.LastInsertId()
+	if _, err := conn.Exec(`
+		INSERT INTO reminder_deliveries (
+			message_id, source_type, reminder_id, chat_id, requester_jid,
+			target_jid, scheduled_for, delivered_at, created_at
+		) VALUES (?, 'meet', ?, ?, ?, ?, ?, ?, ?)
+	`, "delivery-3", reminderID, "123@g.us", "456@s.whatsapp.net",
+		"789@s.whatsapp.net", now.UTC().UnixNano(),
+		now.UTC().UnixNano(), now.UTC().UnixNano()); err != nil {
+		t.Fatal(err)
+	}
+
+	sender := &fakeSender{}
+	manager := NewCommandManager(
+		sender, nil, nil, WithClock(func() time.Time { return now }),
+	)
+	event := withQuotedMessage(
+		messageEvent("/reschedule tomorrow at 3pm"), "delivery-3",
+	)
+	event.Info.Sender.User = "789"
+	if err := manager.RouteMessage(conn, ctx, event); err != nil {
+		t.Fatal(err)
+	}
+	var (
+		remindAt          int64
+		whatsAppDelivered sql.NullInt64
+		completedAt       sql.NullInt64
+		status            string
+		weekday           int
+	)
+	if err := conn.QueryRow(`
+		SELECT remind_at, whatsapp_delivered_at, meet_status, completed_at,
+		       recurrence_weekday
+		FROM meet_reminders WHERE id = ?
+	`, reminderID).Scan(
+		&remindAt, &whatsAppDelivered, &status, &completedAt, &weekday,
+	); err != nil {
+		t.Fatal(err)
+	}
+	want := time.Date(2026, time.November, 17, 15, 0, 0, 0, time.Local)
+	if time.Unix(0, remindAt).UTC() != want.UTC() ||
+		whatsAppDelivered.Valid || completedAt.Valid || status != "pending" ||
+		time.Weekday(weekday) != time.Tuesday {
+		t.Fatalf(
+			"row = %v/%v/%q/%v/%v",
+			time.Unix(0, remindAt), whatsAppDelivered, status, completedAt,
+			time.Weekday(weekday),
+		)
+	}
+	if got := sentText(t, sender); !strings.Contains(got, "every Tuesday") {
+		t.Fatalf("reply = %q", got)
+	}
+}
+
 func TestReminderHelpDocumentsMentionedReminderRules(t *testing.T) {
 	sender := &fakeSender{}
 	if err := NewCommandManager(sender, nil, nil).RouteMessage(
@@ -533,6 +795,8 @@ func TestStatusOnlineResponseExact(t *testing.T) {
 
 	want := strings.Join([]string{
 		"Bot: online",
+		"Started: 3 Nov 2026, 12:00 PM UTC",
+		"Uptime: 0s",
 		"WhatsApp: connected",
 		"Monitor: online",
 		"Last heartbeat: 12s ago",
@@ -547,6 +811,7 @@ func TestStatusOnlineResponseExact(t *testing.T) {
 }
 
 func TestStatusNeverSeenResponseExact(t *testing.T) {
+	now := time.Date(2026, time.November, 3, 12, 0, 0, 0, time.UTC)
 	provider := &fakeStatusProvider{
 		status: meetmonitor.Status{
 			BotOnline:         true,
@@ -556,7 +821,13 @@ func TestStatusNeverSeenResponseExact(t *testing.T) {
 		},
 	}
 	sender := &fakeSender{}
-	manager := NewCommandManager(sender, nil, nil, WithStatusProvider(provider))
+	manager := NewCommandManager(
+		sender,
+		nil,
+		nil,
+		WithStatusProvider(provider),
+		WithClock(func() time.Time { return now }),
+	)
 
 	if err := manager.RouteMessage(nil, context.Background(), messageEvent("/status")); err != nil {
 		t.Fatalf("RouteMessage() error = %v", err)
@@ -564,6 +835,8 @@ func TestStatusNeverSeenResponseExact(t *testing.T) {
 
 	want := strings.Join([]string{
 		"Bot: online",
+		"Started: 3 Nov 2026, 12:00 PM UTC",
+		"Uptime: 0s",
 		"WhatsApp: disconnected",
 		"Monitor: never seen",
 		"Last heartbeat: never",
@@ -607,6 +880,8 @@ func TestStatusOfflineResponseFormatsMinutesAndForwardingOff(t *testing.T) {
 
 	want := strings.Join([]string{
 		"Bot: offline",
+		"Started: 3 Nov 2026, 12:00 PM UTC",
+		"Uptime: 0s",
 		"WhatsApp: connected",
 		"Monitor: offline",
 		"Last heartbeat: 5m ago",

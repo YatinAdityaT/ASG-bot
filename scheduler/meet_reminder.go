@@ -15,6 +15,7 @@ import (
 	"whatsappBot/identity"
 	"whatsappBot/meetmonitor"
 	"whatsappBot/meetreminder"
+	"whatsappBot/reminderdelivery"
 	"whatsappBot/utils"
 )
 
@@ -113,7 +114,7 @@ func (t *MeetReminderTask) Run(ctx context.Context, sender utils.MessageSender) 
 	}
 	_, err = t.monitor.QueueMessageWithID(
 		ctx,
-		fmt.Sprintf("meet-reminder-%d", t.reminder.ID),
+		meetReminderQueueID(t.reminder.ID, t.reminder.RemindAt),
 		meetText,
 	)
 	if err != nil {
@@ -147,6 +148,7 @@ func (t *MeetReminderTask) sendWhatsApp(ctx context.Context, sender utils.Messag
 			t.reminder.RemindAt.In(time.Local).Format("3:04 PM"),
 		)
 	}
+	messageID := meetReminderMessageID(t.reminder.ID, t.reminder.RemindAt)
 	_, err = sender.SendMessage(
 		ctx,
 		chatID,
@@ -158,15 +160,34 @@ func (t *MeetReminderTask) sendWhatsApp(ctx context.Context, sender utils.Messag
 				},
 			},
 		},
-		whatsmeow.SendRequestExtra{ID: meetReminderMessageID(t.reminder.ID)},
+		whatsmeow.SendRequestExtra{ID: messageID},
 	)
 	if err != nil {
 		return fmt.Errorf("send Meet reminder %d to WhatsApp: %w", t.reminder.ID, err)
+	}
+	if err := t.store.RecordDelivery(ctx, reminderdelivery.Reference{
+		MessageID:    string(messageID),
+		SourceType:   reminderdelivery.SourceMeet,
+		ReminderID:   t.reminder.ID,
+		ChatID:       chatID.String(),
+		RequesterJID: t.reminder.Requester.WhatsAppJID,
+		TargetJID:    targetJID.String(),
+		ScheduledFor: t.reminder.RemindAt,
+		DeliveredAt:  t.now,
+	}); err != nil {
+		return fmt.Errorf("record Meet reminder %d delivery: %w", t.reminder.ID, err)
 	}
 	return nil
 }
 
 func (t *MeetReminderTask) complete(ctx context.Context, meetStatus string) error {
+	if t.reminder.Recurrence.IsRecurring() {
+		next := t.reminder.Recurrence.NextAfter(t.reminder.RemindAt, t.now)
+		if err := t.store.Advance(ctx, t.reminder.ID, meetStatus, next); err != nil {
+			return fmt.Errorf("advance Meet reminder %d: %w", t.reminder.ID, err)
+		}
+		return nil
+	}
 	if err := t.store.Complete(ctx, t.reminder.ID, meetStatus, t.now); err != nil {
 		return fmt.Errorf("complete Meet reminder %d: %w", t.reminder.ID, err)
 	}
@@ -181,7 +202,15 @@ func (t *MeetReminderTask) ID() string {
 	return fmt.Sprintf("meet-reminder-%d", t.reminder.ID)
 }
 
-func meetReminderMessageID(id int64) types.MessageID {
-	sum := sha256.Sum256([]byte(fmt.Sprintf("meet-reminder:%d:whatsapp", id)))
+func meetReminderMessageID(id int64, scheduledFor time.Time) types.MessageID {
+	sum := sha256.Sum256([]byte(fmt.Sprintf(
+		"meet-reminder:%d:%d:whatsapp",
+		id,
+		scheduledFor.UTC().UnixNano(),
+	)))
 	return types.MessageID(strings.ToUpper(hex.EncodeToString(sum[:10])))
+}
+
+func meetReminderQueueID(id int64, scheduledFor time.Time) string {
+	return fmt.Sprintf("meet-reminder-%d-%d", id, scheduledFor.UTC().UnixNano())
 }
