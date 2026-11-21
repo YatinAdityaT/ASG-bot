@@ -214,14 +214,31 @@
       const tabs = await chrome.tabs.query({ currentWindow: true });
       const isMeetTab = tab =>
         /^https:\/\/meet\.google\.com\//.test(tab?.url || '');
-      const tab = tabs.find(candidate => candidate.active && isMeetTab(candidate)) ||
-        tabs.find(isMeetTab);
-      activeTabId = Number.isInteger(tab?.id) ? tab.id : null;
-      const model = await chrome.runtime.sendMessage({
-        kind: 'getMonitorModel',
-        tabId: activeTabId
+      const candidates = await Promise.all(
+        tabs.filter(isMeetTab).map(async tab => ({
+          tab,
+          model: await chrome.runtime.sendMessage({
+            kind: 'getMonitorModel',
+            tabId: tab.id
+          })
+        }))
+      );
+      candidates.sort((left, right) => {
+        const leftElected = left.model?.content?.sourceTabId === left.tab.id;
+        const rightElected = right.model?.content?.sourceTabId === right.tab.id;
+        return Number(rightElected) - Number(leftElected) ||
+          Number(right.model?.content?.online) -
+            Number(left.model?.content?.online) ||
+          Number(right.model?.content?.lastObservedAt || 0) -
+            Number(left.model?.content?.lastObservedAt || 0) ||
+          Number(right.tab.lastAccessed || 0) -
+            Number(left.tab.lastAccessed || 0);
       });
-      renderModel(document, model, currentFilter);
+      const selected = candidates[0];
+      activeTabId = Number.isInteger(selected?.tab?.id)
+        ? selected.tab.id
+        : null;
+      renderModel(document, selected?.model, currentFilter);
     }
 
     const filter = document.getElementById('event-filter');

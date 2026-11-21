@@ -64,6 +64,17 @@
     .actions { flex-wrap: wrap; margin-top: 10px; }
     #permanent-error { color: #b42318; margin-top: 8px; min-height: 1.2em; }
     #empty-roster, #empty-history { color: GrayText; font-style: italic; }
+    @media (pointer: coarse) and (max-width: 1200px) {
+      :root { font-size: 24px; }
+      body { padding: 24px; }
+      h1 { font-size: 32px; }
+      h2 { font-size: 24px; margin-top: 28px; }
+      .muted, th, .event-meta { font-size: 18px; }
+      select, button { font-size: 20px; padding: 10px 14px; }
+      .card { padding: 16px; }
+      th, td { padding: 13px 16px; }
+      #timeline { max-height: 55vh; }
+    }
   </style>
 </head>
 <body>
