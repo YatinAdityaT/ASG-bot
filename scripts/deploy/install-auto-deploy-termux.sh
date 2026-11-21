@@ -92,6 +92,15 @@ EOF
 } >"$boot_launcher"
 chmod 700 "$boot_launcher"
 
+recovery_job_id=27182
+if command -v termux-job-scheduler >/dev/null 2>&1; then
+    termux-job-scheduler \
+        --job-id "$recovery_job_id" \
+        --script "$boot_launcher" \
+        --period-ms 900000 \
+        --persisted true
+fi
+
 supervisor_pid_path="$state_root/runtime/supervisor.pid"
 if [[ -f "$supervisor_pid_path" ]]; then
     supervisor_pid="$(tr -d '[:space:]' <"$supervisor_pid_path")"
@@ -133,5 +142,6 @@ echo "Termux auto-deploy installed."
 echo "Repository: $deploy_root"
 echo "State: $state_root"
 echo "Boot launcher: $boot_launcher"
+echo "Recovery job: $recovery_job_id (every 15 minutes)"
 echo "Deployment log: $state_root/logs/auto-deploy.log"
 echo "Bot output: $state_root/logs/bot.stdout.log"
