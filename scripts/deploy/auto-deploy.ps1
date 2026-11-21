@@ -61,6 +61,13 @@ try {
         -Arguments @("-C", $DeployRoot, "fetch", "origin", "master") `
         -WorkingDirectory $DeployRoot
     $remoteCommit = Get-GitValue @("rev-parse", "origin/master")
+    $activeTarget = Get-GitValue @(
+        "show",
+        "${remoteCommit}:scripts/deploy/active-bot-target.txt"
+    )
+    if ($activeTarget -notin @("windows", "termux")) {
+        throw "Invalid active bot target '$activeTarget'"
+    }
     $deployedCommit = Read-TrimmedFile -Path $deployedCommitPath
     $decision = Get-UpdateDecision -Deployed $deployedCommit -Remote $remoteCommit
     if ($decision -eq "current" -and -not (Test-Path -LiteralPath $currentExecutable)) {
@@ -72,11 +79,26 @@ try {
             remoteCommit   = $remoteCommit
             deployedCommit = $deployedCommit
             decision       = $decision
+            activeTarget   = $activeTarget
         } | ConvertTo-Json -Compress
         return
     }
 
     if ($decision -eq "current") {
+        if ($activeTarget -ne "windows") {
+            $running = Get-RecordedBotProcess `
+                -PIDPath $pidPath `
+                -ExpectedExecutable $currentExecutable
+            if ($null -ne $running) {
+                Stop-RecordedBot `
+                    -PIDPath $pidPath `
+                    -ExpectedExecutable $currentExecutable
+                Write-DeployLog `
+                    -Path $deployLog `
+                    -Message "stopped bot because active target is $activeTarget"
+            }
+            return
+        }
         $running = Get-RecordedBotProcess `
             -PIDPath $pidPath `
             -ExpectedExecutable $currentExecutable
@@ -134,6 +156,14 @@ try {
         Move-Item -LiteralPath $currentExecutable -Destination $previousExecutable -Force
     }
     Move-Item -LiteralPath $nextExecutable -Destination $currentExecutable -Force
+
+    if ($activeTarget -ne "windows") {
+        Set-Content -LiteralPath $deployedCommitPath -Value $remoteCommit -NoNewline
+        Write-DeployLog `
+            -Path $deployLog `
+            -Message "deployed commit $remoteCommit; bot inactive on windows"
+        return
+    }
 
     try {
         $process = Start-DeployedBot `

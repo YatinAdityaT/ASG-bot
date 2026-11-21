@@ -448,6 +448,17 @@ cat ~/.local/share/asg-bot-deploy/runtime/deployed-commit.txt
 The first WhatsApp pairing QR is written to `bot.stdout.log`. Display that log
 in Termux and scan the QR from the WhatsApp account's primary phone.
 
+#### Choose the active bot host
+
+Only the platform named in
+`scripts/deploy/active-bot-target.txt` runs the WhatsApp bot process. Valid
+values are `windows` and `termux`. Both auto-deployers continue pulling and
+building updates; the inactive host stops only its bot process, so the Windows
+Meet extension and deployment tasks remain available.
+
+To switch hosts, change the file to exactly one target, commit it, and push to
+`master`. Both hosts apply the selection on their next one-minute poll.
+
 ## Stop
 
 Press **Ctrl+C** in the running PowerShell window. The bot cancels its scheduler,

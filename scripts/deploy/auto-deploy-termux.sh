@@ -128,11 +128,27 @@ if ! git -C "$deploy_root" fetch origin master >>"$deploy_log" 2>&1; then
     exit 1
 fi
 remote_commit="$(git -C "$deploy_root" rev-parse origin/master)"
+active_target="$(
+    git -C "$deploy_root" show \
+        "${remote_commit}:scripts/deploy/active-bot-target.txt" |
+        tr -d '[:space:]'
+)"
+if [[ "$active_target" != "windows" && "$active_target" != "termux" ]]; then
+    log "deployment failed: invalid active bot target '$active_target'"
+    exit 1
+fi
 deployed_commit=""
 [[ -f "$deployed_commit_path" ]] &&
     deployed_commit="$(tr -d '[:space:]' <"$deployed_commit_path")"
 
 if [[ "$deployed_commit" == "$remote_commit" && -x "$current_binary" ]]; then
+    if [[ "$active_target" != "termux" ]]; then
+        if bot_is_running; then
+            stop_bot
+            log "stopped bot because active target is $active_target"
+        fi
+        exit 0
+    fi
     if ! bot_is_running; then
         if start_bot; then
             log "restarted current commit $remote_commit"
@@ -188,6 +204,12 @@ rm -f "$previous_binary"
 [[ -f "$current_binary" ]] && mv "$current_binary" "$previous_binary"
 mv "$next_binary" "$current_binary"
 chmod 700 "$current_binary"
+
+if [[ "$active_target" != "termux" ]]; then
+    printf '%s' "$remote_commit" >"$deployed_commit_path"
+    log "deployed commit $remote_commit; bot inactive on termux"
+    exit 0
+fi
 
 if ! start_bot; then
     rm -f "$current_binary" "$bot_pid_path"
