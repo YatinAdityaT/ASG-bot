@@ -37,6 +37,7 @@ bot_stdout="$log_dir/bot.stdout.log"
 bot_stderr="$log_dir/bot.stderr.log"
 config_path="$state_root/config.local.json"
 deployed_commit_path="$runtime_dir/deployed-commit.txt"
+deployed_config_hash_path="$runtime_dir/deployed-config-hash.txt"
 bot_pid_path="$runtime_dir/bot.pid"
 current_binary="$runtime_dir/asg-bot"
 next_binary="$runtime_dir/asg-bot.next"
@@ -152,6 +153,10 @@ fi
 deployed_commit=""
 [[ -f "$deployed_commit_path" ]] &&
     deployed_commit="$(tr -d '[:space:]' <"$deployed_commit_path")"
+config_hash="$(sha256sum "$config_path" | cut -d' ' -f1)"
+deployed_config_hash=""
+[[ -f "$deployed_config_hash_path" ]] &&
+    deployed_config_hash="$(tr -d '[:space:]' <"$deployed_config_hash_path")"
 
 if [[ "$deployed_commit" == "$remote_commit" && -x "$current_binary" ]]; then
     sync_mobile_extension
@@ -162,8 +167,20 @@ if [[ "$deployed_commit" == "$remote_commit" && -x "$current_binary" ]]; then
         fi
         exit 0
     fi
+    if bot_is_running && [[ "$deployed_config_hash" != "$config_hash" ]]; then
+        stop_bot
+        if start_bot; then
+            printf '%s' "$config_hash" >"$deployed_config_hash_path"
+            log "restarted current commit $remote_commit after config change"
+        else
+            log "deployment failed: bot exited after config change"
+            exit 1
+        fi
+        exit 0
+    fi
     if ! bot_is_running; then
         if start_bot; then
+            printf '%s' "$config_hash" >"$deployed_config_hash_path"
             log "restarted current commit $remote_commit"
         else
             log "deployment failed: current bot exited during startup"
@@ -221,6 +238,7 @@ chmod 700 "$current_binary"
 
 if [[ "$active_target" != "termux" ]]; then
     printf '%s' "$remote_commit" >"$deployed_commit_path"
+    printf '%s' "$config_hash" >"$deployed_config_hash_path"
     log "deployed commit $remote_commit; bot inactive on termux"
     exit 0
 fi
@@ -236,4 +254,5 @@ if ! start_bot; then
 fi
 
 printf '%s' "$remote_commit" >"$deployed_commit_path"
+printf '%s' "$config_hash" >"$deployed_config_hash_path"
 log "deployed commit $remote_commit"
