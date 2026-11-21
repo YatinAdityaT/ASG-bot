@@ -47,6 +47,18 @@ log() {
     printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >>"$deploy_log"
 }
 
+sync_mobile_extension() {
+    local script="$deploy_root/scripts/deploy/sync-meet-monitor-termux.sh"
+    if [[ ! -x "$script" ]]; then
+        return
+    fi
+    if ! "$script" \
+        --deploy-root "$deploy_root" \
+        --state-root "$state_root" >>"$deploy_log" 2>&1; then
+        log "warning: mobile Meet Monitor sync failed"
+    fi
+}
+
 read_pid() {
     local path="$1"
     [[ -f "$path" ]] || return 1
@@ -142,6 +154,7 @@ deployed_commit=""
     deployed_commit="$(tr -d '[:space:]' <"$deployed_commit_path")"
 
 if [[ "$deployed_commit" == "$remote_commit" && -x "$current_binary" ]]; then
+    sync_mobile_extension
     if [[ "$active_target" != "termux" ]]; then
         if bot_is_running; then
             stop_bot
@@ -199,6 +212,7 @@ if ! git -C "$deploy_root" merge --ff-only origin/master >>"$deploy_log" 2>&1; t
     exit 1
 fi
 
+sync_mobile_extension
 stop_bot
 rm -f "$previous_binary"
 [[ -f "$current_binary" ]] && mv "$current_binary" "$previous_binary"

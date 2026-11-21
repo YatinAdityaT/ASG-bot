@@ -65,6 +65,7 @@ chmod 600 "$destination_config"
 
 chmod 700 \
     "$deploy_root/scripts/deploy/auto-deploy-termux.sh" \
+    "$deploy_root/scripts/deploy/sync-meet-monitor-termux.sh" \
     "$deploy_root/scripts/deploy/supervise-termux.sh"
 
 exclude_path="$deploy_root/.git/info/exclude"

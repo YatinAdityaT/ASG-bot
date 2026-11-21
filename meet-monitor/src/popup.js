@@ -4,6 +4,9 @@ let currentModel = null;
 let activeTabId = null;
 let activeTabForMonitor = null;
 let activeTabAllowed = false;
+const sidePanelAvailable = Boolean(
+  chrome.sidePanel?.setOptions && chrome.sidePanel?.open
+);
 
 async function activeMeetTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -74,6 +77,7 @@ async function refresh() {
       tab.url,
       policy.monitoredMeetLinks
     );
+    $('#open-monitor').hidden = !sidePanelAvailable;
     $('#open-monitor').disabled = !activeTabAllowed;
     $('#monitor-status').textContent = tab && !activeTabAllowed
       ? 'This Meet code is not configured for monitoring.'
@@ -108,7 +112,7 @@ $('#csv').onclick = async () => {
 
 $('#opts').onclick = () => chrome.runtime.openOptionsPage();
 $('#open-monitor').onclick = async () => {
-  if (!activeTabForMonitor || !activeTabAllowed) return;
+  if (!sidePanelAvailable || !activeTabForMonitor || !activeTabAllowed) return;
   const status = $('#monitor-status');
   try {
     await chrome.sidePanel.setOptions({

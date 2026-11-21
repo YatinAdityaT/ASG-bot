@@ -44,9 +44,11 @@ const CONTENT_SCRIPT_FILES = [
 const MAX_HISTORY_SIZE = 1_000;
 const MAX_DEBUG_HISTORY_SIZE = 250;
 const MAX_SNAPSHOT_ATTEMPTS = 10;
-const storageProtection = chrome.storage.local.setAccessLevel({
-  accessLevel: 'TRUSTED_CONTEXTS'
-});
+const storageProtection = typeof chrome.storage.local.setAccessLevel === 'function'
+  ? chrome.storage.local.setAccessLevel({
+      accessLevel: 'TRUSTED_CONTEXTS'
+    })
+  : Promise.resolve();
 const managedConfigReady = storageProtection.then(applyManagedBotAPIConfig);
 let outboxOperation = Promise.resolve();
 let stateOperation = Promise.resolve();
