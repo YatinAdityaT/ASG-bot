@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"whatsappBot/bothealth"
 	"whatsappBot/cmd"
 	"whatsappBot/config"
 	"whatsappBot/db"
@@ -230,6 +231,26 @@ func runWithDependencies(ctx context.Context, cfg config.Config, deps runtimeDep
 	defer func() {
 		runErr = errors.Join(runErr, database.Close())
 	}()
+	startedAt := time.Now()
+	runtimeStore := bothealth.NewStore(database)
+	previousRun, err := runtimeStore.Begin(ctx, startedAt)
+	if err != nil {
+		return fmt.Errorf("begin bot runtime heartbeat: %w", err)
+	}
+	defer func() {
+		runErr = errors.Join(runErr, runtimeStore.Close())
+	}()
+	defer func() {
+		gracefulCtx, gracefulCancel := context.WithTimeout(
+			context.Background(),
+			5*time.Second,
+		)
+		defer gracefulCancel()
+		runErr = errors.Join(
+			runErr,
+			runtimeStore.MarkGraceful(gracefulCtx, time.Now()),
+		)
+	}()
 
 	var outboundStore *outbound.Store
 	if cfg.APIEnabled {
@@ -333,6 +354,25 @@ func runWithDependencies(ctx context.Context, cfg config.Config, deps runtimeDep
 		meetReminderStore,
 		monitorService,
 	)
+	var heartbeatQueue *outbound.Store
+	if cfg.APIEnabled && cfg.MeetNotificationGroup != "" {
+		heartbeatQueue = outbound.NewStore(
+			database,
+			cfg.MeetNotificationGroup,
+		)
+	}
+	heartbeatCtx, heartbeatCancel := context.WithCancel(
+		context.WithoutCancel(ctx),
+	)
+	heartbeatRunner := bothealth.NewRunner(runtimeStore, nil)
+	if heartbeatQueue != nil {
+		heartbeatRunner = bothealth.NewRunner(runtimeStore, heartbeatQueue)
+	}
+	heartbeatDone := heartbeatRunner.Start(
+		heartbeatCtx,
+		previousRun,
+		startedAt,
+	)
 	fmt.Println("Bot is running. Press Ctrl+C to exit.")
 
 	var apiErr error
@@ -363,6 +403,8 @@ func runWithDependencies(ctx context.Context, cfg config.Config, deps runtimeDep
 	}
 	schedulerCancel()
 	<-schedulerDone
+	heartbeatCancel()
+	<-heartbeatDone
 	fmt.Println("Shutting down bot...")
 	return apiErr
 }
