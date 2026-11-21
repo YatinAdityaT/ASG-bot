@@ -409,6 +409,45 @@ private environment file, change to the repository or binary directory, and
 start the bot and tunnel with logs redirected to private files. Test the
 launcher interactively before relying on reboot behavior.
 
+#### Termux auto-deploy
+
+The included Termux deployer polls `origin/master`, builds an update in a
+detached staging worktree, fast-forwards the checkout, restarts the bot, and
+rolls back the executable if the new process exits during startup. Mutable
+state, logs, the executable, and the private config are stored under
+`~/.local/share/asg-bot-deploy`.
+
+Use a phone-specific config. Its `dbPath` should be an absolute private Termux
+path such as `/data/data/com.termux/files/home/asg-bot/whatsmeow.db`. Initially
+use only the testing group and set `apiEnabled` to `false`; running two bot
+instances in the same groups produces duplicate responses.
+
+After installing and opening the Termux:Boot companion once:
+
+```sh
+cd /path/to/your/repository
+git pull
+pkg install git golang termux-api
+chmod +x scripts/deploy/*termux.sh
+./scripts/deploy/install-auto-deploy-termux.sh \
+  --config ./config.phone.json
+```
+
+The installer deploys immediately, starts a background supervisor, and creates
+`~/.termux/boot/asg-bot-auto-deploy`. Disable battery optimization and allow
+background activity for Termux, Termux:API, and Termux:Boot.
+
+Inspect status without keeping the bot attached to a terminal:
+
+```sh
+tail -f ~/.local/share/asg-bot-deploy/logs/auto-deploy.log
+tail -f ~/.local/share/asg-bot-deploy/logs/bot.stdout.log
+cat ~/.local/share/asg-bot-deploy/runtime/deployed-commit.txt
+```
+
+The first WhatsApp pairing QR is written to `bot.stdout.log`. Display that log
+in Termux and scan the QR from the WhatsApp account's primary phone.
+
 ## Stop
 
 Press **Ctrl+C** in the running PowerShell window. The bot cancels its scheduler,
