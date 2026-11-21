@@ -77,7 +77,7 @@ async function refresh() {
       tab.url,
       policy.monitoredMeetLinks
     );
-    $('#open-monitor').hidden = !sidePanelAvailable;
+    $('#open-monitor').hidden = false;
     $('#open-monitor').disabled = !activeTabAllowed;
     $('#monitor-status').textContent = tab && !activeTabAllowed
       ? 'This Meet code is not configured for monitoring.'
@@ -112,15 +112,21 @@ $('#csv').onclick = async () => {
 
 $('#opts').onclick = () => chrome.runtime.openOptionsPage();
 $('#open-monitor').onclick = async () => {
-  if (!sidePanelAvailable || !activeTabForMonitor || !activeTabAllowed) return;
+  if (!activeTabForMonitor || !activeTabAllowed) return;
   const status = $('#monitor-status');
   try {
-    await chrome.sidePanel.setOptions({
-      tabId: activeTabForMonitor.id,
-      path: 'src/side-panel.html',
-      enabled: true
-    });
-    await chrome.sidePanel.open({ tabId: activeTabForMonitor.id });
+    if (sidePanelAvailable) {
+      await chrome.sidePanel.setOptions({
+        tabId: activeTabForMonitor.id,
+        path: 'src/side-panel.html',
+        enabled: true
+      });
+      await chrome.sidePanel.open({ tabId: activeTabForMonitor.id });
+    } else {
+      await chrome.tabs.create({
+        url: chrome.runtime.getURL('src/side-panel.html')
+      });
+    }
     status.textContent = '';
   } catch (error) {
     status.textContent = `Could not open monitor: ${error?.message || 'unknown error'}`;

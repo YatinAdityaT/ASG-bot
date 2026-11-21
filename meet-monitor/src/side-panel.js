@@ -211,7 +211,11 @@
 
   async function start(document, chrome) {
     async function loadActiveModel() {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const tabs = await chrome.tabs.query({ currentWindow: true });
+      const isMeetTab = tab =>
+        /^https:\/\/meet\.google\.com\//.test(tab?.url || '');
+      const tab = tabs.find(candidate => candidate.active && isMeetTab(candidate)) ||
+        tabs.find(isMeetTab);
       activeTabId = Number.isInteger(tab?.id) ? tab.id : null;
       const model = await chrome.runtime.sendMessage({
         kind: 'getMonitorModel',
