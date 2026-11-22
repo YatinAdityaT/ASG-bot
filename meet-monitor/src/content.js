@@ -19,6 +19,64 @@
   let observer = null;
   let stopped = false;
   let chatOpened = false;
+  let displayBlackoutEnabled = false;
+  let screenWakeLock = null;
+  const BLACKOUT_ID = 'meet-monitor-display-blackout';
+
+  const releaseScreenWakeLock = async () => {
+    const lock = screenWakeLock;
+    screenWakeLock = null;
+    if (lock) await lock.release().catch(() => {});
+  };
+
+  const requestScreenWakeLock = async () => {
+    if (!displayBlackoutEnabled || document.visibilityState !== 'visible' ||
+        !navigator.wakeLock?.request) return;
+    await releaseScreenWakeLock();
+    screenWakeLock = await navigator.wakeLock.request('screen').catch(() => null);
+  };
+
+  const setDisplayBlackout = async enabled => {
+    displayBlackoutEnabled = enabled === true;
+    document.getElementById(BLACKOUT_ID)?.remove();
+    if (!displayBlackoutEnabled) {
+      await releaseScreenWakeLock();
+      return;
+    }
+
+    const overlay = document.createElement('div');
+    overlay.id = BLACKOUT_ID;
+    overlay.title = 'Tap to restore the Meet screen';
+    Object.assign(overlay.style, {
+      position: 'fixed',
+      inset: '0',
+      zIndex: 2147483647,
+      background: '#000',
+      color: '#777',
+      display: 'grid',
+      placeItems: 'center',
+      font: '18px system-ui',
+      cursor: 'pointer'
+    });
+    const hint = document.createElement('span');
+    hint.textContent = 'Screen kept awake · tap to restore';
+    overlay.append(hint);
+    overlay.addEventListener('click', () => setDisplayBlackout(false), {
+      once: true
+    });
+    document.body.append(overlay);
+    setTimeout(() => {
+      if (displayBlackoutEnabled && overlay.isConnected) hint.remove();
+    }, 5000);
+    await requestScreenWakeLock();
+  };
+
+  const handleVisibilityChange = () => {
+    if (displayBlackoutEnabled && document.visibilityState === 'visible') {
+      requestScreenWakeLock();
+    }
+  };
+  document.addEventListener('visibilitychange', handleVisibilityChange);
 
   const isContextInvalidated = error =>
     /extension context invalidated/i.test(error?.message || '');
@@ -35,6 +93,8 @@
     confirmationTimer = null;
     if (scanInterval !== null) clearInterval(scanInterval);
     scanInterval = null;
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+    setDisplayBlackout(false);
     if (window.__mmStop === stopStaleWork) window.__mmStop = null;
   };
   window.__mmStop = stopStaleWork;
@@ -277,6 +337,12 @@
       window.MMMeetChat.postMessage(document, msg.text)
         .then(sent => sendResponse({ sent }))
         .catch(() => sendResponse({ sent: false }));
+      return true;
+    }
+    if (msg.kind === 'setDisplayBlackout') {
+      setDisplayBlackout(msg.enabled)
+        .then(() => sendResponse({ applied: true }))
+        .catch(() => sendResponse({ applied: false }));
       return true;
     }
     if (msg.kind === 'getState') {

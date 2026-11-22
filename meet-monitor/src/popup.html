@@ -15,8 +15,9 @@
     #feed { font-family: monospace; font-size: 11px; background: #f7f7f7;
             border: 1px solid #e5e5e5; border-radius: 4px; padding: 6px;
             max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
-    #btns { display: flex; gap: 6px; margin-top: 8px; }
+    #btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
     button { flex: 1; padding: 6px 8px; font: inherit; cursor: pointer; }
+    #screen-mode { flex-basis: 100%; }
     #monitor-status { color: #b42318; font-size: 11px; min-height: 1.2em; margin-top: 5px; }
     #empty { color: #999; font-style: italic; }
   </style>
@@ -36,6 +37,7 @@
     <button id="open-monitor">Open Monitor</button>
     <button id="csv">Export CSV</button>
     <button id="opts">Options</button>
+    <button id="screen-mode">Dark Screen</button>
   </div>
   <div id="monitor-status" role="status"></div>
   <script src="meet-policy.js"></script>

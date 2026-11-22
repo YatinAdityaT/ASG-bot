@@ -12,6 +12,16 @@ test('toolbar action restores the Meet Monitor popup', () => {
   assert.ok(manifest.permissions.includes('tabs'));
 });
 
+test('mobile popup offers a dark screen wake-lock mode', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'src', 'popup.html'), 'utf8');
+  const source = fs.readFileSync(path.join(ROOT, 'src', 'popup.js'), 'utf8');
+  const content = fs.readFileSync(path.join(ROOT, 'src', 'content.js'), 'utf8');
+  assert.match(html, /id="screen-mode"/);
+  assert.match(source, /kind:\s*'setDisplayBlackout'/);
+  assert.match(content, /navigator\.wakeLock\.request\('screen'\)/);
+  assert.match(content, /meet-monitor-display-blackout/);
+});
+
 test('options page exposes comma-separated monitored Meet codes', () => {
   const html = fs.readFileSync(path.join(ROOT, 'src', 'options.html'), 'utf8');
   assert.match(html, /id="monitoredMeetLinks"/);

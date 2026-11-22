@@ -111,6 +111,17 @@ $('#csv').onclick = async () => {
 };
 
 $('#opts').onclick = () => chrome.runtime.openOptionsPage();
+const screenModeButton = $('#screen-mode');
+if (screenModeButton) {
+  screenModeButton.onclick = async () => {
+    if (!Number.isInteger(activeTabId)) return;
+    await chrome.tabs.sendMessage(activeTabId, {
+      kind: 'setDisplayBlackout',
+      enabled: true
+    }).catch(() => {});
+    window.close();
+  };
+}
 $('#open-monitor').onclick = async () => {
   if (!activeTabForMonitor || !activeTabAllowed) return;
   const status = $('#monitor-status');
