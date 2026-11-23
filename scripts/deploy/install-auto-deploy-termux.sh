@@ -64,8 +64,14 @@ fi
 chmod 600 "$destination_config"
 
 chmod 700 \
+    "$deploy_root/scripts/deploy/activate-headless-meet-termux.sh" \
     "$deploy_root/scripts/deploy/auto-deploy-termux.sh" \
+    "$deploy_root/scripts/deploy/check-headless-meet-termux.sh" \
+    "$deploy_root/scripts/deploy/headless-meet-browser.sh" \
+    "$deploy_root/scripts/deploy/install-headless-meet-termux.sh" \
+    "$deploy_root/scripts/deploy/run-headless-meet-termux.sh" \
     "$deploy_root/scripts/deploy/sync-meet-monitor-termux.sh" \
+    "$deploy_root/scripts/deploy/supervise-headless-meet-termux.sh" \
     "$deploy_root/scripts/deploy/supervise-termux.sh"
 
 exclude_path="$deploy_root/.git/info/exclude"

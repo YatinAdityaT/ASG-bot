@@ -66,14 +66,13 @@ try {
         "show",
         "${remoteCommit}:scripts/deploy/active-bot-target.txt"
     )
-    if ($activeTarget -notin @("windows", "termux")) {
-        throw "Invalid active bot target '$activeTarget'"
-    }
-    $desiredRuntimeMode = if ($activeTarget -eq "windows") {
-        "bot"
-    } else {
-        "monitor-relay"
-    }
+    $activeMonitorTarget = Get-GitValue @(
+        "show",
+        "${remoteCommit}:scripts/deploy/active-meet-monitor-target.txt"
+    )
+    $desiredRuntimeMode = Get-DesiredRuntimeMode `
+        -ActiveBotTarget $activeTarget `
+        -ActiveMonitorTarget $activeMonitorTarget
     $deployedCommit = Read-TrimmedFile -Path $deployedCommitPath
     $decision = Get-UpdateDecision -Deployed $deployedCommit -Remote $remoteCommit
     if ($decision -eq "current" -and -not (Test-Path -LiteralPath $currentExecutable)) {
@@ -86,6 +85,8 @@ try {
             deployedCommit = $deployedCommit
             decision       = $decision
             activeTarget   = $activeTarget
+            activeMonitorTarget = $activeMonitorTarget
+            runtimeMode    = $desiredRuntimeMode
         } | ConvertTo-Json -Compress
         return
     }
@@ -95,11 +96,21 @@ try {
             -PIDPath $pidPath `
             -ExpectedExecutable $currentExecutable
         $deployedRuntimeMode = Read-TrimmedFile -Path $runtimeModePath
-        if ($null -ne $running -and $deployedRuntimeMode -ne $desiredRuntimeMode) {
+        if ($null -ne $running -and (
+            $desiredRuntimeMode -eq "inactive" -or
+            $deployedRuntimeMode -ne $desiredRuntimeMode
+        )) {
             Stop-RecordedBot `
                 -PIDPath $pidPath `
                 -ExpectedExecutable $currentExecutable
             $running = $null
+        }
+        if ($desiredRuntimeMode -eq "inactive") {
+            Set-Content `
+                -LiteralPath $runtimeModePath `
+                -Value $desiredRuntimeMode `
+                -NoNewline
+            return
         }
         if ($null -eq $running) {
             if (-not (Test-Path -LiteralPath $configPath)) {
@@ -163,6 +174,15 @@ try {
     }
     Move-Item -LiteralPath $nextExecutable -Destination $currentExecutable -Force
 
+    if ($desiredRuntimeMode -eq "inactive") {
+        Set-Content -LiteralPath $deployedCommitPath -Value $remoteCommit -NoNewline
+        Set-Content -LiteralPath $runtimeModePath -Value $desiredRuntimeMode -NoNewline
+        Write-DeployLog `
+            -Path $deployLog `
+            -Message "deployed commit $remoteCommit; Windows runtime inactive"
+        return
+    }
+
     try {
         $process = Start-DeployedBot `
             -Executable $currentExecutable `
@@ -181,7 +201,7 @@ try {
         Remove-Item -LiteralPath $currentExecutable -Force -ErrorAction SilentlyContinue
         if (Test-Path -LiteralPath $previousExecutable) {
             Move-Item -LiteralPath $previousExecutable -Destination $currentExecutable -Force
-            if ($activeTarget -eq "windows") {
+            if ($desiredRuntimeMode -ne "inactive") {
                 Start-DeployedBot `
                     -Executable $currentExecutable `
                     -WorkingDirectory $DeployRoot `

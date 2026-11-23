@@ -185,6 +185,12 @@ func (server *Server) serveHTTP(writer http.ResponseWriter, request *http.Reques
 			return
 		}
 		server.submitMeetState(writer, request)
+	case request.URL.Path == "/v1/meet-status":
+		if request.Method != http.MethodGet {
+			methodNotAllowed(writer, http.MethodGet)
+			return
+		}
+		server.getMeetStatus(writer, request)
 	case request.URL.Path == "/v1/meet-command":
 		if request.Method != http.MethodGet {
 			methodNotAllowed(writer, http.MethodGet)

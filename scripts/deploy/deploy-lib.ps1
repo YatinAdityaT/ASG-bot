@@ -15,6 +15,29 @@ function Get-UpdateDecision {
     return "update"
 }
 
+function Get-DesiredRuntimeMode {
+    param(
+        [Parameter(Mandatory = $true)][string]$ActiveBotTarget,
+        [Parameter(Mandatory = $true)][string]$ActiveMonitorTarget
+    )
+    if ($ActiveBotTarget -notin @("windows", "termux")) {
+        throw "Invalid active bot target '$ActiveBotTarget'"
+    }
+    if ($ActiveMonitorTarget -notin @("windows", "termux")) {
+        throw "Invalid active Meet monitor target '$ActiveMonitorTarget'"
+    }
+    if ($ActiveMonitorTarget -eq "termux" -and $ActiveBotTarget -ne "termux") {
+        throw "Termux Meet monitor requires the Termux bot"
+    }
+    if ($ActiveBotTarget -eq "windows") {
+        return "bot"
+    }
+    if ($ActiveMonitorTarget -eq "windows") {
+        return "monitor-relay"
+    }
+    return "inactive"
+}
+
 function Invoke-Checked {
     param(
         [Parameter(Mandatory = $true)][string]$FilePath,

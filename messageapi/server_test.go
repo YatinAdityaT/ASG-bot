@@ -82,6 +82,24 @@ func TestAdditionalBearerTokenIsAccepted(t *testing.T) {
 	}
 }
 
+func TestMeetStatusRequiresMonitorService(t *testing.T) {
+	server, _ := newFixture(t, func() time.Time { return fixedNow })
+	response := authenticatedRequest(
+		t,
+		server.Handler(),
+		http.MethodGet,
+		"/v1/meet-status",
+		nil,
+		nil,
+	)
+	assertError(
+		t,
+		response,
+		http.StatusServiceUnavailable,
+		"meet_monitor_unavailable",
+	)
+}
+
 func TestCORSExactOriginAndPreflight(t *testing.T) {
 	server, _ := newFixture(t, func() time.Time { return fixedNow })
 
@@ -288,6 +306,7 @@ func TestUnsupportedMethodsAndPaths(t *testing.T) {
 		{http.MethodGet, "/v1/messages", http.StatusMethodNotAllowed, "method_not_allowed"},
 		{http.MethodGet, "/v1/meet-events", http.StatusMethodNotAllowed, "method_not_allowed"},
 		{http.MethodGet, "/v1/meet-state", http.StatusMethodNotAllowed, "method_not_allowed"},
+		{http.MethodPost, "/v1/meet-status", http.StatusMethodNotAllowed, "method_not_allowed"},
 		{http.MethodPost, "/v1/messages/1", http.StatusMethodNotAllowed, "method_not_allowed"},
 		{http.MethodGet, "/missing", http.StatusNotFound, "not_found"},
 		{http.MethodGet, "/v1/messages/not-a-number", http.StatusNotFound, "not_found"},

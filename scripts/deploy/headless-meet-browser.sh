@@ -1,0 +1,86 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+state_root="${ASG_HEADLESS_STATE:-/opt/asg-headless}"
+extension_root="${ASG_HEADLESS_EXTENSION:-$state_root/extension}"
+profile_root="${ASG_HEADLESS_PROFILE:-$state_root/profile}"
+meeting_code="${ASG_MEET_CODE:?ASG_MEET_CODE is required}"
+display_number="${ASG_HEADLESS_DISPLAY:-:99}"
+setup_mode="${ASG_HEADLESS_SETUP:-false}"
+cdp_port="${ASG_HEADLESS_CDP_PORT:-9222}"
+
+mkdir -p "$profile_root" "$state_root/runtime" "$state_root/logs"
+chmod 700 "$profile_root"
+
+if [[ ! -f "$extension_root/manifest.json" ]]; then
+    echo "Headless Meet extension is missing: $extension_root/manifest.json" >&2
+    exit 1
+fi
+if ! command -v chromium >/dev/null 2>&1; then
+    echo "Chromium is not installed in the Debian environment." >&2
+    exit 1
+fi
+
+display_pid=""
+browser_pid=""
+cleanup() {
+    [[ -n "$browser_pid" ]] && kill "$browser_pid" 2>/dev/null || true
+    [[ -n "$display_pid" ]] && kill "$display_pid" 2>/dev/null || true
+    wait "$browser_pid" "$display_pid" 2>/dev/null || true
+    rm -f "$state_root/runtime/chromium.pid" "$state_root/runtime/xvfb.pid"
+}
+trap cleanup EXIT INT TERM
+
+export DISPLAY="$display_number"
+if [[ "$setup_mode" != "true" ]]; then
+    rm -f \
+        "/tmp/.X${display_number#:}-lock" \
+        "/tmp/.X11-unix/X${display_number#:}"
+    Xvfb "$display_number" \
+        -screen 0 1280x720x24 \
+        -nolisten tcp \
+        -noreset \
+        >"$state_root/logs/xvfb.log" 2>&1 &
+    display_pid=$!
+    printf '%s' "$display_pid" >"$state_root/runtime/xvfb.pid"
+    for _ in {1..50}; do
+        [[ -S "/tmp/.X11-unix/X${display_number#:}" ]] && break
+        kill -0 "$display_pid" 2>/dev/null || {
+            echo "Xvfb exited during startup." >&2
+            exit 1
+        }
+        sleep 0.1
+    done
+fi
+
+rm -f \
+    "$profile_root/SingletonCookie" \
+    "$profile_root/SingletonLock" \
+    "$profile_root/SingletonSocket"
+chromium_flags=(
+    "--user-data-dir=$profile_root"
+    "--load-extension=$extension_root"
+    "--disable-extensions-except=$extension_root"
+    "--remote-debugging-address=127.0.0.1"
+    "--remote-debugging-port=$cdp_port"
+    "--no-sandbox"
+    "--disable-dev-shm-usage"
+    "--no-first-run"
+    "--no-default-browser-check"
+    "--disable-background-timer-throttling"
+    "--disable-backgrounding-occluded-windows"
+    "--disable-renderer-backgrounding"
+    "--renderer-process-limit=3"
+    "--window-size=1280,720"
+)
+if [[ "$setup_mode" != "true" ]]; then
+    chromium_flags+=("--disable-gpu")
+fi
+
+chromium \
+    "${chromium_flags[@]}" \
+    "https://meet.google.com/$meeting_code" \
+    >"$state_root/logs/chromium.log" 2>&1 &
+browser_pid=$!
+printf '%s' "$browser_pid" >"$state_root/runtime/chromium.pid"
+wait "$browser_pid"

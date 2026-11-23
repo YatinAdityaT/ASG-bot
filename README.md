@@ -459,6 +459,72 @@ Meet extension and deployment tasks remain available.
 To switch hosts, change the file to exactly one target, commit it, and push to
 `master`. Both hosts apply the selection on their next one-minute poll.
 
+#### Headless Meet Monitor on Termux
+
+The phone can run desktop Chromium inside Debian/proot on an Xvfb virtual
+display. This keeps the Meet page and extension rendered while Android's
+physical display is fully off. The WhatsApp bot host and Meet monitor host are
+selected independently:
+
+- `scripts/deploy/active-bot-target.txt` selects the WhatsApp bot.
+- `scripts/deploy/active-meet-monitor-target.txt` selects the Meet browser.
+
+Keep the bot target on `termux`. The monitor target defaults to `windows` so
+publishing the runtime does not activate an unconfigured phone or create
+duplicate events.
+
+With the phone connected, install the runtime:
+
+```powershell
+.\scripts\deploy\install-termux-x11-adb.ps1 `
+  -ApkPath C:\path\to\termux-x11-universal-release.apk
+```
+
+Use an official Termux:X11 APK from the Termux project and keep the APK version
+compatible with the `termux-x11-nightly` package installed in Termux.
+
+```sh
+cd ~/ASG-bot
+git pull
+chmod +x scripts/deploy/*termux.sh scripts/deploy/headless-meet-browser.sh
+./scripts/deploy/install-headless-meet-termux.sh \
+  --deploy-root "$PWD"
+```
+
+Install and open the Termux:X11 Android app. Perform the one-time visible
+Google login with the same persistent profile used by the headless runtime:
+
+```sh
+./scripts/deploy/run-headless-meet-termux.sh \
+  --deploy-root "$PWD" \
+  --setup
+```
+
+After confirming that Meet opens and the extension is loaded, close Chromium
+and mark the profile ready:
+
+```sh
+./scripts/deploy/activate-headless-meet-termux.sh \
+  --deploy-root "$PWD"
+```
+
+Change `scripts/deploy/active-meet-monitor-target.txt` to `termux`, commit, and
+push. The existing auto-deployer starts the headless browser supervisor without
+opening a terminal. Disable or close the old Vivaldi Meet tab before cutover.
+
+For a 30-minute physical-screen-off acceptance:
+
+```sh
+./scripts/deploy/check-headless-meet-termux.sh \
+  --deploy-root "$PWD" \
+  --duration 1800
+```
+
+Logs are private under
+`~/.local/share/asg-bot-deploy/headless-meet/logs`. To roll back without
+affecting the phone bot or its database, change only
+`active-meet-monitor-target.txt` back to `windows`.
+
 ## Stop
 
 Press **Ctrl+C** in the running PowerShell window. The bot cancels its scheduler,

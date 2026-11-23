@@ -44,6 +44,8 @@ current_binary="$runtime_dir/asg-bot"
 next_binary="$runtime_dir/asg-bot.next"
 previous_binary="$runtime_dir/asg-bot.previous"
 lock_dir="$runtime_dir/deploy.lock"
+headless_root="$state_root/headless-meet"
+headless_supervisor_pid_path="$headless_root/runtime/supervisor.pid"
 
 log() {
     printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >>"$deploy_log"
@@ -115,6 +117,55 @@ start_bot() {
     bot_is_running
 }
 
+headless_monitor_is_running() {
+    local pid
+    pid="$(read_pid "$headless_supervisor_pid_path")" || return 1
+    kill -0 "$pid" 2>/dev/null
+}
+
+stop_headless_monitor() {
+    local pid
+    pid="$(read_pid "$headless_supervisor_pid_path")" || {
+        rm -f "$headless_supervisor_pid_path"
+        return
+    }
+    kill "$pid" 2>/dev/null || true
+    for _ in {1..30}; do
+        kill -0 "$pid" 2>/dev/null || break
+        sleep 0.2
+    done
+    kill -KILL "$pid" 2>/dev/null || true
+    rm -f "$headless_supervisor_pid_path"
+}
+
+manage_headless_monitor() {
+    local target="$1"
+    local supervisor="$deploy_root/scripts/deploy/supervise-headless-meet-termux.sh"
+    if [[ "$target" != "termux" ]]; then
+        if headless_monitor_is_running; then
+            stop_headless_monitor
+            log "stopped headless Meet monitor because active target is $target"
+        fi
+        return
+    fi
+    if [[ ! -f "$headless_root/installed" ||
+          ! -f "$headless_root/profile-ready" ]]; then
+        return
+    fi
+    if [[ ! -x "$supervisor" ]]; then
+        log "warning: headless Meet supervisor is not executable"
+        return
+    fi
+    if ! headless_monitor_is_running; then
+        mkdir -p "$headless_root/logs" "$headless_root/runtime"
+        nohup "$supervisor" \
+            --deploy-root "$deploy_root" \
+            --state-root "$state_root" \
+            >>"$headless_root/logs/supervisor.log" 2>&1 </dev/null &
+        log "started headless Meet monitor supervisor"
+    fi
+}
+
 if [[ -d "$lock_dir" ]]; then
     existing_pid=""
     [[ -f "$lock_dir/pid" ]] && existing_pid="$(cat "$lock_dir/pid" 2>/dev/null || true)"
@@ -149,8 +200,23 @@ active_target="$(
         "${remote_commit}:scripts/deploy/active-bot-target.txt" |
         tr -d '[:space:]'
 )"
+active_monitor_target="$(
+    git -C "$deploy_root" show \
+        "${remote_commit}:scripts/deploy/active-meet-monitor-target.txt" |
+        tr -d '[:space:]'
+)"
 if [[ "$active_target" != "windows" && "$active_target" != "termux" ]]; then
     log "deployment failed: invalid active bot target '$active_target'"
+    exit 1
+fi
+if [[ "$active_monitor_target" != "windows" &&
+      "$active_monitor_target" != "termux" ]]; then
+    log "deployment failed: invalid active Meet monitor target '$active_monitor_target'"
+    exit 1
+fi
+if [[ "$active_monitor_target" == "termux" &&
+      "$active_target" != "termux" ]]; then
+    log "deployment failed: Termux Meet monitor requires the Termux bot"
     exit 1
 fi
 if [[ "$active_target" == "termux" ]] && ! command -v cloudflared >/dev/null 2>&1; then
@@ -170,6 +236,7 @@ deployed_config_hash=""
 
 if [[ "$deployed_commit" == "$remote_commit" && -x "$current_binary" ]]; then
     sync_mobile_extension
+    manage_headless_monitor "$active_monitor_target"
     if [[ "$active_target" != "termux" ]]; then
         if bot_is_running; then
             stop_bot
@@ -248,6 +315,7 @@ if ! git -C "$deploy_root" merge --ff-only origin/master >>"$deploy_log" 2>&1; t
 fi
 
 sync_mobile_extension
+manage_headless_monitor "$active_monitor_target"
 stop_bot
 rm -f "$previous_binary"
 [[ -f "$current_binary" ]] && mv "$current_binary" "$previous_binary"

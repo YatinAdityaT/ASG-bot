@@ -69,6 +69,48 @@ func TestMeetStateAcceptsBaselineAndQueuesChanges(t *testing.T) {
 	}
 }
 
+func TestMeetStatusReportsExtensionHeartbeat(t *testing.T) {
+	server, _ := newMeetStateFixture(t, true)
+	snapshot := meetStateSnapshot(1)
+	snapshot.ExtensionVersion = "1.12.6"
+	snapshot.Participants = []meetmonitor.Participant{{
+		ID: "participant-1", Name: "Alice", Cam: true, Mic: "muted",
+	}}
+	if response := postMeetState(t, server.Handler(), snapshot); response.Code != http.StatusOK {
+		t.Fatalf("baseline status = %d, body %q", response.Code, response.Body.String())
+	}
+
+	response := authenticatedRequest(
+		t,
+		server.Handler(),
+		http.MethodGet,
+		"/v1/meet-status",
+		nil,
+		nil,
+	)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %q", response.Code, response.Body.String())
+	}
+	var got struct {
+		MonitorState      string     `json:"monitorState"`
+		LastHeartbeatAt   *time.Time `json:"lastHeartbeatAt"`
+		Meeting           string     `json:"meeting"`
+		Participants      int        `json:"participants"`
+		ForwardingEnabled bool       `json:"forwardingEnabled"`
+		ExtensionVersion  string     `json:"extensionVersion"`
+	}
+	decodeResponse(t, response, &got)
+	if got.MonitorState != "online" ||
+		got.LastHeartbeatAt == nil ||
+		!got.LastHeartbeatAt.Equal(fixedNow) ||
+		got.Meeting != meetStateMeeting ||
+		got.Participants != 1 ||
+		!got.ForwardingEnabled ||
+		got.ExtensionVersion != "1.12.6" {
+		t.Fatalf("Meet status = %#v", got)
+	}
+}
+
 func TestMeetStateReportsLiveConnectivity(t *testing.T) {
 	for _, connected := range []bool{true, false} {
 		t.Run(fmt.Sprintf("connected=%t", connected), func(t *testing.T) {

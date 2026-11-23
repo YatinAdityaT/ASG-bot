@@ -16,6 +16,26 @@ function Assert-Equal {
 Assert-Equal (Get-UpdateDecision -Deployed "abc" -Remote "abc") "current" "same commit"
 Assert-Equal (Get-UpdateDecision -Deployed "abc" -Remote "def") "update" "changed commit"
 Assert-Equal (Get-UpdateDecision -Deployed "" -Remote "def") "bootstrap" "first deployment"
+Assert-Equal `
+    (Get-DesiredRuntimeMode -ActiveBotTarget "windows" -ActiveMonitorTarget "windows") `
+    "bot" `
+    "Windows bot and monitor"
+Assert-Equal `
+    (Get-DesiredRuntimeMode -ActiveBotTarget "termux" -ActiveMonitorTarget "windows") `
+    "monitor-relay" `
+    "Windows monitor relay"
+Assert-Equal `
+    (Get-DesiredRuntimeMode -ActiveBotTarget "termux" -ActiveMonitorTarget "termux") `
+    "inactive" `
+    "fully inactive Windows runtime"
+
+$invalidSplitFailed = $false
+try {
+    Get-DesiredRuntimeMode -ActiveBotTarget "windows" -ActiveMonitorTarget "termux"
+} catch {
+    $invalidSplitFailed = $true
+}
+Assert-Equal $invalidSplitFailed $true "Termux monitor requires Termux bot"
 
 $emptyRemoteFailed = $false
 try {
