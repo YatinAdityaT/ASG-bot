@@ -15,6 +15,7 @@ $logDirectory = Join-Path $DeployRoot "logs"
 $deployLog = Join-Path $logDirectory "auto-deploy.log"
 $deployedCommitPath = Join-Path $runtimeDirectory "deployed-commit.txt"
 $pidPath = Join-Path $runtimeDirectory "bot.pid"
+$runtimeModePath = Join-Path $runtimeDirectory "runtime-mode.txt"
 $currentExecutable = Join-Path $runtimeDirectory "asg-bot.exe"
 $nextExecutable = Join-Path $runtimeDirectory "asg-bot.next.exe"
 $previousExecutable = Join-Path $runtimeDirectory "asg-bot.previous.exe"
@@ -68,6 +69,11 @@ try {
     if ($activeTarget -notin @("windows", "termux")) {
         throw "Invalid active bot target '$activeTarget'"
     }
+    $desiredRuntimeMode = if ($activeTarget -eq "windows") {
+        "bot"
+    } else {
+        "monitor-relay"
+    }
     $deployedCommit = Read-TrimmedFile -Path $deployedCommitPath
     $decision = Get-UpdateDecision -Deployed $deployedCommit -Remote $remoteCommit
     if ($decision -eq "current" -and -not (Test-Path -LiteralPath $currentExecutable)) {
@@ -85,23 +91,16 @@ try {
     }
 
     if ($decision -eq "current") {
-        if ($activeTarget -ne "windows") {
-            $running = Get-RecordedBotProcess `
-                -PIDPath $pidPath `
-                -ExpectedExecutable $currentExecutable
-            if ($null -ne $running) {
-                Stop-RecordedBot `
-                    -PIDPath $pidPath `
-                    -ExpectedExecutable $currentExecutable
-                Write-DeployLog `
-                    -Path $deployLog `
-                    -Message "stopped bot because active target is $activeTarget"
-            }
-            return
-        }
         $running = Get-RecordedBotProcess `
             -PIDPath $pidPath `
             -ExpectedExecutable $currentExecutable
+        $deployedRuntimeMode = Read-TrimmedFile -Path $runtimeModePath
+        if ($null -ne $running -and $deployedRuntimeMode -ne $desiredRuntimeMode) {
+            Stop-RecordedBot `
+                -PIDPath $pidPath `
+                -ExpectedExecutable $currentExecutable
+            $running = $null
+        }
         if ($null -eq $running) {
             if (-not (Test-Path -LiteralPath $configPath)) {
                 throw "Missing config.local.json in deployment checkout"
@@ -111,8 +110,15 @@ try {
                 -WorkingDirectory $DeployRoot `
                 -PIDPath $pidPath `
                 -StdoutPath $stdoutPath `
-                -StderrPath $stderrPath | Out-Null
-            Write-DeployLog -Path $deployLog -Message "restarted current commit $remoteCommit"
+                -StderrPath $stderrPath `
+                -RuntimeMode $desiredRuntimeMode | Out-Null
+            Set-Content `
+                -LiteralPath $runtimeModePath `
+                -Value $desiredRuntimeMode `
+                -NoNewline
+            Write-DeployLog `
+                -Path $deployLog `
+                -Message "restarted current commit $remoteCommit in $desiredRuntimeMode mode"
         }
         return
     }
@@ -157,21 +163,14 @@ try {
     }
     Move-Item -LiteralPath $nextExecutable -Destination $currentExecutable -Force
 
-    if ($activeTarget -ne "windows") {
-        Set-Content -LiteralPath $deployedCommitPath -Value $remoteCommit -NoNewline
-        Write-DeployLog `
-            -Path $deployLog `
-            -Message "deployed commit $remoteCommit; bot inactive on windows"
-        return
-    }
-
     try {
         $process = Start-DeployedBot `
             -Executable $currentExecutable `
             -WorkingDirectory $DeployRoot `
             -PIDPath $pidPath `
             -StdoutPath $stdoutPath `
-            -StderrPath $stderrPath
+            -StderrPath $stderrPath `
+            -RuntimeMode $desiredRuntimeMode
         Start-Sleep -Seconds 2
         $running = Get-Process -Id $process.Id -ErrorAction SilentlyContinue
         if ($null -eq $running -or $running.HasExited) {
@@ -182,18 +181,27 @@ try {
         Remove-Item -LiteralPath $currentExecutable -Force -ErrorAction SilentlyContinue
         if (Test-Path -LiteralPath $previousExecutable) {
             Move-Item -LiteralPath $previousExecutable -Destination $currentExecutable -Force
-            Start-DeployedBot `
-                -Executable $currentExecutable `
-                -WorkingDirectory $DeployRoot `
-                -PIDPath $pidPath `
-                -StdoutPath $stdoutPath `
-                -StderrPath $stderrPath | Out-Null
+            if ($activeTarget -eq "windows") {
+                Start-DeployedBot `
+                    -Executable $currentExecutable `
+                    -WorkingDirectory $DeployRoot `
+                    -PIDPath $pidPath `
+                    -StdoutPath $stdoutPath `
+                    -StderrPath $stderrPath `
+                    -RuntimeMode $desiredRuntimeMode | Out-Null
+            }
         }
         throw
     }
 
     Set-Content -LiteralPath $deployedCommitPath -Value $remoteCommit -NoNewline
-    Write-DeployLog -Path $deployLog -Message "deployed commit $remoteCommit"
+    Set-Content `
+        -LiteralPath $runtimeModePath `
+        -Value $desiredRuntimeMode `
+        -NoNewline
+    Write-DeployLog `
+        -Path $deployLog `
+        -Message "deployed commit $remoteCommit in $desiredRuntimeMode mode"
 } catch {
     Write-DeployLog -Path $deployLog -Message "deployment failed: $($_.Exception.Message)"
     throw

@@ -33,6 +33,7 @@ type Server struct {
 	presenceJobs meetmonitor.JobCreator
 	meet         *meetmonitor.Service
 	reminders    *meetreminder.Service
+	bearerTokens []string
 	now          func() time.Time
 	limiter      *fixedWindowLimiter
 }
@@ -54,6 +55,14 @@ func WithMeetReminders(service *meetreminder.Service) Option {
 	}
 }
 
+func WithAdditionalBearerToken(token string) Option {
+	return func(server *Server) {
+		if strings.TrimSpace(token) != "" {
+			server.bearerTokens = append(server.bearerTokens, token)
+		}
+	}
+}
+
 func New(cfg config.Config, store *outbound.Store, now func() time.Time, options ...Option) *Server {
 	if now == nil {
 		now = time.Now
@@ -62,6 +71,7 @@ func New(cfg config.Config, store *outbound.Store, now func() time.Time, options
 		config:       cfg,
 		store:        store,
 		presenceJobs: store,
+		bearerTokens: []string{cfg.APIToken},
 		now:          now,
 		limiter:      newFixedWindowLimiter(now),
 	}
@@ -145,7 +155,7 @@ func (server *Server) serveHTTP(writer http.ResponseWriter, request *http.Reques
 		return
 	}
 
-	if !bearerTokenMatches(request, server.config.APIToken) {
+	if !anyBearerTokenMatches(request, server.bearerTokens) {
 		writeError(writer, http.StatusUnauthorized, "unauthorized", "unauthorized")
 		return
 	}

@@ -162,14 +162,21 @@ function Start-DeployedBot {
         [Parameter(Mandatory = $true)][string]$WorkingDirectory,
         [Parameter(Mandatory = $true)][string]$PIDPath,
         [Parameter(Mandatory = $true)][string]$StdoutPath,
-        [Parameter(Mandatory = $true)][string]$StderrPath
+        [Parameter(Mandatory = $true)][string]$StderrPath,
+        [string]$RuntimeMode = "bot"
     )
-    $process = Start-Process -FilePath $Executable `
-        -WorkingDirectory $WorkingDirectory `
-        -RedirectStandardOutput $StdoutPath `
-        -RedirectStandardError $StderrPath `
-        -WindowStyle Hidden `
-        -PassThru
+    $previousMode = $env:ASG_BOT_RUNTIME_MODE
+    try {
+        $env:ASG_BOT_RUNTIME_MODE = $RuntimeMode
+        $process = Start-Process -FilePath $Executable `
+            -WorkingDirectory $WorkingDirectory `
+            -RedirectStandardOutput $StdoutPath `
+            -RedirectStandardError $StderrPath `
+            -WindowStyle Hidden `
+            -PassThru
+    } finally {
+        $env:ASG_BOT_RUNTIME_MODE = $previousMode
+    }
     Set-Content -LiteralPath $PIDPath -Value $process.Id -NoNewline
     return $process
 }

@@ -227,7 +227,7 @@ func TestMeetStateCORSAndSharedRateLimit(t *testing.T) {
 	if health.Code != http.StatusOK {
 		t.Fatalf("health status = %d, body %q", health.Code, health.Body.String())
 	}
-	for i := 0; i < 29; i++ {
+	for i := 0; i < 119; i++ {
 		response := authenticatedRequestFrom(t, rateServer.Handler(), "192.0.2.10:1234", http.MethodPost, "/v1/meet-state",
 			strings.NewReader(body), map[string]string{"Content-Type": "application/json"})
 		if response.Code != http.StatusOK {

@@ -20,6 +20,7 @@ import (
 	"whatsappBot/meetreminder"
 	"whatsappBot/messageapi"
 	"whatsappBot/outbound"
+	"whatsappBot/relay"
 	"whatsappBot/scheduler"
 	"whatsappBot/tone"
 	"whatsappBot/utils"
@@ -195,13 +196,24 @@ func defaultRuntimeDependencies() runtimeDependencies {
 			return store.RecoverSending(ctx)
 		},
 		startAPI: func(ctx context.Context, cfg config.Config, store *outbound.Store, service *meetmonitor.Service, reminders *meetreminder.Service) <-chan error {
-			return messageapi.New(
-				cfg,
-				store,
-				time.Now,
+			options := []messageapi.Option{
 				messageapi.WithMeetService(service),
 				messageapi.WithMeetReminders(reminders),
-			).Start(ctx)
+			}
+			if os.Getenv("ASG_BOT_RUNTIME_MODE") == "phone-bot" {
+				settings, err := relay.Load(relay.RoleTermux, cfg.APIToken)
+				if err != nil {
+					done := make(chan error, 1)
+					done <- err
+					close(done)
+					return done
+				}
+				options = append(
+					options,
+					messageapi.WithAdditionalBearerToken(settings.BearerToken()),
+				)
+			}
+			return messageapi.New(cfg, store, time.Now, options...).Start(ctx)
 		},
 		startScheduler: func(ctx context.Context, database *sql.DB, sender utils.MessageSender, outboundStore *outbound.Store, reminderStore *meetreminder.Store, monitor *meetmonitor.Service) <-chan struct{} {
 			registry := scheduler.NewRegistry(database, outboundStore)
@@ -483,7 +495,30 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if err := run(ctx, cfg); err != nil && !errors.Is(err, context.Canceled) {
+	runtimeMode := os.Getenv("ASG_BOT_RUNTIME_MODE")
+	if runtimeMode == "monitor-relay" {
+		err = relay.RunWindowsGateway(
+			ctx,
+			cfg.APIAddr,
+			cfg.APIToken,
+			os.Stdout,
+		)
+	} else {
+		if runtimeMode == "phone-bot" {
+			go func() {
+				if tunnelErr := relay.RunPhoneTunnel(
+					ctx,
+					cfg.APIToken,
+					"http://"+cfg.APIAddr,
+					os.Stdout,
+				); tunnelErr != nil && !errors.Is(tunnelErr, context.Canceled) {
+					fmt.Fprintf(os.Stderr, "Meet relay tunnel error: %v\n", tunnelErr)
+				}
+			}()
+		}
+		err = run(ctx, cfg)
+	}
+	if err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(os.Stderr, "Startup error: %v\n", err)
 		os.Exit(1)
 	}

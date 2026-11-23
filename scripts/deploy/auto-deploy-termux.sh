@@ -39,6 +39,7 @@ config_path="$state_root/config.local.json"
 deployed_commit_path="$runtime_dir/deployed-commit.txt"
 deployed_config_hash_path="$runtime_dir/deployed-config-hash.txt"
 bot_pid_path="$runtime_dir/bot.pid"
+runtime_mode_path="$runtime_dir/runtime-mode.txt"
 current_binary="$runtime_dir/asg-bot"
 next_binary="$runtime_dir/asg-bot.next"
 previous_binary="$runtime_dir/asg-bot.previous"
@@ -104,7 +105,9 @@ start_bot() {
     fi
     (
         cd "$deploy_root"
-        nohup env ASG_BOT_CONFIG_FILE="$config_path" \
+        nohup env \
+            ASG_BOT_CONFIG_FILE="$config_path" \
+            ASG_BOT_RUNTIME_MODE="phone-bot" \
             "$current_binary" >>"$bot_stdout" 2>>"$bot_stderr" </dev/null &
         echo "$!" >"$bot_pid_path"
     )
@@ -150,6 +153,13 @@ if [[ "$active_target" != "windows" && "$active_target" != "termux" ]]; then
     log "deployment failed: invalid active bot target '$active_target'"
     exit 1
 fi
+if [[ "$active_target" == "termux" ]] && ! command -v cloudflared >/dev/null 2>&1; then
+    log "installing cloudflared for the remote Meet relay"
+    if ! pkg install -y cloudflared >>"$deploy_log" 2>&1; then
+        log "deployment failed: cloudflared installation failed"
+        exit 1
+    fi
+fi
 deployed_commit=""
 [[ -f "$deployed_commit_path" ]] &&
     deployed_commit="$(tr -d '[:space:]' <"$deployed_commit_path")"
@@ -165,13 +175,20 @@ if [[ "$deployed_commit" == "$remote_commit" && -x "$current_binary" ]]; then
             stop_bot
             log "stopped bot because active target is $active_target"
         fi
+        printf '%s' "inactive" >"$runtime_mode_path"
         exit 0
     fi
-    if bot_is_running && [[ "$deployed_config_hash" != "$config_hash" ]]; then
+    deployed_runtime_mode=""
+    [[ -f "$runtime_mode_path" ]] &&
+        deployed_runtime_mode="$(tr -d '[:space:]' <"$runtime_mode_path")"
+    if bot_is_running &&
+        [[ "$deployed_config_hash" != "$config_hash" ||
+           "$deployed_runtime_mode" != "phone-bot" ]]; then
         stop_bot
         if start_bot; then
             printf '%s' "$config_hash" >"$deployed_config_hash_path"
-            log "restarted current commit $remote_commit after config change"
+            printf '%s' "phone-bot" >"$runtime_mode_path"
+            log "restarted current commit $remote_commit after runtime/config change"
         else
             log "deployment failed: bot exited after config change"
             exit 1
@@ -181,6 +198,7 @@ if [[ "$deployed_commit" == "$remote_commit" && -x "$current_binary" ]]; then
     if ! bot_is_running; then
         if start_bot; then
             printf '%s' "$config_hash" >"$deployed_config_hash_path"
+            printf '%s' "phone-bot" >"$runtime_mode_path"
             log "restarted current commit $remote_commit"
         else
             log "deployment failed: current bot exited during startup"
@@ -239,6 +257,7 @@ chmod 700 "$current_binary"
 if [[ "$active_target" != "termux" ]]; then
     printf '%s' "$remote_commit" >"$deployed_commit_path"
     printf '%s' "$config_hash" >"$deployed_config_hash_path"
+    printf '%s' "inactive" >"$runtime_mode_path"
     log "deployed commit $remote_commit; bot inactive on termux"
     exit 0
 fi
@@ -255,4 +274,5 @@ fi
 
 printf '%s' "$remote_commit" >"$deployed_commit_path"
 printf '%s' "$config_hash" >"$deployed_config_hash_path"
+printf '%s' "phone-bot" >"$runtime_mode_path"
 log "deployed commit $remote_commit"

@@ -56,6 +56,32 @@ func TestAuthenticationIsRequiredAndGeneric(t *testing.T) {
 	}
 }
 
+func TestAdditionalBearerTokenIsAccepted(t *testing.T) {
+	_, store := newFixture(t, func() time.Time { return fixedNow })
+	cfg := config.Config{
+		APIAddr:        "127.0.0.1:0",
+		APIToken:       apiToken,
+		APITargetGroup: targetGroup,
+	}
+	server := messageapi.New(
+		cfg,
+		store,
+		func() time.Time { return fixedNow },
+		messageapi.WithAdditionalBearerToken("relay-token"),
+	)
+	response := request(
+		t,
+		server.Handler(),
+		http.MethodGet,
+		"/healthz",
+		nil,
+		map[string]string{"Authorization": "Bearer relay-token"},
+	)
+	if response.Code != http.StatusOK {
+		t.Fatalf("relay token status = %d, want 200", response.Code)
+	}
+}
+
 func TestCORSExactOriginAndPreflight(t *testing.T) {
 	server, _ := newFixture(t, func() time.Time { return fixedNow })
 
@@ -273,11 +299,11 @@ func TestUnsupportedMethodsAndPaths(t *testing.T) {
 	}
 }
 
-func TestRateLimitIsThirtyRequestsPerMinutePerRemoteAddress(t *testing.T) {
+func TestRateLimitIsEnforcedPerMinutePerRemoteAddress(t *testing.T) {
 	now := fixedNow
 	server, _ := newFixture(t, func() time.Time { return now })
 
-	for i := 0; i < 30; i++ {
+	for i := 0; i < 120; i++ {
 		response := authenticatedRequestFrom(t, server.Handler(), "192.0.2.1:1234", http.MethodGet, "/healthz", nil, nil)
 		if response.Code != http.StatusOK {
 			t.Fatalf("request %d status = %d", i+1, response.Code)

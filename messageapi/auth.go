@@ -24,3 +24,13 @@ func bearerTokenMatches(request *http.Request, expected string) bool {
 	expectedDigest := sha256.Sum256([]byte(expected))
 	return validFormat&subtle.ConstantTimeCompare(presentedDigest[:], expectedDigest[:]) == 1
 }
+
+func anyBearerTokenMatches(request *http.Request, expected []string) bool {
+	matched := 0
+	for _, token := range expected {
+		if bearerTokenMatches(request, token) {
+			matched = 1
+		}
+	}
+	return matched == 1
+}
