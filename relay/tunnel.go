@@ -159,10 +159,18 @@ func publishAnnouncement(
 	if err != nil {
 		return err
 	}
+	return publishBrokerMessage(ctx, settings.PublishURL(), message)
+}
+
+func publishBrokerMessage(
+	ctx context.Context,
+	publishURL string,
+	message string,
+) error {
 	request, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodPost,
-		settings.PublishURL(),
+		publishURL,
 		bytes.NewBufferString(message),
 	)
 	if err != nil {

@@ -49,6 +49,7 @@ func RunWindowsGateway(
 	}
 	endpoint := &endpointState{}
 	go subscribeToDiscovery(ctx, settings, endpoint, logOutput)
+	go publishGatewayStatus(ctx, settings, logOutput)
 
 	listener, err := net.Listen("tcp", apiAddr)
 	if err != nil {
@@ -80,6 +81,32 @@ func RunWindowsGateway(
 		shutdownErr := server.Shutdown(shutdownCtx)
 		serverErr := <-done
 		return errors.Join(serverErr, shutdownErr)
+	}
+}
+
+func publishGatewayStatus(
+	ctx context.Context,
+	settings Settings,
+	logOutput io.Writer,
+) {
+	ticker := time.NewTicker(announcementInterval)
+	defer ticker.Stop()
+	for {
+		message, err := settings.SealAnnouncement(Announcement{
+			URL:       "windows-gateway",
+			Published: time.Now().UTC(),
+		})
+		if err == nil {
+			err = publishBrokerMessage(ctx, settings.GatewayStatusURL(), message)
+		}
+		if err != nil && ctx.Err() == nil {
+			fmt.Fprintf(logOutput, "Meet relay gateway heartbeat failed: %v\n", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
 	}
 }
 

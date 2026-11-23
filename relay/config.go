@@ -115,6 +115,12 @@ func (settings Settings) DiscoveryTopic() string {
 	return "asg-" + hex.EncodeToString(mac.Sum(nil))[:40]
 }
 
+func (settings Settings) GatewayStatusTopic() string {
+	mac := hmac.New(sha256.New, settings.secret)
+	_, _ = mac.Write([]byte("asg-remote-relay-gateway-status-v1"))
+	return "asg-" + hex.EncodeToString(mac.Sum(nil))[:40]
+}
+
 func (settings Settings) BearerToken() string {
 	mac := hmac.New(sha256.New, settings.secret)
 	_, _ = mac.Write([]byte("asg-remote-relay-bearer-v1"))
@@ -123,6 +129,10 @@ func (settings Settings) BearerToken() string {
 
 func (settings Settings) PublishURL() string {
 	return settings.broker + "/" + settings.DiscoveryTopic()
+}
+
+func (settings Settings) GatewayStatusURL() string {
+	return settings.broker + "/" + settings.GatewayStatusTopic()
 }
 
 func (settings Settings) SubscribeURL() string {
