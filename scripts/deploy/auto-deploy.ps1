@@ -23,21 +23,6 @@ $stdoutPath = Join-Path $logDirectory "bot.stdout.log"
 $stderrPath = Join-Path $logDirectory "bot.stderr.log"
 $configPath = Join-Path $DeployRoot "config.local.json"
 $lockPath = Join-Path $runtimeDirectory "deploy.lock"
-$diagnosticURL = "https://ntfy.sh/asg-deploy-diagnostic-7f4a3c91d2e84b6f"
-
-function Send-DeployDiagnostic {
-    param([Parameter(Mandatory = $true)][string]$Status)
-    try {
-        Invoke-WebRequest `
-            -UseBasicParsing `
-            -Method Post `
-            -Uri $diagnosticURL `
-            -Body $Status `
-            -TimeoutSec 10 | Out-Null
-    } catch {
-        # Diagnostics must never interrupt deployment.
-    }
-}
 
 if (-not (Test-Path -LiteralPath (Join-Path $DeployRoot ".git"))) {
     throw "DeployRoot is not a Git checkout: $DeployRoot"
@@ -84,7 +69,6 @@ try {
     if ($activeTarget -notin @("windows", "termux")) {
         throw "Invalid active bot target '$activeTarget'"
     }
-    Send-DeployDiagnostic -Status "cycle:${remoteCommit}:$activeTarget"
     $desiredRuntimeMode = if ($activeTarget -eq "windows") {
         "bot"
     } else {
@@ -135,7 +119,6 @@ try {
             Write-DeployLog `
                 -Path $deployLog `
                 -Message "restarted current commit $remoteCommit in $desiredRuntimeMode mode"
-            Send-DeployDiagnostic -Status "started:${remoteCommit}:$desiredRuntimeMode"
         }
         return
     }
@@ -219,10 +202,8 @@ try {
     Write-DeployLog `
         -Path $deployLog `
         -Message "deployed commit $remoteCommit in $desiredRuntimeMode mode"
-    Send-DeployDiagnostic -Status "started:${remoteCommit}:$desiredRuntimeMode"
 } catch {
     Write-DeployLog -Path $deployLog -Message "deployment failed: $($_.Exception.Message)"
-    Send-DeployDiagnostic -Status "failed"
     throw
 } finally {
     if ($null -ne $lock) {
