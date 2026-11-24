@@ -76,6 +76,7 @@ chromium_flags=(
     "--disable-backgrounding-occluded-windows"
     "--disable-renderer-backgrounding"
     "--disable-gpu"
+    "--disable-software-rasterizer"
     "--disable-vulkan"
     "--renderer-process-limit=3"
     "--window-size=1280,720"
