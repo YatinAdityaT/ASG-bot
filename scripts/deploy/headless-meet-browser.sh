@@ -78,6 +78,7 @@ chromium_flags=(
     "--disable-gpu"
     "--disable-software-rasterizer"
     "--disable-vulkan"
+    "--in-process-gpu"
     "--renderer-process-limit=3"
     "--window-size=1280,720"
 )
