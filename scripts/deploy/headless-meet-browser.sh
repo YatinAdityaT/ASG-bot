@@ -107,8 +107,7 @@ fi
 
 # Google Play Termux injects libtermux-exec through LD_PRELOAD. Chromium's
 # isolated utility processes cannot access that library namespace.
-unset LD_PRELOAD
-dbus-run-session -- "${browser_command[@]}" \
+dbus-run-session -- env -u LD_PRELOAD "${browser_command[@]}" \
     "${chromium_flags[@]}" \
     "https://meet.google.com/$meeting_code" \
     >"$state_root/logs/chromium.log" 2>&1 &
