@@ -105,6 +105,9 @@ if [[ "$trace_mode" == "true" ]]; then
     )
 fi
 
+# Google Play Termux injects libtermux-exec through LD_PRELOAD. Chromium's
+# isolated utility processes cannot access that library namespace.
+unset LD_PRELOAD
 dbus-run-session -- "${browser_command[@]}" \
     "${chromium_flags[@]}" \
     "https://meet.google.com/$meeting_code" \
