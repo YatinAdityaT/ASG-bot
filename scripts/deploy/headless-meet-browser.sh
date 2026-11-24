@@ -16,10 +16,12 @@ if [[ ! -f "$extension_root/manifest.json" ]]; then
     echo "Headless Meet extension is missing: $extension_root/manifest.json" >&2
     exit 1
 fi
-if ! command -v chromium >/dev/null 2>&1; then
-    echo "Chromium is not installed in the Debian environment." >&2
-    exit 1
-fi
+for command_name in chromium dbus-run-session; do
+    if ! command -v "$command_name" >/dev/null 2>&1; then
+        echo "Required browser command is missing: $command_name" >&2
+        exit 1
+    fi
+done
 
 display_pid=""
 browser_pid=""
@@ -77,7 +79,7 @@ if [[ "$setup_mode" != "true" ]]; then
     chromium_flags+=("--disable-gpu")
 fi
 
-chromium \
+dbus-run-session -- chromium \
     "${chromium_flags[@]}" \
     "https://meet.google.com/$meeting_code" \
     >"$state_root/logs/chromium.log" 2>&1 &
