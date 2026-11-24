@@ -88,6 +88,10 @@ chromium_flags=(
     "--disable-renderer-backgrounding"
     "--disable-gpu"
     "--disable-vulkan"
+    "--in-process-gpu"
+    "--single-process"
+    "--enable-features=NetworkServiceInProcess"
+    "--no-proxy-server"
     "--renderer-process-limit=3"
     "--window-size=1280,720"
 )
@@ -106,8 +110,10 @@ if [[ "$trace_mode" == "true" ]]; then
 fi
 
 # Google Play Termux injects libtermux-exec through LD_PRELOAD. Chromium's
-# isolated utility processes cannot access that library namespace.
-dbus-run-session -- env -u LD_PRELOAD "${browser_command[@]}" \
+# isolated utility processes cannot access that library namespace, so keep
+# services in the browser process instead of removing the preload Chromium
+# itself needs on Google Play Termux.
+dbus-run-session -- "${browser_command[@]}" \
     "${chromium_flags[@]}" \
     "https://meet.google.com/$meeting_code" \
     >"$state_root/logs/chromium.log" 2>&1 &
