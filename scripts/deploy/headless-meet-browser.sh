@@ -81,6 +81,7 @@ chromium_flags=(
     "--in-process-gpu"
     "--single-process"
     "--enable-features=NetworkServiceInProcess"
+    "--no-proxy-server"
     "--renderer-process-limit=3"
     "--window-size=1280,720"
 )
