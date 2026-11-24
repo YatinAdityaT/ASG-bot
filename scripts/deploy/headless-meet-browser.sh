@@ -8,6 +8,7 @@ meeting_code="${ASG_MEET_CODE:?ASG_MEET_CODE is required}"
 display_number="${ASG_HEADLESS_DISPLAY:-:99}"
 setup_mode="${ASG_HEADLESS_SETUP:-false}"
 cdp_port="${ASG_HEADLESS_CDP_PORT:-9222}"
+trace_mode="${ASG_HEADLESS_TRACE:-false}"
 
 mkdir -p "$profile_root" "$state_root/runtime" "$state_root/logs"
 chmod 700 "$profile_root"
@@ -80,7 +81,20 @@ chromium_flags=(
     "--window-size=1280,720"
 )
 
-dbus-run-session -- chromium \
+browser_command=(chromium)
+if [[ "$trace_mode" == "true" ]]; then
+    command -v strace >/dev/null 2>&1 || {
+        echo "Browser tracing requested, but strace is missing." >&2
+        exit 1
+    }
+    browser_command=(
+        strace -f -s 256
+        -o "$state_root/logs/chromium.strace"
+        chromium
+    )
+fi
+
+dbus-run-session -- "${browser_command[@]}" \
     "${chromium_flags[@]}" \
     "https://meet.google.com/$meeting_code" \
     >"$state_root/logs/chromium.log" 2>&1 &

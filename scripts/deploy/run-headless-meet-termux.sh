@@ -101,6 +101,7 @@ common_args=(
     "ASG_HEADLESS_PROFILE=/opt/asg-headless/profile"
     "ASG_MEET_CODE=$meeting_code"
     "ASG_HEADLESS_CDP_PORT=9222"
+    "ASG_HEADLESS_TRACE=${ASG_HEADLESS_TRACE:-false}"
 )
 
 if ! $setup_mode; then
