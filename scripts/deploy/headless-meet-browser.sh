@@ -72,12 +72,11 @@ chromium_flags=(
     "--disable-background-timer-throttling"
     "--disable-backgrounding-occluded-windows"
     "--disable-renderer-backgrounding"
+    "--disable-gpu"
+    "--disable-vulkan"
     "--renderer-process-limit=3"
     "--window-size=1280,720"
 )
-if [[ "$setup_mode" != "true" ]]; then
-    chromium_flags+=("--disable-gpu")
-fi
 
 dbus-run-session -- chromium \
     "${chromium_flags[@]}" \
