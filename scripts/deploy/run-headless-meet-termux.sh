@@ -58,7 +58,7 @@ if ! $setup_mode && [[ ! -f "$headless_root/profile-ready" ]]; then
     echo "Google Meet profile setup is incomplete. Run with --setup first." >&2
     exit 1
 fi
-for command_name in proot-distro python; do
+for command_name in python; do
     command -v "$command_name" >/dev/null 2>&1 || {
         echo "Missing command: $command_name" >&2
         exit 1
@@ -88,24 +88,19 @@ if $check_only; then
 fi
 
 chmod 700 "$profile_root" "$headless_root" 2>/dev/null || true
-browser_script="/opt/asg-repo/scripts/deploy/headless-meet-browser.sh"
+browser_script="$deploy_root/scripts/deploy/headless-meet-browser.sh"
 common_args=(
-    login debian
-    --shared-tmp
-    --bind "$deploy_root:/opt/asg-repo"
-    --bind "$headless_root:/opt/asg-headless"
-    --
     env
-    "ASG_HEADLESS_STATE=/opt/asg-headless"
-    "ASG_HEADLESS_EXTENSION=/opt/asg-headless/extension"
-    "ASG_HEADLESS_PROFILE=/opt/asg-headless/profile"
+    "ASG_HEADLESS_STATE=$headless_root"
+    "ASG_HEADLESS_EXTENSION=$extension_root"
+    "ASG_HEADLESS_PROFILE=$profile_root"
     "ASG_MEET_CODE=$meeting_code"
     "ASG_HEADLESS_CDP_PORT=9222"
     "ASG_HEADLESS_TRACE=${ASG_HEADLESS_TRACE:-false}"
 )
 
 if ! $setup_mode; then
-    exec proot-distro "${common_args[@]}" \
+    exec "${common_args[@]}" \
         ASG_HEADLESS_DISPLAY=:99 \
         ASG_HEADLESS_SETUP=false \
         "$browser_script"
@@ -125,7 +120,7 @@ trap cleanup EXIT INT TERM
 am start -n com.termux.x11/.MainActivity >/dev/null 2>&1 || true
 sleep 2
 
-proot-distro "${common_args[@]}" \
+"${common_args[@]}" \
     ASG_HEADLESS_DISPLAY=:0 \
     ASG_HEADLESS_SETUP=true \
     "$browser_script"

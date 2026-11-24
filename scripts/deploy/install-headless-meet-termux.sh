@@ -26,7 +26,6 @@ deploy_root="$(cd "$deploy_root" && pwd -P)"
 mkdir -p "$state_root"
 state_root="$(cd "$state_root" && pwd -P)"
 headless_root="$state_root/headless-meet"
-rootfs="$PREFIX/var/lib/proot-distro/installed-rootfs/debian"
 
 if ! command -v pkg >/dev/null 2>&1; then
     echo "This installer must run inside Termux." >&2
@@ -38,36 +37,13 @@ if [[ ! -f "$state_root/config.local.json" ]]; then
 fi
 
 echo "Installing Termux headless-browser prerequisites..."
-pkg install -y proot-distro python curl jq util-linux x11-repo
-pkg install -y termux-x11-nightly
-
-if [[ ! -d "$rootfs" ]]; then
-    proot-distro install debian
-fi
-
-echo "Installing Chromium and virtual-display packages in Debian..."
-proot-distro login debian -- \
-    env DEBIAN_FRONTEND=noninteractive \
-    bash -lc \
-    'apt-get update &&
-     apt-get install -y --no-install-recommends \
-       chromium xvfb dbus-x11 \
-       fonts-liberation fonts-noto-color-emoji \
-       ca-certificates curl procps &&
-     apt-get clean'
-
-policy_json='{
-  "AudioCaptureAllowed": false,
-  "VideoCaptureAllowed": false,
-  "DefaultGeolocationSetting": 2,
-  "DefaultNotificationsSetting": 2
-}'
-proot-distro login debian -- \
-    env "ASG_CHROMIUM_POLICY=$policy_json" \
-    bash -lc \
-    'mkdir -p /etc/chromium/policies/managed &&
-     printf "%s\n" "$ASG_CHROMIUM_POLICY" \
-       > /etc/chromium/policies/managed/asg-meet.json'
+pkg install -y python curl jq util-linux x11-repo tur-repo
+pkg update -y
+pkg install -y \
+    chromium \
+    dbus \
+    termux-x11-nightly \
+    xorg-server-xvfb
 
 mkdir -p \
     "$headless_root/extension" \
@@ -86,13 +62,10 @@ chmod 700 \
     --deploy-root "$deploy_root" \
     --state-root "$state_root"
 
-chromium_version="$(
-    proot-distro login debian -- chromium --version 2>/dev/null ||
-        printf 'unknown'
-)"
+chromium_version="$(chromium --version 2>/dev/null || printf 'unknown')"
 {
     printf 'installed_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    printf 'distro=debian\n'
+    printf 'runtime=termux-native\n'
     printf 'chromium=%s\n' "$chromium_version"
 } >"$headless_root/installed"
 chmod 600 "$headless_root/installed"

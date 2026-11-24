@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -Eeuo pipefail
 
 state_root="${ASG_HEADLESS_STATE:-/opt/asg-headless}"
@@ -17,7 +17,18 @@ if [[ ! -f "$extension_root/manifest.json" ]]; then
     echo "Headless Meet extension is missing: $extension_root/manifest.json" >&2
     exit 1
 fi
-for command_name in chromium dbus-run-session; do
+chromium_command=""
+for candidate in chromium chromium-browser; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+        chromium_command="$candidate"
+        break
+    fi
+done
+if [[ -z "$chromium_command" ]]; then
+    echo "Required browser command is missing: chromium" >&2
+    exit 1
+fi
+for command_name in dbus-run-session; do
     if ! command -v "$command_name" >/dev/null 2>&1; then
         echo "Required browser command is missing: $command_name" >&2
         exit 1
@@ -36,9 +47,10 @@ trap cleanup EXIT INT TERM
 
 export DISPLAY="$display_number"
 if [[ "$setup_mode" != "true" ]]; then
+    x11_socket_root="${TMPDIR:-/tmp}/.X11-unix"
     rm -f \
-        "/tmp/.X${display_number#:}-lock" \
-        "/tmp/.X11-unix/X${display_number#:}"
+        "${TMPDIR:-/tmp}/.X${display_number#:}-lock" \
+        "$x11_socket_root/X${display_number#:}"
     Xvfb "$display_number" \
         -screen 0 1280x720x24 \
         -nolisten tcp \
@@ -47,7 +59,7 @@ if [[ "$setup_mode" != "true" ]]; then
     display_pid=$!
     printf '%s' "$display_pid" >"$state_root/runtime/xvfb.pid"
     for _ in {1..50}; do
-        [[ -S "/tmp/.X11-unix/X${display_number#:}" ]] && break
+        [[ -S "$x11_socket_root/X${display_number#:}" ]] && break
         kill -0 "$display_pid" 2>/dev/null || {
             echo "Xvfb exited during startup." >&2
             exit 1
@@ -67,7 +79,6 @@ chromium_flags=(
     "--remote-debugging-address=127.0.0.1"
     "--remote-debugging-port=$cdp_port"
     "--no-sandbox"
-    "--no-zygote"
     "--disable-dev-shm-usage"
     "--disable-crash-reporter"
     "--no-first-run"
@@ -76,17 +87,12 @@ chromium_flags=(
     "--disable-backgrounding-occluded-windows"
     "--disable-renderer-backgrounding"
     "--disable-gpu"
-    "--disable-software-rasterizer"
     "--disable-vulkan"
-    "--in-process-gpu"
-    "--single-process"
-    "--enable-features=NetworkServiceInProcess"
-    "--no-proxy-server"
     "--renderer-process-limit=3"
     "--window-size=1280,720"
 )
 
-browser_command=(chromium)
+browser_command=("$chromium_command")
 if [[ "$trace_mode" == "true" ]]; then
     command -v strace >/dev/null 2>&1 || {
         echo "Browser tracing requested, but strace is missing." >&2
@@ -95,7 +101,7 @@ if [[ "$trace_mode" == "true" ]]; then
     browser_command=(
         strace -f -s 256
         -o "$state_root/logs/chromium.strace"
-        chromium
+        "$chromium_command"
     )
 fi
 
