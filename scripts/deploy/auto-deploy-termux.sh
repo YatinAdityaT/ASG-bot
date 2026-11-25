@@ -110,6 +110,7 @@ start_bot() {
         nohup env \
             ASG_BOT_CONFIG_FILE="$config_path" \
             ASG_BOT_RUNTIME_MODE="phone-bot" \
+            TZ="Asia/Kolkata" \
             "$current_binary" >>"$bot_stdout" 2>>"$bot_stderr" </dev/null &
         echo "$!" >"$bot_pid_path"
     )
