@@ -50,7 +50,9 @@
       return;
     }
     const companionButton = controls
-      .find(control => /use companion mode/i.test(control.innerText || ''));
+      .find(control =>
+        /(?:use|start) companion mode/i.test(control.innerText || '')
+      );
     if (!companionButton) {
       controls
         .find(control => /other ways to join/i.test(control.innerText || ''))
