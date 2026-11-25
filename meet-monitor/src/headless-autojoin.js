@@ -35,9 +35,18 @@
       return;
     }
 
-    const companionButton = [...document.querySelectorAll('button')]
-      .find(button => /use companion mode/i.test(button.innerText || ''));
-    if (!companionButton || Date.now() - lastJoinAttempt < RETRY_MS) return;
+    const controls = [...document.querySelectorAll(
+      'button, [role="button"], [role="menuitem"]'
+    )];
+    const companionButton = controls
+      .find(control => /use companion mode/i.test(control.innerText || ''));
+    if (!companionButton) {
+      controls
+        .find(control => /other ways to join/i.test(control.innerText || ''))
+        ?.click();
+      return;
+    }
+    if (Date.now() - lastJoinAttempt < RETRY_MS) return;
 
     lastJoinAttempt = Date.now();
     companionButton.removeAttribute('disabled');

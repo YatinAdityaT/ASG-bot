@@ -142,7 +142,8 @@ PY
     [[ -n "$target_id" ]] || return 1
     curl --silent --show-error --fail --max-time 10 \
         -X PUT "http://127.0.0.1:9222/json/activate/$target_id" \
-        >/dev/null 2>&1
+        >/dev/null 2>&1 || true
+    return 0
 }
 
 monitor_healthy() {
