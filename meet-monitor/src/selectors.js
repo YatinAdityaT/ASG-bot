@@ -26,7 +26,13 @@
 
   nameOf(tile) {
     const nameElement = tile.querySelector(this.nameSel);
-    const raw = nameElement?.innerText || nameElement?.textContent || '';
+    const rosterLabel = tile.matches?.('[role="listitem"][aria-label]')
+      ? tile.getAttribute('aria-label')
+      : '';
+    const raw = nameElement?.innerText ||
+      nameElement?.textContent ||
+      rosterLabel ||
+      '';
     const lines = raw
       .split(/\r?\n/)
       .map(line => line.replace(/\s+/g, ' ').trim())

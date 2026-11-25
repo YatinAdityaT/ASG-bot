@@ -58,7 +58,7 @@ def receive_frame(connection):
     return opcode, payload
 
 
-def evaluate(websocket_url, expression):
+def cdp_call(websocket_url, method, params):
     parsed = urlparse(websocket_url)
     connection = socket.create_connection((parsed.hostname, parsed.port), timeout=10)
     connection.settimeout(10)
@@ -90,12 +90,8 @@ def evaluate(websocket_url, expression):
         json.dumps(
             {
                 "id": 1,
-                "method": "Runtime.evaluate",
-                "params": {
-                    "expression": expression,
-                    "returnByValue": True,
-                    "userGesture": True,
-                },
+                "method": method,
+                "params": params,
             }
         ),
     )
@@ -111,7 +107,52 @@ def evaluate(websocket_url, expression):
         message = json.loads(payload)
         if message.get("id") == 1:
             connection.close()
-            return message.get("result", {}).get("result", {}).get("value") is True
+            if message.get("error"):
+                raise RuntimeError(message["error"].get("message", "CDP command failed"))
+            return message.get("result", {})
+
+
+def evaluate(websocket_url, expression):
+    result = cdp_call(
+        websocket_url,
+        "Runtime.evaluate",
+        {
+            "expression": expression,
+            "returnByValue": True,
+            "userGesture": True,
+        },
+    )
+    return result.get("result", {}).get("value")
+
+
+def click_at(websocket_url, x, y):
+    cdp_call(
+        websocket_url,
+        "Input.dispatchMouseEvent",
+        {"type": "mouseMoved", "x": x, "y": y},
+    )
+    cdp_call(
+        websocket_url,
+        "Input.dispatchMouseEvent",
+        {
+            "type": "mousePressed",
+            "x": x,
+            "y": y,
+            "button": "left",
+            "clickCount": 1,
+        },
+    )
+    cdp_call(
+        websocket_url,
+        "Input.dispatchMouseEvent",
+        {
+            "type": "mouseReleased",
+            "x": x,
+            "y": y,
+            "button": "left",
+            "clickCount": 1,
+        },
+    )
 
 
 def main():
@@ -127,14 +168,31 @@ def main():
       const controls = [...document.querySelectorAll(
         'button, [role="button"], [role="menuitem"]'
       )];
-      const control = controls.find(item =>
+      const companion = controls.find(item =>
         /(?:use|start) companion mode/i.test(item.innerText || '')
       );
+      const expand = controls.find(item =>
+        (item.getAttribute('aria-label') || item.innerText || '').trim() ===
+          'Expand'
+      );
+      const people = controls.find(item => {
+        const labelledBy = item.getAttribute('aria-labelledby');
+        const label = labelledBy
+          ? document.getElementById(labelledBy)?.innerText || ''
+          : item.getAttribute('aria-label') || '';
+        return /^people$/i.test(label.trim()) &&
+          item.getAttribute('aria-expanded') !== 'true';
+      });
+      const control = companion || expand || people;
       if (!control) return false;
       control.removeAttribute('disabled');
       control.disabled = false;
-      control.click();
-      return true;
+      const bounds = control.getBoundingClientRect();
+      if (!bounds.width || !bounds.height) return false;
+      return {
+        x: bounds.x + bounds.width / 2,
+        y: bounds.y + bounds.height / 2
+      };
     })()"""
     clicked = False
     for target in targets:
@@ -143,7 +201,14 @@ def main():
             and target.get("url", "").startswith(meeting_url)
             and target.get("webSocketDebuggerUrl")
         ):
-            clicked = evaluate(target["webSocketDebuggerUrl"], expression) or clicked
+            point = evaluate(target["webSocketDebuggerUrl"], expression)
+            if point:
+                click_at(
+                    target["webSocketDebuggerUrl"],
+                    point["x"],
+                    point["y"],
+                )
+                clicked = True
     raise SystemExit(0 if clicked else 1)
 
 
