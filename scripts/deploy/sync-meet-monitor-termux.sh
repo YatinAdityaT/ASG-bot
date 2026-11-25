@@ -128,8 +128,25 @@ PY
     fi
 
     printf '%s' "$source_id" >"$stage/.source-id"
-    rm -rf "$bundle_destination"
-    mv "$stage" "$bundle_destination"
+    if [[ "$generation_prefix" == "headless" ]]; then
+        local versioned_destination bundle_hash old_bundle
+        bundle_hash="$(
+            printf '%s' "$source_id" |
+                sha256sum |
+                cut -c1-16
+        )"
+        versioned_destination="$parent/${name}-${bundle_hash}"
+        rm -rf "$versioned_destination" "$bundle_destination"
+        mv "$stage" "$versioned_destination"
+        ln -s "$versioned_destination" "$bundle_destination"
+        for old_bundle in "$parent/${name}-"*; do
+            [[ "$old_bundle" == "$versioned_destination" ]] ||
+                rm -rf "$old_bundle"
+        done
+    else
+        rm -rf "$bundle_destination"
+        mv "$stage" "$bundle_destination"
+    fi
     echo "$label Meet Monitor synced to $bundle_destination"
 }
 
