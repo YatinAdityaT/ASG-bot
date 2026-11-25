@@ -106,6 +106,7 @@ chromium_flags=(
     "--disable-background-timer-throttling"
     "--disable-backgrounding-occluded-windows"
     "--disable-renderer-backgrounding"
+    "--disable-features=CalculateNativeWinOcclusion,IntensiveWakeUpThrottling,MemorySaverMode"
     "--disable-gpu"
     "--disable-vulkan"
     "--in-process-gpu"

@@ -124,10 +124,25 @@ start_runner() {
 }
 
 browser_healthy() {
-    local tabs
+    local tabs target_id
     tabs="$(curl --silent --show-error --fail --max-time 10 "$cdp_url" 2>/dev/null)" ||
         return 1
-    printf '%s' "$tabs" | grep -Fq "meet.google.com/$meeting_code"
+    target_id="$(
+        python - "$meeting_code" "$tabs" <<'PY'
+import json
+import sys
+
+meeting_url = "https://meet.google.com/" + sys.argv[1]
+for target in json.loads(sys.argv[2]):
+    if target.get("type") == "page" and target.get("url", "").startswith(meeting_url):
+        print(target.get("id", ""))
+        break
+PY
+    )" || return 1
+    [[ -n "$target_id" ]] || return 1
+    curl --silent --show-error --fail --max-time 10 \
+        -X PUT "http://127.0.0.1:9222/json/activate/$target_id" \
+        >/dev/null 2>&1
 }
 
 monitor_healthy() {
