@@ -1,6 +1,8 @@
 (() => {
   const RETRY_MS = 30_000;
+  const JOIN_DELAY_MS = 20_000;
   const LAST_RELOAD_KEY = 'asg-headless-last-reload';
+  const startedAt = Date.now();
   let lastJoinAttempt = 0;
 
   const pageText = () => (document.body?.innerText || '').toLowerCase();
@@ -14,7 +16,17 @@
   };
 
   const ensureJoined = () => {
-    if (window.MMMeetCall?.isInCall(document)) return;
+    const expandButton = [...document.querySelectorAll('button')]
+      .find(button =>
+        (button.getAttribute('aria-label') || button.innerText || '').trim() ===
+        'Expand'
+      );
+    if (expandButton) {
+      expandButton.click();
+      return;
+    }
+    if (window.MMMeetCall?.isInCall(document) ||
+        Date.now() - startedAt < JOIN_DELAY_MS) return;
 
     const text = pageText();
     if (text.includes('you are offline') ||

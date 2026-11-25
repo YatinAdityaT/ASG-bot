@@ -45,6 +45,26 @@ pkg install -y \
     termux-x11-nightly \
     xorg-server-xvfb
 
+required_chromium="158.0.8127.36"
+installed_chromium="$(
+    chromium --version 2>/dev/null | awk '{print $2}' || true
+)"
+if [[ -z "$installed_chromium" ]] ||
+    ! printf '%s\n%s\n' "$required_chromium" "$installed_chromium" |
+        sort -V -C; then
+    echo "Installing current native Chromium and C++ runtime..."
+    libc_package="$TMPDIR/libc++_30_aarch64.deb"
+    chromium_package="$TMPDIR/chromium_${required_chromium}_aarch64.deb"
+    curl --fail --location --retry 3 \
+        --output "$libc_package" \
+        "https://termux.librehat.com/apt/termux-main/pool/main/libc/libc++/libc++_30_aarch64.deb"
+    curl --fail --location --retry 3 \
+        --output "$chromium_package" \
+        "https://termux.librehat.com/apt/termux-x11/pool/main/c/chromium/chromium_${required_chromium}_aarch64.deb"
+    apt install -y "$libc_package" "$chromium_package"
+    rm -f "$libc_package" "$chromium_package"
+fi
+
 mkdir -p \
     "$headless_root/extension" \
     "$headless_root/profile" \

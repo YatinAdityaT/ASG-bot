@@ -28,7 +28,7 @@ if [[ -z "$chromium_command" ]]; then
     echo "Required browser command is missing: chromium" >&2
     exit 1
 fi
-for command_name in dbus-run-session; do
+for command_name in dbus-run-session python; do
     if ! command -v "$command_name" >/dev/null 2>&1; then
         echo "Required browser command is missing: $command_name" >&2
         exit 1
@@ -66,6 +66,26 @@ if [[ "$setup_mode" != "true" ]]; then
         }
         sleep 0.1
     done
+fi
+
+preferences_path="$profile_root/Default/Preferences"
+if [[ -f "$preferences_path" ]]; then
+    python - "$preferences_path" <<'PY'
+import json
+import os
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as preferences_file:
+    preferences = json.load(preferences_file)
+preferences.setdefault("extensions", {}).setdefault("ui", {})[
+    "developer_mode"
+] = True
+temporary = path + ".next"
+with open(temporary, "w", encoding="utf-8") as preferences_file:
+    json.dump(preferences, preferences_file, separators=(",", ":"))
+os.replace(temporary, path)
+PY
 fi
 
 rm -f \
