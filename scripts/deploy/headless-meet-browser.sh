@@ -96,7 +96,7 @@ rm -f \
 # session creates duplicate Meet tabs that compete for extension ownership.
 rm -rf \
     "$profile_root/Default/Sessions" \
-    "$profile_root/Default/Service Worker/ScriptCache" \
+    "$profile_root/Default/Service Worker" \
     "$profile_root/Default/Code Cache"
 chromium_flags=(
     "--user-data-dir=$profile_root"
