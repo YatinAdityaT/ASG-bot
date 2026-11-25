@@ -10,6 +10,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	_ "time/tzdata"
 
 	"whatsappBot/bothealth"
 	"whatsappBot/cmd"
@@ -486,6 +487,13 @@ func connectClient(
 }
 
 func main() {
+	localTime, err := time.LoadLocation("Asia/Kolkata")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Timezone error: %v\n", err)
+		os.Exit(1)
+	}
+	time.Local = localTime
+
 	cfg, err := config.Load(os.Getenv)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Configuration error: %v\n", err)
