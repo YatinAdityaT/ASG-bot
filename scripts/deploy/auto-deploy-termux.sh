@@ -315,6 +315,11 @@ if ! git -C "$deploy_root" merge --ff-only origin/master >>"$deploy_log" 2>&1; t
     exit 1
 fi
 
+if [[ "$active_monitor_target" == "termux" ]] &&
+    headless_monitor_is_running; then
+    stop_headless_monitor
+    log "restarting headless Meet monitor for deployed changes"
+fi
 sync_mobile_extension
 manage_headless_monitor "$active_monitor_target"
 stop_bot
