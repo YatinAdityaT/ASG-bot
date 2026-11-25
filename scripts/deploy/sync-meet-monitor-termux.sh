@@ -101,9 +101,6 @@ with open(path, encoding="utf-8") as manifest_file:
 scripts = manifest["content_scripts"][0]["js"]
 if "src/headless-autojoin.js" not in scripts:
     scripts.append("src/headless-autojoin.js")
-permissions = manifest.setdefault("permissions", [])
-if "debugger" not in permissions:
-    permissions.append("debugger")
 with open(path, "w", encoding="utf-8") as manifest_file:
     json.dump(manifest, manifest_file, indent=2)
     manifest_file.write("\n")

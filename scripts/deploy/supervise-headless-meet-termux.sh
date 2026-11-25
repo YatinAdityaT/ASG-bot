@@ -112,6 +112,7 @@ meeting_code="$(read_config meetCode)"
 [[ "$api_addr" =~ ^https?:// ]] || api_addr="http://$api_addr"
 status_url="${api_addr%/}/v1/meet-status"
 cdp_url="http://127.0.0.1:9222/json/list"
+companion_clicker="$deploy_root/scripts/deploy/click-headless-companion.py"
 
 start_runner() {
     setsid "$deploy_root/scripts/deploy/run-headless-meet-termux.sh" \
@@ -144,6 +145,13 @@ PY
         -X PUT "http://127.0.0.1:9222/json/activate/$target_id" \
         >/dev/null 2>&1 || true
     return 0
+}
+
+nudge_companion_join() {
+    python "$companion_clicker" \
+        --cdp-url "http://127.0.0.1:9222" \
+        --meeting "$meeting_code" \
+        >/dev/null 2>&1 || true
 }
 
 monitor_healthy() {
@@ -192,6 +200,7 @@ while true; do
             exit 0
         fi
         now="$(date +%s)"
+        nudge_companion_join
         if ((now - started_at < grace_seconds)); then
             continue
         fi
