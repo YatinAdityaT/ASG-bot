@@ -97,6 +97,10 @@ import sys
 
 expected = sys.argv[1]
 status = json.loads(sys.argv[2])
+if status.get("botOnline") is not True:
+    raise SystemExit("Bot runtime is offline")
+if status.get("whatsAppConnected") is not True:
+    raise SystemExit("WhatsApp is disconnected")
 if status.get("monitorState") != "online":
     raise SystemExit("Meet extension heartbeat is offline")
 if status.get("meeting") != expected:
