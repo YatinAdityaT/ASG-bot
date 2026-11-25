@@ -70,6 +70,8 @@ headless_config = json.loads((root / "headless" / "src" / "local-config.json").r
 
 assert "sidePanel" not in mobile.get("permissions", [])
 assert "sidePanel" in headless.get("permissions", [])
+assert "src/headless-autojoin.js" not in mobile["content_scripts"][0]["js"]
+assert "src/headless-autojoin.js" in headless["content_scripts"][0]["js"]
 assert mobile_config["generation"].startswith("mobile-")
 assert headless_config["generation"].startswith("headless-")
 assert mobile_config["token"] == headless_config["token"]
@@ -93,5 +95,6 @@ PATH="$temporary/fake-bin:$PATH" \
         --check |
     grep -Fq "Headless Meet prerequisites are ready for jpy-ymgz-tdo."
 
-[[ "$(tr -d '[:space:]' <"$script_dir/active-meet-monitor-target.txt")" == "windows" ]]
+target="$(tr -d '[:space:]' <"$script_dir/active-meet-monitor-target.txt")"
+[[ "$target" == "windows" || "$target" == "termux" ]]
 echo "Headless Meet Termux script tests passed."

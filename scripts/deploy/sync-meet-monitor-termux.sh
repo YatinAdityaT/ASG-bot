@@ -90,6 +90,22 @@ sync_bundle() {
     cp -R "$deploy_root/meet-monitor/." "$stage/"
     cp "$selected_manifest" "$stage/manifest.json"
     rm -f "$stage/manifest.mobile.json"
+    if [[ "$generation_prefix" == "headless" ]]; then
+        python - "$stage/manifest.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as manifest_file:
+    manifest = json.load(manifest_file)
+scripts = manifest["content_scripts"][0]["js"]
+if "src/headless-autojoin.js" not in scripts:
+    scripts.append("src/headless-autojoin.js")
+with open(path, "w", encoding="utf-8") as manifest_file:
+    json.dump(manifest, manifest_file, indent=2)
+    manifest_file.write("\n")
+PY
+    fi
 
     if [[ "$api_enabled" == "true" && -n "$api_addr" && -n "$api_token" ]]; then
         base_url="${api_addr%/}"
