@@ -38,6 +38,17 @@
     const controls = [...document.querySelectorAll(
       'button, [role="button"], [role="menuitem"]'
     )];
+    if (new URL(location.href).searchParams.get('companion') === '1') {
+      const joinButton = controls.find(control =>
+        /^join now$/i.test((control.innerText || '').trim())
+      );
+      if (!joinButton || Date.now() - lastJoinAttempt < RETRY_MS) return;
+      lastJoinAttempt = Date.now();
+      joinButton.removeAttribute('disabled');
+      joinButton.disabled = false;
+      joinButton.click();
+      return;
+    }
     const companionButton = controls
       .find(control => /use companion mode/i.test(control.innerText || ''));
     if (!companionButton) {

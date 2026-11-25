@@ -139,7 +139,7 @@ fi
 # itself needs on Google Play Termux.
 dbus-run-session -- "${browser_command[@]}" \
     "${chromium_flags[@]}" \
-    "https://meet.google.com/$meeting_code" \
+    "https://meet.google.com/$meeting_code?companion=1" \
     >"$state_root/logs/chromium.log" 2>&1 &
 browser_pid=$!
 printf '%s' "$browser_pid" >"$state_root/runtime/chromium.pid"
