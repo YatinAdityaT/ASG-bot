@@ -44,9 +44,8 @@
       );
       if (!joinButton || Date.now() - lastJoinAttempt < RETRY_MS) return;
       lastJoinAttempt = Date.now();
-      joinButton.removeAttribute('disabled');
-      joinButton.disabled = false;
-      joinButton.click();
+      chrome.runtime.sendMessage({ kind: 'headlessCompanionJoin' })
+        .catch(() => {});
       return;
     }
     const companionButton = controls
@@ -62,9 +61,8 @@
     if (Date.now() - lastJoinAttempt < RETRY_MS) return;
 
     lastJoinAttempt = Date.now();
-    companionButton.removeAttribute('disabled');
-    companionButton.disabled = false;
-    companionButton.click();
+    chrome.runtime.sendMessage({ kind: 'headlessCompanionJoin' })
+      .catch(() => {});
   };
 
   ensureJoined();

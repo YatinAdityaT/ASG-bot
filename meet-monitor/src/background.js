@@ -103,6 +103,18 @@ chrome.tabs.onActivated?.addListener(({ tabId }) => {
 });
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.kind === 'headlessCompanionJoin') {
+    const tabId = _sender?.tab?.id;
+    if (!Number.isInteger(tabId)) {
+      sendResponse({ clicked: false });
+      return false;
+    }
+    trustedCompanionJoin(tabId)
+      .then(clicked => sendResponse({ clicked }))
+      .catch(() => sendResponse({ clicked: false }));
+    return true;
+  }
+
   if (msg?.kind === 'getMonitorModel') {
     if (!isTrustedExtensionView(_sender)) {
       sendResponse(null);
@@ -194,6 +206,46 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true;
   }
 });
+
+async function trustedCompanionJoin(tabId) {
+  if (!chrome.debugger?.attach || !chrome.debugger?.sendCommand) return false;
+  const target = { tabId };
+  try {
+    await chrome.debugger.attach(target, '1.3');
+    const evaluated = await chrome.debugger.sendCommand(
+      target,
+      'Runtime.evaluate',
+      {
+        expression: `(() => {
+          const controls = [...document.querySelectorAll(
+            'button, [role="button"], [role="menuitem"]'
+          )];
+          const companion = controls.find(control =>
+            /(?:use|start) companion mode/i.test(control.innerText || '')
+          );
+          const directJoin = new URL(location.href).searchParams.get(
+            'companion'
+          ) === '1'
+            ? controls.find(control =>
+                /^join now$/i.test((control.innerText || '').trim())
+              )
+            : null;
+          const control = companion || directJoin;
+          if (!control) return false;
+          control.removeAttribute('disabled');
+          control.disabled = false;
+          control.click();
+          return true;
+        })()`,
+        returnByValue: true,
+        userGesture: true
+      }
+    );
+    return evaluated?.result?.value === true;
+  } finally {
+    await chrome.debugger.detach(target).catch(() => {});
+  }
+}
 
 chrome.alarms.onAlarm.addListener(alarm => {
   if (alarm.name === RETRY_ALARM) {
