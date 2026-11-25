@@ -82,7 +82,7 @@ while true; do
         echo "FAIL: Chromium debugging endpoint is offline." >&2
         exit 1
     }
-    printf '%s' "$tabs" | grep -Fq "meet.google.com/$meeting_code" || {
+    [[ "$tabs" == *"meet.google.com/$meeting_code"* ]] || {
         echo "FAIL: configured Meet tab is not open." >&2
         exit 1
     }
